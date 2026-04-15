@@ -1,8 +1,6 @@
 <script lang="ts">
 	import * as m from '$lib/paraglide/messages';
-	import type { PageData } from './$types';
-
-	let { data }: { data: PageData } = $props();
+	let { data } = $props();
 </script>
 
 <svelte:head>

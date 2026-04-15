@@ -3,7 +3,7 @@ name: Invalidate content cache
 on:
   push:
     branches: [main]
-    paths: ['content/**']
+    paths: ["content/**"]
 
 jobs:
   invalidate:

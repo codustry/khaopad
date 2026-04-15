@@ -1,10 +1,9 @@
 <script lang="ts">
 	import '../../app.css';
 	import * as m from '$lib/paraglide/messages';
-	import type { Snippet } from 'svelte';
-	import type { LayoutData } from './$types';
-
-	let { children, data }: { children: Snippet; data: LayoutData } = $props();
+	import { cmsHref } from '$lib/cms-href';
+	import { resolve } from '$app/paths';
+	let { children, data } = $props();
 </script>
 
 {#if !data.user}
@@ -17,23 +16,27 @@
 				<h1 class="text-lg font-bold">{m.cms_app_name()}</h1>
 			</div>
 			<nav class="flex-1 space-y-1">
-				<a href="/dashboard" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
+				<a href={resolve('/dashboard')} class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
 					{m.cms_dashboard()}
 				</a>
-				<a href="/articles" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
+				<a href={resolve('/articles')} class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
 					{m.cms_articles()}
 				</a>
-				<a href="/media" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
+				<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- resolved in $lib/cms-href -->
+				<a href={cmsHref.media} class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
 					{m.cms_media()}
 				</a>
-				<a href="/categories" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
+				<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- resolved in $lib/cms-href -->
+				<a href={cmsHref.categories} class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
 					{m.cms_categories()}
 				</a>
 				{#if data.user.role === 'super_admin' || data.user.role === 'admin'}
-					<a href="/users" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
+					<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- resolved in $lib/cms-href -->
+					<a href={cmsHref.users} class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
 						{m.cms_users()}
 					</a>
-					<a href="/settings" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
+					<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- resolved in $lib/cms-href -->
+					<a href={cmsHref.settings} class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
 						{m.cms_settings()}
 					</a>
 				{/if}

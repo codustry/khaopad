@@ -1,483 +1,523 @@
-import { drizzle, type DrizzleD1Database } from 'drizzle-orm/d1';
-import { eq, and, desc, like, sql, inArray } from 'drizzle-orm';
-import { nanoid } from 'nanoid';
-import * as schema from '../schema';
+import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
+import { eq, and, desc, like, sql, inArray } from "drizzle-orm";
+import { nanoid } from "nanoid";
+import * as schema from "../schema";
 import type {
-	ContentProvider,
-	ArticleRecord,
-	ArticleCreateInput,
-	ArticleUpdateInput,
-	ArticleFilter,
-	PaginatedResult,
-	CategoryRecord,
-	TagRecord,
-	SiteSettings,
-	Locale,
-} from '../types';
+  ContentProvider,
+  ArticleRecord,
+  ArticleCreateInput,
+  ArticleUpdateInput,
+  ArticleFilter,
+  PaginatedResult,
+  CategoryRecord,
+  TagRecord,
+  SiteSettings,
+  Locale,
+} from "../types";
 
 export class D1ContentProvider implements ContentProvider {
-	private db: DrizzleD1Database<typeof schema>;
-
-	constructor(d1: D1Database) {
-		this.db = drizzle(d1, { schema });
-	}
-
-	// ─── Articles ──────────────────────────────────────────
-
-	async getArticle(id: string): Promise<ArticleRecord | null> {
-		const article = await this.db
-			.select()
-			.from(schema.articles)
-			.where(eq(schema.articles.id, id))
-			.get();
-
-		if (!article) return null;
-		return this.hydrateArticle(article);
-	}
-
-	async getArticleBySlug(slug: string): Promise<ArticleRecord | null> {
-		const article = await this.db
-			.select()
-			.from(schema.articles)
-			.where(eq(schema.articles.slug, slug))
-			.get();
-
-		if (!article) return null;
-		return this.hydrateArticle(article);
-	}
-
-	async listArticles(filter: ArticleFilter = {}): Promise<PaginatedResult<ArticleRecord>> {
-		const { status, categoryId, tagId, authorId, search, page = 1, limit = 20 } = filter;
-		const offset = (page - 1) * limit;
-
-		const conditions = [];
-		if (status) conditions.push(eq(schema.articles.status, status));
-		if (categoryId) conditions.push(eq(schema.articles.categoryId, categoryId));
-		if (authorId) conditions.push(eq(schema.articles.authorId, authorId));
-
-		// Tag filter requires a subquery
-		let articleIdsWithTag: string[] | undefined;
-		if (tagId) {
-			const tagRows = await this.db
-				.select({ articleId: schema.articleTags.articleId })
-				.from(schema.articleTags)
-				.where(eq(schema.articleTags.tagId, tagId))
-				.all();
-			articleIdsWithTag = tagRows.map((r) => r.articleId);
-			if (articleIdsWithTag.length === 0) {
-				return { items: [], total: 0, page, limit };
-			}
-			conditions.push(inArray(schema.articles.id, articleIdsWithTag));
-		}
-
-		// Search in localizations
-		let articleIdsWithSearch: string[] | undefined;
-		if (search) {
-			const searchRows = await this.db
-				.select({ articleId: schema.articleLocalizations.articleId })
-				.from(schema.articleLocalizations)
-				.where(like(schema.articleLocalizations.title, `%${search}%`))
-				.all();
-			articleIdsWithSearch = [...new Set(searchRows.map((r) => r.articleId))];
-			if (articleIdsWithSearch.length === 0) {
-				return { items: [], total: 0, page, limit };
-			}
-			conditions.push(inArray(schema.articles.id, articleIdsWithSearch));
-		}
-
-		const where = conditions.length > 0 ? and(...conditions) : undefined;
-
-		const [articles, countResult] = await Promise.all([
-			this.db
-				.select()
-				.from(schema.articles)
-				.where(where)
-				.orderBy(desc(schema.articles.createdAt))
-				.limit(limit)
-				.offset(offset)
-				.all(),
-			this.db
-				.select({ count: sql<number>`count(*)` })
-				.from(schema.articles)
-				.where(where)
-				.get(),
-		]);
-
-		const items = await Promise.all(articles.map((a) => this.hydrateArticle(a)));
-
-		return {
-			items,
-			total: countResult?.count ?? 0,
-			page,
-			limit,
-		};
-	}
-
-	async createArticle(data: ArticleCreateInput): Promise<ArticleRecord> {
-		const id = nanoid();
-		const now = new Date().toISOString();
-
-		await this.db.insert(schema.articles).values({
-			id,
-			slug: data.slug,
-			coverMediaId: data.coverMediaId ?? null,
-			categoryId: data.categoryId ?? null,
-			authorId: data.authorId,
-			status: data.status ?? 'draft',
-			publishedAt: data.publishedAt ?? null,
-			createdAt: now,
-			updatedAt: now,
-		});
-
-		// Insert localizations
-		for (const [locale, content] of Object.entries(data.localizations)) {
-			if (!content) continue;
-			await this.db.insert(schema.articleLocalizations).values({
-				id: nanoid(),
-				articleId: id,
-				locale: locale as Locale,
-				title: content.title,
-				excerpt: content.excerpt ?? '',
-				body: content.body,
-				seoTitle: content.seoTitle,
-				seoDescription: content.seoDescription,
-			});
-		}
-
-		// Insert tags
-		if (data.tagIds?.length) {
-			for (const tagId of data.tagIds) {
-				await this.db.insert(schema.articleTags).values({ articleId: id, tagId });
-			}
-		}
-
-		return (await this.getArticle(id))!;
-	}
-
-	async updateArticle(id: string, data: ArticleUpdateInput): Promise<ArticleRecord> {
-		const now = new Date().toISOString();
-
-		const updateFields: Record<string, unknown> = { updatedAt: now };
-		if (data.slug !== undefined) updateFields.slug = data.slug;
-		if (data.coverMediaId !== undefined) updateFields.coverMediaId = data.coverMediaId;
-		if (data.categoryId !== undefined) updateFields.categoryId = data.categoryId;
-		if (data.status !== undefined) updateFields.status = data.status;
-		if (data.publishedAt !== undefined) updateFields.publishedAt = data.publishedAt;
-
-		await this.db.update(schema.articles).set(updateFields).where(eq(schema.articles.id, id));
-
-		// Update localizations
-		if (data.localizations) {
-			for (const [locale, content] of Object.entries(data.localizations)) {
-				if (!content) continue;
-				const existing = await this.db
-					.select()
-					.from(schema.articleLocalizations)
-					.where(
-						and(
-							eq(schema.articleLocalizations.articleId, id),
-							eq(schema.articleLocalizations.locale, locale as Locale),
-						),
-					)
-					.get();
-
-				if (existing) {
-					await this.db
-						.update(schema.articleLocalizations)
-						.set({
-							title: content.title,
-							excerpt: content.excerpt ?? '',
-							body: content.body,
-							seoTitle: content.seoTitle,
-							seoDescription: content.seoDescription,
-						})
-						.where(eq(schema.articleLocalizations.id, existing.id));
-				} else {
-					await this.db.insert(schema.articleLocalizations).values({
-						id: nanoid(),
-						articleId: id,
-						locale: locale as Locale,
-						title: content.title,
-						excerpt: content.excerpt ?? '',
-						body: content.body,
-						seoTitle: content.seoTitle,
-						seoDescription: content.seoDescription,
-					});
-				}
-			}
-		}
-
-		// Update tags
-		if (data.tagIds !== undefined) {
-			await this.db.delete(schema.articleTags).where(eq(schema.articleTags.articleId, id));
-			for (const tagId of data.tagIds) {
-				await this.db.insert(schema.articleTags).values({ articleId: id, tagId });
-			}
-		}
-
-		return (await this.getArticle(id))!;
-	}
-
-	async deleteArticle(id: string): Promise<void> {
-		await this.db.delete(schema.articles).where(eq(schema.articles.id, id));
-	}
-
-	private async hydrateArticle(
-		article: typeof schema.articles.$inferSelect,
-	): Promise<ArticleRecord> {
-		const [localizations, tagRows] = await Promise.all([
-			this.db
-				.select()
-				.from(schema.articleLocalizations)
-				.where(eq(schema.articleLocalizations.articleId, article.id))
-				.all(),
-			this.db
-				.select()
-				.from(schema.articleTags)
-				.where(eq(schema.articleTags.articleId, article.id))
-				.all(),
-		]);
-
-		const locMap: ArticleRecord['localizations'] = {};
-		for (const loc of localizations) {
-			locMap[loc.locale as Locale] = {
-				title: loc.title,
-				excerpt: loc.excerpt ?? '',
-				body: loc.body,
-				seoTitle: loc.seoTitle ?? undefined,
-				seoDescription: loc.seoDescription ?? undefined,
-			};
-		}
-
-		return {
-			id: article.id,
-			slug: article.slug,
-			coverMediaId: article.coverMediaId,
-			categoryId: article.categoryId,
-			status: article.status as ArticleRecord['status'],
-			authorId: article.authorId,
-			publishedAt: article.publishedAt,
-			createdAt: article.createdAt,
-			updatedAt: article.updatedAt,
-			tagIds: tagRows.map((r) => r.tagId),
-			localizations: locMap,
-		};
-	}
-
-	// ─── Categories ────────────────────────────────────────
-
-	async getCategory(id: string): Promise<CategoryRecord | null> {
-		const cat = await this.db
-			.select()
-			.from(schema.categories)
-			.where(eq(schema.categories.id, id))
-			.get();
-
-		if (!cat) return null;
-		return this.hydrateCategory(cat);
-	}
-
-	async listCategories(): Promise<CategoryRecord[]> {
-		const cats = await this.db.select().from(schema.categories).all();
-		return Promise.all(cats.map((c) => this.hydrateCategory(c)));
-	}
-
-	async createCategory(data: {
-		slug: string;
-		localizations: CategoryRecord['localizations'];
-	}): Promise<CategoryRecord> {
-		const id = nanoid();
-		await this.db.insert(schema.categories).values({
-			id,
-			slug: data.slug,
-		});
-
-		for (const [locale, content] of Object.entries(data.localizations)) {
-			if (!content) continue;
-			await this.db.insert(schema.categoryLocalizations).values({
-				id: nanoid(),
-				categoryId: id,
-				locale: locale as Locale,
-				name: content.name,
-				description: content.description,
-			});
-		}
-
-		return (await this.getCategory(id))!;
-	}
-
-	async updateCategory(
-		id: string,
-		data: Partial<Pick<CategoryRecord, 'slug' | 'localizations'>>,
-	): Promise<CategoryRecord> {
-		if (data.slug) {
-			await this.db
-				.update(schema.categories)
-				.set({ slug: data.slug })
-				.where(eq(schema.categories.id, id));
-		}
-
-		if (data.localizations) {
-			for (const [locale, content] of Object.entries(data.localizations)) {
-				if (!content) continue;
-				const existing = await this.db
-					.select()
-					.from(schema.categoryLocalizations)
-					.where(
-						and(
-							eq(schema.categoryLocalizations.categoryId, id),
-							eq(schema.categoryLocalizations.locale, locale as Locale),
-						),
-					)
-					.get();
-
-				if (existing) {
-					await this.db
-						.update(schema.categoryLocalizations)
-						.set({ name: content.name, description: content.description })
-						.where(eq(schema.categoryLocalizations.id, existing.id));
-				} else {
-					await this.db.insert(schema.categoryLocalizations).values({
-						id: nanoid(),
-						categoryId: id,
-						locale: locale as Locale,
-						name: content.name,
-						description: content.description,
-					});
-				}
-			}
-		}
-
-		return (await this.getCategory(id))!;
-	}
-
-	async deleteCategory(id: string): Promise<void> {
-		await this.db.delete(schema.categories).where(eq(schema.categories.id, id));
-	}
-
-	private async hydrateCategory(
-		cat: typeof schema.categories.$inferSelect,
-	): Promise<CategoryRecord> {
-		const locs = await this.db
-			.select()
-			.from(schema.categoryLocalizations)
-			.where(eq(schema.categoryLocalizations.categoryId, cat.id))
-			.all();
-
-		const locMap: CategoryRecord['localizations'] = {};
-		for (const loc of locs) {
-			locMap[loc.locale as Locale] = {
-				name: loc.name,
-				description: loc.description ?? undefined,
-			};
-		}
-
-		return { id: cat.id, slug: cat.slug, createdAt: cat.createdAt, localizations: locMap };
-	}
-
-	// ─── Tags ──────────────────────────────────────────────
-
-	async getTag(id: string): Promise<TagRecord | null> {
-		const tag = await this.db
-			.select()
-			.from(schema.tags)
-			.where(eq(schema.tags.id, id))
-			.get();
-
-		if (!tag) return null;
-		return this.hydrateTag(tag);
-	}
-
-	async listTags(): Promise<TagRecord[]> {
-		const allTags = await this.db.select().from(schema.tags).all();
-		return Promise.all(allTags.map((t) => this.hydrateTag(t)));
-	}
-
-	async createTag(data: {
-		slug: string;
-		localizations: TagRecord['localizations'];
-	}): Promise<TagRecord> {
-		const id = nanoid();
-		await this.db.insert(schema.tags).values({ id, slug: data.slug });
-
-		for (const [locale, content] of Object.entries(data.localizations)) {
-			if (!content) continue;
-			await this.db.insert(schema.tagLocalizations).values({
-				id: nanoid(),
-				tagId: id,
-				locale: locale as Locale,
-				name: content.name,
-			});
-		}
-
-		return (await this.getTag(id))!;
-	}
-
-	async deleteTag(id: string): Promise<void> {
-		await this.db.delete(schema.tags).where(eq(schema.tags.id, id));
-	}
-
-	private async hydrateTag(tag: typeof schema.tags.$inferSelect): Promise<TagRecord> {
-		const locs = await this.db
-			.select()
-			.from(schema.tagLocalizations)
-			.where(eq(schema.tagLocalizations.tagId, tag.id))
-			.all();
-
-		const locMap: TagRecord['localizations'] = {};
-		for (const loc of locs) {
-			locMap[loc.locale as Locale] = { name: loc.name };
-		}
-
-		return { id: tag.id, slug: tag.slug, createdAt: tag.createdAt, localizations: locMap };
-	}
-
-	// ─── Site Settings ─────────────────────────────────────
-
-	async getSettings(): Promise<SiteSettings> {
-		const rows = await this.db.select().from(schema.siteSettings).all();
-		const settings: Record<string, unknown> = {
-			siteName: 'Khao Pad',
-			defaultLocale: 'th',
-			supportedLocales: ['th', 'en'],
-		};
-
-		for (const row of rows) {
-			try {
-				settings[row.key] = JSON.parse(row.value);
-			} catch {
-				settings[row.key] = row.value;
-			}
-		}
-
-		return settings as SiteSettings;
-	}
-
-	async updateSettings(data: Partial<SiteSettings>): Promise<SiteSettings> {
-		const now = new Date().toISOString();
-
-		for (const [key, value] of Object.entries(data)) {
-			const serialized = typeof value === 'string' ? value : JSON.stringify(value);
-			const existing = await this.db
-				.select()
-				.from(schema.siteSettings)
-				.where(eq(schema.siteSettings.key, key))
-				.get();
-
-			if (existing) {
-				await this.db
-					.update(schema.siteSettings)
-					.set({ value: serialized, updatedAt: now })
-					.where(eq(schema.siteSettings.key, key));
-			} else {
-				await this.db.insert(schema.siteSettings).values({
-					key,
-					value: serialized,
-					updatedAt: now,
-				});
-			}
-		}
-
-		return this.getSettings();
-	}
+  private db: DrizzleD1Database<typeof schema>;
+
+  constructor(d1: D1Database) {
+    this.db = drizzle(d1, { schema });
+  }
+
+  // ─── Articles ──────────────────────────────────────────
+
+  async getArticle(id: string): Promise<ArticleRecord | null> {
+    const article = await this.db
+      .select()
+      .from(schema.articles)
+      .where(eq(schema.articles.id, id))
+      .get();
+
+    if (!article) return null;
+    return this.hydrateArticle(article);
+  }
+
+  async getArticleBySlug(slug: string): Promise<ArticleRecord | null> {
+    const article = await this.db
+      .select()
+      .from(schema.articles)
+      .where(eq(schema.articles.slug, slug))
+      .get();
+
+    if (!article) return null;
+    return this.hydrateArticle(article);
+  }
+
+  async listArticles(
+    filter: ArticleFilter = {},
+  ): Promise<PaginatedResult<ArticleRecord>> {
+    const {
+      status,
+      categoryId,
+      tagId,
+      authorId,
+      search,
+      page = 1,
+      limit = 20,
+    } = filter;
+    const offset = (page - 1) * limit;
+
+    const conditions = [];
+    if (status) conditions.push(eq(schema.articles.status, status));
+    if (categoryId) conditions.push(eq(schema.articles.categoryId, categoryId));
+    if (authorId) conditions.push(eq(schema.articles.authorId, authorId));
+
+    // Tag filter requires a subquery
+    let articleIdsWithTag: string[] | undefined;
+    if (tagId) {
+      const tagRows = await this.db
+        .select({ articleId: schema.articleTags.articleId })
+        .from(schema.articleTags)
+        .where(eq(schema.articleTags.tagId, tagId))
+        .all();
+      articleIdsWithTag = tagRows.map((r) => r.articleId);
+      if (articleIdsWithTag.length === 0) {
+        return { items: [], total: 0, page, limit };
+      }
+      conditions.push(inArray(schema.articles.id, articleIdsWithTag));
+    }
+
+    // Search in localizations
+    let articleIdsWithSearch: string[] | undefined;
+    if (search) {
+      const searchRows = await this.db
+        .select({ articleId: schema.articleLocalizations.articleId })
+        .from(schema.articleLocalizations)
+        .where(like(schema.articleLocalizations.title, `%${search}%`))
+        .all();
+      articleIdsWithSearch = [...new Set(searchRows.map((r) => r.articleId))];
+      if (articleIdsWithSearch.length === 0) {
+        return { items: [], total: 0, page, limit };
+      }
+      conditions.push(inArray(schema.articles.id, articleIdsWithSearch));
+    }
+
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [articles, countResult] = await Promise.all([
+      this.db
+        .select()
+        .from(schema.articles)
+        .where(where)
+        .orderBy(desc(schema.articles.createdAt))
+        .limit(limit)
+        .offset(offset)
+        .all(),
+      this.db
+        .select({ count: sql<number>`count(*)` })
+        .from(schema.articles)
+        .where(where)
+        .get(),
+    ]);
+
+    const items = await Promise.all(
+      articles.map((a) => this.hydrateArticle(a)),
+    );
+
+    return {
+      items,
+      total: countResult?.count ?? 0,
+      page,
+      limit,
+    };
+  }
+
+  async createArticle(data: ArticleCreateInput): Promise<ArticleRecord> {
+    const id = nanoid();
+    const now = new Date().toISOString();
+
+    await this.db.insert(schema.articles).values({
+      id,
+      slug: data.slug,
+      coverMediaId: data.coverMediaId ?? null,
+      categoryId: data.categoryId ?? null,
+      authorId: data.authorId,
+      status: data.status ?? "draft",
+      publishedAt: data.publishedAt ?? null,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // Insert localizations
+    for (const [locale, content] of Object.entries(data.localizations)) {
+      if (!content) continue;
+      await this.db.insert(schema.articleLocalizations).values({
+        id: nanoid(),
+        articleId: id,
+        locale: locale as Locale,
+        title: content.title,
+        excerpt: content.excerpt ?? "",
+        body: content.body,
+        seoTitle: content.seoTitle,
+        seoDescription: content.seoDescription,
+      });
+    }
+
+    // Insert tags
+    if (data.tagIds?.length) {
+      for (const tagId of data.tagIds) {
+        await this.db
+          .insert(schema.articleTags)
+          .values({ articleId: id, tagId });
+      }
+    }
+
+    return (await this.getArticle(id))!;
+  }
+
+  async updateArticle(
+    id: string,
+    data: ArticleUpdateInput,
+  ): Promise<ArticleRecord> {
+    const now = new Date().toISOString();
+
+    const updateFields: Record<string, unknown> = { updatedAt: now };
+    if (data.slug !== undefined) updateFields.slug = data.slug;
+    if (data.coverMediaId !== undefined)
+      updateFields.coverMediaId = data.coverMediaId;
+    if (data.categoryId !== undefined)
+      updateFields.categoryId = data.categoryId;
+    if (data.status !== undefined) updateFields.status = data.status;
+    if (data.publishedAt !== undefined)
+      updateFields.publishedAt = data.publishedAt;
+
+    await this.db
+      .update(schema.articles)
+      .set(updateFields)
+      .where(eq(schema.articles.id, id));
+
+    // Update localizations
+    if (data.localizations) {
+      for (const [locale, content] of Object.entries(data.localizations)) {
+        if (!content) continue;
+        const existing = await this.db
+          .select()
+          .from(schema.articleLocalizations)
+          .where(
+            and(
+              eq(schema.articleLocalizations.articleId, id),
+              eq(schema.articleLocalizations.locale, locale as Locale),
+            ),
+          )
+          .get();
+
+        if (existing) {
+          await this.db
+            .update(schema.articleLocalizations)
+            .set({
+              title: content.title,
+              excerpt: content.excerpt ?? "",
+              body: content.body,
+              seoTitle: content.seoTitle,
+              seoDescription: content.seoDescription,
+            })
+            .where(eq(schema.articleLocalizations.id, existing.id));
+        } else {
+          await this.db.insert(schema.articleLocalizations).values({
+            id: nanoid(),
+            articleId: id,
+            locale: locale as Locale,
+            title: content.title,
+            excerpt: content.excerpt ?? "",
+            body: content.body,
+            seoTitle: content.seoTitle,
+            seoDescription: content.seoDescription,
+          });
+        }
+      }
+    }
+
+    // Update tags
+    if (data.tagIds !== undefined) {
+      await this.db
+        .delete(schema.articleTags)
+        .where(eq(schema.articleTags.articleId, id));
+      for (const tagId of data.tagIds) {
+        await this.db
+          .insert(schema.articleTags)
+          .values({ articleId: id, tagId });
+      }
+    }
+
+    return (await this.getArticle(id))!;
+  }
+
+  async deleteArticle(id: string): Promise<void> {
+    await this.db.delete(schema.articles).where(eq(schema.articles.id, id));
+  }
+
+  private async hydrateArticle(
+    article: typeof schema.articles.$inferSelect,
+  ): Promise<ArticleRecord> {
+    const [localizations, tagRows] = await Promise.all([
+      this.db
+        .select()
+        .from(schema.articleLocalizations)
+        .where(eq(schema.articleLocalizations.articleId, article.id))
+        .all(),
+      this.db
+        .select()
+        .from(schema.articleTags)
+        .where(eq(schema.articleTags.articleId, article.id))
+        .all(),
+    ]);
+
+    const locMap: ArticleRecord["localizations"] = {};
+    for (const loc of localizations) {
+      locMap[loc.locale as Locale] = {
+        title: loc.title,
+        excerpt: loc.excerpt ?? "",
+        body: loc.body,
+        seoTitle: loc.seoTitle ?? undefined,
+        seoDescription: loc.seoDescription ?? undefined,
+      };
+    }
+
+    return {
+      id: article.id,
+      slug: article.slug,
+      coverMediaId: article.coverMediaId,
+      categoryId: article.categoryId,
+      status: article.status as ArticleRecord["status"],
+      authorId: article.authorId,
+      publishedAt: article.publishedAt,
+      createdAt: article.createdAt,
+      updatedAt: article.updatedAt,
+      tagIds: tagRows.map((r) => r.tagId),
+      localizations: locMap,
+    };
+  }
+
+  // ─── Categories ────────────────────────────────────────
+
+  async getCategory(id: string): Promise<CategoryRecord | null> {
+    const cat = await this.db
+      .select()
+      .from(schema.categories)
+      .where(eq(schema.categories.id, id))
+      .get();
+
+    if (!cat) return null;
+    return this.hydrateCategory(cat);
+  }
+
+  async listCategories(): Promise<CategoryRecord[]> {
+    const cats = await this.db.select().from(schema.categories).all();
+    return Promise.all(cats.map((c) => this.hydrateCategory(c)));
+  }
+
+  async createCategory(data: {
+    slug: string;
+    localizations: CategoryRecord["localizations"];
+  }): Promise<CategoryRecord> {
+    const id = nanoid();
+    await this.db.insert(schema.categories).values({
+      id,
+      slug: data.slug,
+    });
+
+    for (const [locale, content] of Object.entries(data.localizations)) {
+      if (!content) continue;
+      await this.db.insert(schema.categoryLocalizations).values({
+        id: nanoid(),
+        categoryId: id,
+        locale: locale as Locale,
+        name: content.name,
+        description: content.description,
+      });
+    }
+
+    return (await this.getCategory(id))!;
+  }
+
+  async updateCategory(
+    id: string,
+    data: Partial<Pick<CategoryRecord, "slug" | "localizations">>,
+  ): Promise<CategoryRecord> {
+    if (data.slug) {
+      await this.db
+        .update(schema.categories)
+        .set({ slug: data.slug })
+        .where(eq(schema.categories.id, id));
+    }
+
+    if (data.localizations) {
+      for (const [locale, content] of Object.entries(data.localizations)) {
+        if (!content) continue;
+        const existing = await this.db
+          .select()
+          .from(schema.categoryLocalizations)
+          .where(
+            and(
+              eq(schema.categoryLocalizations.categoryId, id),
+              eq(schema.categoryLocalizations.locale, locale as Locale),
+            ),
+          )
+          .get();
+
+        if (existing) {
+          await this.db
+            .update(schema.categoryLocalizations)
+            .set({ name: content.name, description: content.description })
+            .where(eq(schema.categoryLocalizations.id, existing.id));
+        } else {
+          await this.db.insert(schema.categoryLocalizations).values({
+            id: nanoid(),
+            categoryId: id,
+            locale: locale as Locale,
+            name: content.name,
+            description: content.description,
+          });
+        }
+      }
+    }
+
+    return (await this.getCategory(id))!;
+  }
+
+  async deleteCategory(id: string): Promise<void> {
+    await this.db.delete(schema.categories).where(eq(schema.categories.id, id));
+  }
+
+  private async hydrateCategory(
+    cat: typeof schema.categories.$inferSelect,
+  ): Promise<CategoryRecord> {
+    const locs = await this.db
+      .select()
+      .from(schema.categoryLocalizations)
+      .where(eq(schema.categoryLocalizations.categoryId, cat.id))
+      .all();
+
+    const locMap: CategoryRecord["localizations"] = {};
+    for (const loc of locs) {
+      locMap[loc.locale as Locale] = {
+        name: loc.name,
+        description: loc.description ?? undefined,
+      };
+    }
+
+    return {
+      id: cat.id,
+      slug: cat.slug,
+      createdAt: cat.createdAt,
+      localizations: locMap,
+    };
+  }
+
+  // ─── Tags ──────────────────────────────────────────────
+
+  async getTag(id: string): Promise<TagRecord | null> {
+    const tag = await this.db
+      .select()
+      .from(schema.tags)
+      .where(eq(schema.tags.id, id))
+      .get();
+
+    if (!tag) return null;
+    return this.hydrateTag(tag);
+  }
+
+  async listTags(): Promise<TagRecord[]> {
+    const allTags = await this.db.select().from(schema.tags).all();
+    return Promise.all(allTags.map((t) => this.hydrateTag(t)));
+  }
+
+  async createTag(data: {
+    slug: string;
+    localizations: TagRecord["localizations"];
+  }): Promise<TagRecord> {
+    const id = nanoid();
+    await this.db.insert(schema.tags).values({ id, slug: data.slug });
+
+    for (const [locale, content] of Object.entries(data.localizations)) {
+      if (!content) continue;
+      await this.db.insert(schema.tagLocalizations).values({
+        id: nanoid(),
+        tagId: id,
+        locale: locale as Locale,
+        name: content.name,
+      });
+    }
+
+    return (await this.getTag(id))!;
+  }
+
+  async deleteTag(id: string): Promise<void> {
+    await this.db.delete(schema.tags).where(eq(schema.tags.id, id));
+  }
+
+  private async hydrateTag(
+    tag: typeof schema.tags.$inferSelect,
+  ): Promise<TagRecord> {
+    const locs = await this.db
+      .select()
+      .from(schema.tagLocalizations)
+      .where(eq(schema.tagLocalizations.tagId, tag.id))
+      .all();
+
+    const locMap: TagRecord["localizations"] = {};
+    for (const loc of locs) {
+      locMap[loc.locale as Locale] = { name: loc.name };
+    }
+
+    return {
+      id: tag.id,
+      slug: tag.slug,
+      createdAt: tag.createdAt,
+      localizations: locMap,
+    };
+  }
+
+  // ─── Site Settings ─────────────────────────────────────
+
+  async getSettings(): Promise<SiteSettings> {
+    const rows = await this.db.select().from(schema.siteSettings).all();
+    const settings: Record<string, unknown> = {
+      siteName: "Khao Pad",
+      defaultLocale: "th",
+      supportedLocales: ["th", "en"],
+    };
+
+    for (const row of rows) {
+      try {
+        settings[row.key] = JSON.parse(row.value);
+      } catch {
+        settings[row.key] = row.value;
+      }
+    }
+
+    return settings as SiteSettings;
+  }
+
+  async updateSettings(data: Partial<SiteSettings>): Promise<SiteSettings> {
+    const now = new Date().toISOString();
+
+    for (const [key, value] of Object.entries(data)) {
+      const serialized =
+        typeof value === "string" ? value : JSON.stringify(value);
+      const existing = await this.db
+        .select()
+        .from(schema.siteSettings)
+        .where(eq(schema.siteSettings.key, key))
+        .get();
+
+      if (existing) {
+        await this.db
+          .update(schema.siteSettings)
+          .set({ value: serialized, updatedAt: now })
+          .where(eq(schema.siteSettings.key, key));
+      } else {
+        await this.db.insert(schema.siteSettings).values({
+          key,
+          value: serialized,
+          updatedAt: now,
+        });
+      }
+    }
+
+    return this.getSettings();
+  }
 }

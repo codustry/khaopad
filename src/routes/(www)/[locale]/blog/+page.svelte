@@ -1,9 +1,10 @@
 <script lang="ts">
 	import * as m from '$lib/paraglide/messages';
 	import { formatDate } from '$lib/utils';
-	import type { PageData } from './$types';
-
-	let { data }: { data: PageData } = $props();
+	import { toLocale } from '$lib/i18n';
+	import { resolve } from '$app/paths';
+	let { data } = $props();
+	const locale = $derived.by(() => toLocale(data.locale));
 </script>
 
 <svelte:head>
@@ -17,11 +18,11 @@
 		<p class="text-muted-foreground">{m.blog_no_articles()}</p>
 	{:else}
 		<div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-			{#each data.articles.items as article}
-				{@const loc = article.localizations[data.locale]}
+			{#each data.articles.items as article (article.id)}
+				{@const loc = article.localizations[locale]}
 				{#if loc}
 					<a
-						href="/{data.locale}/blog/{article.slug}"
+						href={resolve('/(www)/[locale]/blog/[slug]', { locale, slug: article.slug })}
 						class="block border border-border rounded-lg p-6 hover:shadow-md transition-shadow"
 					>
 						<h2 class="text-xl font-semibold mb-2">{loc.title}</h2>
@@ -29,7 +30,7 @@
 							<p class="text-muted-foreground text-sm mb-4">{loc.excerpt}</p>
 						{/if}
 						<time class="text-xs text-muted-foreground">
-							{formatDate(article.publishedAt ?? article.createdAt, data.locale)}
+							{formatDate(article.publishedAt ?? article.createdAt, locale)}
 						</time>
 					</a>
 				{/if}

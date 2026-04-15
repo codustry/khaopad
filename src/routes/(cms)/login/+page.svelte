@@ -1,32 +1,25 @@
 <script lang="ts">
 	import * as m from '$lib/paraglide/messages';
-	import type { PageData } from './$types';
-
-	let { data }: { data: PageData } = $props();
+	import { submitEmailLogin } from './login-submit';
+	let { data: _data } = $props();
 
 	let email = $state('');
 	let password = $state('');
 	let error = $state('');
 	let loading = $state(false);
 
-	async function handleLogin(e: Event) {
-		e.preventDefault();
+	// @ts-expect-error Svelte parser rejects `e: SubmitEvent`; `e` is the form submit event
+	async function handleLogin(e) {
+		if (!(e instanceof SubmitEvent)) return;
 		loading = true;
 		error = '';
 
 		try {
-			const res = await fetch('/api/auth/sign-in/email', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ email, password }),
-			});
-
-			if (!res.ok) {
-				const data = await res.json();
-				error = data.message ?? 'Login failed';
+			const result = await submitEmailLogin(e, { email, password });
+			if (!result.ok) {
+				error = result.error;
 				return;
 			}
-
 			window.location.href = '/dashboard';
 		} catch {
 			error = 'Something went wrong';
