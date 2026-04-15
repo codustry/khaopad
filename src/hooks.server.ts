@@ -2,6 +2,12 @@ import type { Handle } from "@sveltejs/kit";
 import { sequence } from "@sveltejs/kit/hooks";
 import * as paraglideRuntime from "$lib/paraglide/runtime.js";
 import { createAuth } from "$lib/server/auth";
+import {
+  escapeHtml,
+  nullContentPlaceholder,
+  nullMediaPlaceholder,
+  validatePlatformEnv,
+} from "$lib/server/config/platform-status";
 import { createContentProvider } from "$lib/server/content";
 import type { ContentMode } from "$lib/server/content";
 import { localeFromPathname } from "$lib/i18n";
@@ -49,32 +55,123 @@ const bindingsHook: Handle = async ({ event, resolve }) => {
     defaultLocale,
   );
 
-  if (!env) {
-    // Local dev without wrangler — no DB/R2; still match locale + Paraglide to URL path
+  const validation = validatePlatformEnv(env);
+
+  if (!validation.ok) {
+    event.locals.platformReady = false;
+    event.locals.configurationError = validation.message;
+    event.locals.configurationMissing = validation.missing;
+    event.locals.content = nullContentPlaceholder();
+    event.locals.media = nullMediaPlaceholder();
     return resolve(event, {
       transformPageChunk: ({ html }) =>
         html.replace("%lang%", event.locals.locale),
     });
   }
 
-  // Content provider
-  const contentMode = (env.CONTENT_MODE ?? "d1") as ContentMode;
-  event.locals.content = createContentProvider(contentMode, env);
+  try {
+    const contentMode = (env.CONTENT_MODE ?? "d1") as ContentMode;
+    event.locals.content = createContentProvider(contentMode, env);
 
-  // Media service
-  const mediaBaseUrl =
-    event.locals.subdomain === "cms"
-      ? `${env.CMS_SITE_URL}/api/media`
-      : `${env.PUBLIC_SITE_URL}/api/media`;
-  event.locals.media = new R2MediaService(
-    env.DB,
-    env.MEDIA_BUCKET,
-    mediaBaseUrl,
-  );
+    const mediaBaseUrl =
+      event.locals.subdomain === "cms"
+        ? `${env.CMS_SITE_URL}/api/media`
+        : `${env.PUBLIC_SITE_URL}/api/media`;
+    event.locals.media = new R2MediaService(
+      env.DB,
+      env.MEDIA_BUCKET,
+      mediaBaseUrl,
+    );
+    event.locals.platformReady = true;
+    event.locals.configurationError = null;
+    event.locals.configurationMissing = [];
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    event.locals.platformReady = false;
+    event.locals.configurationError = `Failed to initialize services: ${msg}`;
+    event.locals.configurationMissing = ["initialization"];
+    event.locals.content = nullContentPlaceholder();
+    event.locals.media = nullMediaPlaceholder();
+  }
 
   return resolve(event, {
     transformPageChunk: ({ html }) =>
       html.replace("%lang%", event.locals.locale),
+  });
+};
+
+function isConfigurationCheckExempt(pathname: string): boolean {
+  if (pathname.startsWith("/@")) return true;
+  if (pathname.startsWith("/node_modules/")) return true;
+  if (pathname.startsWith("/.svelte-kit/")) return true;
+  if (pathname.startsWith("/src/")) return true;
+  if (pathname.startsWith("/_app/")) return true;
+  if (pathname === "/favicon.png") return true;
+  return false;
+}
+
+function configurationErrorPayload(locals: App.Locals) {
+  return {
+    error: "configuration_required",
+    message: locals.configurationError ?? "Application is not configured.",
+    missing: locals.configurationMissing,
+  };
+}
+
+function configurationErrorHtml(locals: App.Locals): string {
+  const body = escapeHtml(
+    locals.configurationError ?? "Application is not configured.",
+  );
+  const missing = locals.configurationMissing
+    .map((m) => escapeHtml(m))
+    .join(", ");
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Configuration required</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:36rem;margin:3rem auto;padding:0 1.5rem;line-height:1.5;color:#1a1a1a;background:#fafafa}
+h1{font-size:1.25rem;margin:0 0 1rem}
+p{margin:0 0 1rem}
+code,pre{font-size:0.85rem;background:#eee;padding:0.2em 0.4em;border-radius:4px}
+pre{white-space:pre-wrap;padding:1rem}
+</style>
+</head>
+<body>
+<h1>Configuration required</h1>
+<p>${body}</p>
+<p><strong>Missing or invalid:</strong> ${missing || "(none listed)"}</p>
+</body>
+</html>`;
+}
+
+const configurationGuardHook: Handle = async ({ event, resolve }) => {
+  if (
+    event.locals.platformReady ||
+    isConfigurationCheckExempt(event.url.pathname)
+  ) {
+    return resolve(event);
+  }
+
+  const wantsJson =
+    event.request.headers.get("accept")?.includes("application/json") ||
+    event.url.pathname.startsWith("/api/");
+
+  if (wantsJson) {
+    return new Response(
+      JSON.stringify(configurationErrorPayload(event.locals)),
+      {
+        status: 503,
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+      },
+    );
+  }
+
+  return new Response(configurationErrorHtml(event.locals), {
+    status: 503,
+    headers: { "Content-Type": "text/html; charset=utf-8" },
   });
 };
 
@@ -125,7 +222,7 @@ const paraglideLocaleHook: Handle = async ({ event, resolve }) => {
  */
 const authHook: Handle = async ({ event, resolve }) => {
   const env = event.platform?.env;
-  if (!env) {
+  if (!env || !event.locals.platformReady) {
     event.locals.user = null;
     event.locals.session = null;
     return resolve(event);
@@ -176,6 +273,7 @@ function isWwwOnlyRoute(path: string): boolean {
 export const handle = sequence(
   subdomainHook,
   bindingsHook,
+  configurationGuardHook,
   paraglideLocaleHook,
   authHook,
 );

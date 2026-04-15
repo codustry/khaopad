@@ -13,9 +13,15 @@ declare global {
       subdomain: "www" | "cms";
       /** Current locale for the request */
       locale: string;
-      /** Content provider instance */
+      /** True when D1/R2 and required secrets are present and services were constructed */
+      platformReady: boolean;
+      /** Human-readable reason when `platformReady` is false */
+      configurationError: string | null;
+      /** Missing binding / var names when `platformReady` is false */
+      configurationMissing: string[];
+      /** Content provider instance (only when `platformReady`) */
       content: import("$lib/server/content/types").ContentProvider;
-      /** Media service instance */
+      /** Media service instance (only when `platformReady`) */
       media: import("$lib/server/media/types").MediaService;
       /** Authenticated user (null if not logged in) */
       user: import("$lib/server/auth/types").AuthUser | null;

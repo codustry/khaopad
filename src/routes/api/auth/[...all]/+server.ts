@@ -1,10 +1,22 @@
 import type { RequestHandler } from "./$types";
+import { validatePlatformEnv } from "$lib/server/config/platform-status";
 import { createAuth } from "$lib/server/auth";
 
 const handleAuth: RequestHandler = async ({ request, platform }) => {
   const env = platform?.env;
-  if (!env) {
-    return new Response("Platform bindings not available", { status: 500 });
+  const check = validatePlatformEnv(env);
+  if (!check.ok) {
+    return new Response(
+      JSON.stringify({
+        error: "configuration_required",
+        message: check.message,
+        missing: check.missing,
+      }),
+      {
+        status: 503,
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+      },
+    );
   }
 
   const auth = createAuth(env.DB, {
