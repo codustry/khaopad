@@ -58,5 +58,8 @@
     "typescript-eslint": "^8.58.2",
     "vite": "~5.4.21",
     "wrangler": "^3.100.0"
+  },
+  "optionalDependencies": {
+    "@opentelemetry/api": "^1.9.1"
   }
 }
