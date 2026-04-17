@@ -163,14 +163,14 @@ Required Cloudflare Secrets (set via `wrangler secret put`):
 
 ## Scripts
 
-| Command                      | Description                            |
-| ---------------------------- | -------------------------------------- |
-| `pnpm dev`                   | Start local dev server                 |
-| `pnpm run build`             | Build for production                   |
-| `pnpm run db:generate`       | Generate migration from schema changes |
-| `pnpm run db:migrate`        | Apply migrations locally               |
-| `pnpm run db:migrate:remote` | Apply migrations to production D1      |
-| `pnpm run deploy`            | Build and deploy to Cloudflare Workers |
+| Command                  | Description                            |
+| ------------------------ | -------------------------------------- |
+| `pnpm dev`               | Start local dev server                 |
+| `pnpm build`             | Build for production                   |
+| `pnpm db:generate`       | Generate migration from schema changes |
+| `pnpm db:migrate`        | Apply migrations locally               |
+| `pnpm db:migrate:remote` | Apply migrations to production D1      |
+| `pnpm deploy`            | Build and deploy to Cloudflare Workers |
 
 ## Roadmap
 
