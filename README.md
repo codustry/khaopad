@@ -62,42 +62,58 @@ Khao Pad fills the gap: **start lightweight, scale when needed, stay on Cloudfla
 - [Cloudflare R2](https://developers.cloudflare.com/r2/) — Object storage
 - [Cloudflare KV](https://developers.cloudflare.com/kv/) — Key-value cache
 
-## Getting Started
+## Using Khao Pad in your project
+
+Khao Pad is a **template**, not a hosted service. Fork or clone this repo, provision your own Cloudflare resources, and deploy to your own account. Every project gets its own isolated D1 database, R2 bucket, and KV namespace — nothing is shared between installations.
 
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) 22+ (for local tooling parity with CI)
 - [pnpm](https://pnpm.io/) 9+
 - Cloudflare account
-- Wrangler CLI (`pnpm add -g wrangler`)
+- Wrangler CLI (`pnpm add -g wrangler`) and `wrangler login`
 
 ### Setup
 
 ```bash
-# Clone
-git clone https://github.com/codustry/khaopad.git
-cd khaopad
+# 1. Fork on GitHub (or clone directly)
+git clone https://github.com/your-org/your-project.git
+cd your-project
 
-# Install dependencies
+# 2. Install dependencies
 pnpm install
 
-# Copy environment variables
-cp .env.example .env
-# Edit .env with your secrets
+# 3. Provision Cloudflare resources (D1 + R2 + KV) in one command
+pnpm setup
+# Prints the database_id and KV id you need. Paste them into wrangler.toml
+# (replace LOCAL_DB_ID and LOCAL_KV_ID).
 
-# Create Cloudflare resources
-wrangler d1 create khaopad-db
-wrangler r2 bucket create khaopad-media
-wrangler kv namespace create CONTENT_CACHE
+# 4. Set your Better Auth secret (any long random string)
+wrangler secret put BETTER_AUTH_SECRET
 
-# Update wrangler.toml with the IDs from above
+# 5. Apply migrations and seed sample data into local D1
+pnpm db:migrate
+pnpm db:seed
 
-# Run database migrations
-pnpm run db:migrate
-
-# Start dev server
+# 6. Start the dev server (Wrangler, uses local D1/R2/KV simulators)
+pnpm wrangler:dev
+# or plain Vite without bindings (shows a friendly 503 "Configuration required")
 pnpm dev
 ```
+
+### How D1, R2, and KV connect to Khao Pad
+
+Cloudflare bindings are **not auto-generated** — they must be provisioned once per project, then bound to your Worker by ID in `wrangler.toml`:
+
+| Binding         | Resource     | Created by                         | Referenced in `wrangler.toml` |
+| --------------- | ------------ | ---------------------------------- | ----------------------------- |
+| `DB`            | D1 database  | `wrangler d1 create <name>`        | `database_id`                 |
+| `MEDIA_BUCKET`  | R2 bucket    | `wrangler r2 bucket create <name>` | `bucket_name`                 |
+| `CONTENT_CACHE` | KV namespace | `wrangler kv namespace create`     | `id`                          |
+
+`pnpm setup` runs all three for you and prints the IDs to paste in. Your code never hardcodes account IDs or credentials — Cloudflare injects the bindings into `platform.env` at runtime.
+
+For **local dev** with `pnpm wrangler:dev`, Wrangler spins up local simulators for D1/R2/KV automatically — the production IDs only matter when you deploy with `pnpm deploy`.
 
 ### Local Development
 

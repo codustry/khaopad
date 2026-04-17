@@ -1,4 +1,6 @@
 node_modules
+package-lock.json
+yarn.lock
 .svelte-kit
 src/lib/paraglide
 build

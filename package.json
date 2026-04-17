@@ -16,6 +16,7 @@
     "db:migrate": "wrangler d1 migrations apply khaopad-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply khaopad-db --remote",
     "db:seed": "tsx scripts/seed.ts",
+    "setup": "tsx scripts/setup.ts",
     "wrangler:dev": "wrangler dev",
     "deploy": "pnpm build && wrangler deploy"
   },
