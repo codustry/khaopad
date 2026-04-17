@@ -1,7 +1,7 @@
 <script lang="ts">
 	import * as m from '$lib/paraglide/messages';
 	import { submitEmailLogin } from './login-submit';
-	let { data: _data } = $props();
+	let { data }: { data: { bootstrapNeeded?: boolean } } = $props();
 
 	let email = $state('');
 	let password = $state('');
@@ -39,6 +39,12 @@
 			<h1 class="text-2xl font-bold">{m.cms_app_name()}</h1>
 			<p class="text-muted-foreground text-sm mt-2">{m.cms_sign_in_description()}</p>
 		</div>
+
+		{#if data.bootstrapNeeded}
+			<div class="mb-4 border border-border rounded-md bg-muted/50 p-3 text-sm">
+				No admin exists yet. <a href="/signup" class="underline font-medium">{m.cms_sign_up()}</a>
+			</div>
+		{/if}
 
 		<form onsubmit={handleLogin} class="space-y-4">
 			{#if error}

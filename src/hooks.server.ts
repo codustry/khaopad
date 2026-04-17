@@ -264,7 +264,11 @@ function isCmsRoute(path: string): boolean {
     "/users",
     "/settings",
   ];
-  return cmsRoutes.some((r) => path.startsWith(r)) || path === "/login";
+  return (
+    cmsRoutes.some((r) => path.startsWith(r)) ||
+    path === "/login" ||
+    path === "/signup"
+  );
 }
 
 /** Routes that should only be accessible from www */

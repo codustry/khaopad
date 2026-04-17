@@ -58,7 +58,7 @@ function run(label: string, cmd: string): string {
 const args = parseArgs();
 
 const d1Out = run("1/3 Create D1 database", `npx wrangler d1 create ${args.db}`);
-const r2Out = run("2/3 Create R2 bucket", `npx wrangler r2 bucket create ${args.bucket}`);
+run("2/3 Create R2 bucket", `npx wrangler r2 bucket create ${args.bucket}`);
 const kvOut = run("3/3 Create KV namespace", `npx wrangler kv namespace create ${args.kv}`);
 
 // Try to extract IDs for convenience.
