@@ -166,16 +166,113 @@ Both modes share the same `ContentProvider` interface — your CMS code doesn't 
 
 ## Deployment
 
-Deploys automatically to Cloudflare Workers on push to `main` via GitHub Actions.
+Deploys automatically to Cloudflare Workers on push to `main` via GitHub Actions (`.github/workflows/deploy.yml`). The workflow runs `pnpm install --frozen-lockfile`, `pnpm build`, applies pending D1 migrations to the remote database, then deploys the Worker.
 
-Required GitHub Secrets (sourced from the **codustry organization** secrets — already configured, inherited automatically by all repos):
+### Config reference
 
-- `CLOUDFLARE_API_TOKEN`
-- `CLOUDFLARE_ACCOUNT_ID`
+Khao Pad reads everything through Cloudflare's binding/env model. There are four layers — know which goes where:
 
-Required Cloudflare Secrets (set via `wrangler secret put`):
+| Layer                  | Where it lives                           | Scope        | Example                       |
+| ---------------------- | ---------------------------------------- | ------------ | ----------------------------- |
+| Bindings               | `wrangler.toml` `[[d1_databases]]` etc.  | Per project  | `DB`, `MEDIA_BUCKET`          |
+| Plain vars             | `wrangler.toml` `[vars]`                 | Per project  | `CONTENT_MODE`, locales, URLs |
+| Cloudflare secrets     | `wrangler secret put`                    | Per project  | `BETTER_AUTH_SECRET`          |
+| GitHub Actions secrets | GitHub repo/org → Settings → Secrets     | CI only      | `CLOUDFLARE_API_TOKEN`        |
 
-- `BETTER_AUTH_SECRET`
+Secrets are **never** committed to `wrangler.toml`. Plain vars can be, and are safe to read in both server and client code (treat them like public config).
+
+### 1. GitHub Actions secrets (for CI deploy)
+
+Configured at the GitHub **org or repo** level. At Codustry they're already set on the organization and inherited by every repo:
+
+| Secret                   | Purpose                                                    |
+| ------------------------ | ---------------------------------------------------------- |
+| `CLOUDFLARE_API_TOKEN`   | Lets the CI runner call the Cloudflare API (deploy, D1).   |
+| `CLOUDFLARE_ACCOUNT_ID`  | Tells `wrangler` which account to deploy into.             |
+
+Token permissions required: **Workers Scripts — Edit**, **Account D1 — Edit**, **Account Workers KV Storage — Edit**, **Workers R2 Storage — Edit**, **Zone DNS — Read** (for routes). Create at `dash.cloudflare.com/profile/api-tokens` → "Edit Cloudflare Workers" template, then narrow to your account.
+
+### 2. Cloudflare secrets (Worker runtime, encrypted)
+
+Set once per environment via `wrangler secret put <NAME>`:
+
+| Secret                | Purpose                                                             | How to generate                        |
+| --------------------- | ------------------------------------------------------------------- | -------------------------------------- |
+| `BETTER_AUTH_SECRET`  | Signs/encrypts Better Auth session cookies. Must be long + random.  | `openssl rand -base64 32`              |
+| `GITHUB_TOKEN` *(optional, Mode B)* | PAT used by the GitHub content provider to read/write markdown files in the content repo. | Fine-grained PAT with Contents: Read & Write on the content repo. |
+
+> **Never** put these in `[vars]` — they leak to the dashboard and CI logs.
+
+### 3. Cloudflare bindings (wrangler.toml)
+
+Provisioned once per project via `pnpm setup`, then referenced by ID:
+
+```toml
+[[d1_databases]]
+binding = "DB"                 # exposed as platform.env.DB
+database_name = "khaopad-db"
+database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"  # from `wrangler d1 create`
+migrations_dir = "drizzle"
+
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"       # exposed as platform.env.MEDIA_BUCKET
+bucket_name = "khaopad-media"
+
+[[kv_namespaces]]
+binding = "CONTENT_CACHE"      # exposed as platform.env.CONTENT_CACHE
+id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"               # from `wrangler kv namespace create`
+```
+
+### 4. Plain environment variables (wrangler.toml `[vars]`)
+
+Non-secret config that ships with the Worker:
+
+| Var                 | Required | Default                     | Purpose                                                   |
+| ------------------- | :------: | --------------------------- | --------------------------------------------------------- |
+| `CONTENT_MODE`      | yes      | `d1`                        | `d1` (active) or `github` (planned).                      |
+| `SUPPORTED_LOCALES` | yes      | `en,th`                     | Comma-separated. Must match `project.inlang/settings.json`. |
+| `DEFAULT_LOCALE`    | yes      | `en`                        | Fallback locale. Must be in `SUPPORTED_LOCALES`.          |
+| `PUBLIC_SITE_URL`   | yes      | `https://www.example.com`   | Canonical origin for `www` subdomain.                     |
+| `CMS_SITE_URL`      | yes      | `https://cms.example.com`   | Canonical origin for `cms` subdomain.                     |
+| `BETTER_AUTH_URL`   | yes      | = `CMS_SITE_URL`            | Base URL Better Auth uses in callbacks/cookies.           |
+| `GITHUB_OWNER`      | Mode B   | —                           | Org/user owning the content repo.                         |
+| `GITHUB_REPO`       | Mode B   | —                           | Repo name holding markdown content.                       |
+| `GITHUB_BRANCH`     | Mode B   | `main`                      | Branch the provider reads/writes.                         |
+
+### 5. Routes & DNS (production only)
+
+Uncomment the `routes` block in `wrangler.toml` after your domain is on Cloudflare:
+
+```toml
+routes = [
+  { pattern = "www.example.com/*", zone_name = "example.com" },
+  { pattern = "cms.example.com/*", zone_name = "example.com" },
+]
+```
+
+Both subdomains must exist as proxied (orange-cloud) DNS records — `CNAME` to your Worker is fine since Cloudflare terminates TLS and routes by the pattern above. The `subdomainHook` in `hooks.server.ts` reads the `Host` header to dispatch between the `(www)` and `(cms)` route groups.
+
+### 6. Local dev
+
+- `pnpm wrangler:dev` (recommended) — Wrangler spins up local simulators for D1/R2/KV. Reads `wrangler.toml` `[vars]`; secrets come from `.dev.vars` (gitignored). The production `database_id`/KV `id` are ignored locally — a local SQLite file is used instead.
+- `pnpm dev` — plain Vite, no Cloudflare runtime. Renders the 503 "Configuration required" screen so missing bindings are obvious.
+
+Create `.dev.vars` (gitignored) for local-only secrets:
+
+```
+BETTER_AUTH_SECRET=dev-local-only-not-a-real-secret
+```
+
+### Deployment checklist
+
+- [ ] `pnpm setup` ran and `wrangler.toml` has real `database_id` + KV `id`
+- [ ] `BETTER_AUTH_SECRET` set in Cloudflare (`wrangler secret put BETTER_AUTH_SECRET`)
+- [ ] `PUBLIC_SITE_URL`, `CMS_SITE_URL`, `BETTER_AUTH_URL` updated to real domains in `[vars]`
+- [ ] `routes` block uncommented with real domain + zone
+- [ ] Both subdomains point to the Worker in Cloudflare DNS
+- [ ] GitHub org/repo has `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`
+- [ ] `pnpm build` passes locally
+- [ ] Migrations applied remote (`pnpm db:migrate:remote`) or CI will do it on first push
 
 ## Scripts
 
