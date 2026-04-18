@@ -40,6 +40,7 @@ export const actions: Actions = {
     const excerptTh = String(form.get("excerpt_th") ?? "").trim();
     const bodyTh = String(form.get("body_th") ?? "");
     const slugInput = String(form.get("slug") ?? "").trim();
+    const coverMediaId = String(form.get("cover_media_id") ?? "").trim();
     const nextStatus = String(form.get("status") ?? existing.status) as
       | "draft"
       | "published"
@@ -57,6 +58,7 @@ export const actions: Actions = {
           bodyTh,
           slugInput,
           status: nextStatus,
+          coverMediaId,
         },
       });
     }
@@ -73,6 +75,7 @@ export const actions: Actions = {
 
     const update: ArticleUpdateInput = {
       status: nextStatus,
+      coverMediaId: coverMediaId ? coverMediaId : null,
       publishedAt:
         nextStatus === "published"
           ? (existing.publishedAt ?? new Date().toISOString())
@@ -104,6 +107,7 @@ export const actions: Actions = {
           bodyTh,
           slugInput,
           status: nextStatus,
+          coverMediaId,
         },
       });
     }
