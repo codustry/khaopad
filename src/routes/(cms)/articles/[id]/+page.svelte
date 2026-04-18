@@ -2,13 +2,13 @@
 	import { enhance } from '$app/forms';
 	import * as m from '$lib/paraglide/messages';
 	import ArticleForm from '../ArticleForm.svelte';
-	import type { ArticleRecord } from '$lib/server/content/types';
+	import type { ArticleRecord, CategoryRecord, TagRecord } from '$lib/server/content/types';
 
 	let {
 		data,
 		form,
 	}: {
-		data: { article: ArticleRecord };
+		data: { article: ArticleRecord; categories: CategoryRecord[]; tags: TagRecord[] };
 		form: { ok?: boolean; error?: string; status?: ArticleRecord['status'] } | null;
 	} = $props();
 
@@ -59,5 +59,7 @@
 		formState={form}
 		action="?/save"
 		submitLabel={m.cms_save_draft()}
+		categories={data.categories}
+		tags={data.tags}
 	/>
 </div>

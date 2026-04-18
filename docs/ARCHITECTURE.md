@@ -13,7 +13,7 @@ We evaluated splitting into `khaopad-www` and `khaopad-cms` Workers. Rejected be
 - **Two builds, two deploys, two Wrangler configs** — operationally heavier for no user-facing gain.
 - **Shared types get worse** — the `ContentProvider` interface, auth types, permission helpers are used by both sides. A monorepo-with-shared-package split solves this but adds build plumbing we don't need yet.
 - **Cold start doubles** — Workers isolate per-deploy. Two Workers = two cold starts for a user who logs in on `cms.*` after reading `www.*`.
-- **Session cookies are scoped per-domain** — we *want* them to cross `www` and `cms` on the same root domain for things like "edit this page" deep-links, which is easier with one Worker.
+- **Session cookies are scoped per-domain** — we _want_ them to cross `www` and `cms` on the same root domain for things like "edit this page" deep-links, which is easier with one Worker.
 
 The one cost: the Worker bundle carries both public-site and admin-panel code. Tree-shaking and route-level code splitting keep that manageable.
 
@@ -105,20 +105,20 @@ See [CONTENT-MODEL.md](./CONTENT-MODEL.md) for schema details.
 
 ## Where each concern lives
 
-| Concern                         | File(s)                                                     |
-| ------------------------------- | ----------------------------------------------------------- |
-| Subdomain dispatch              | `src/hooks.server.ts` (`subdomainHook`, `isCmsRoute`)       |
-| Platform binding validation     | `src/lib/server/config/platform-status.ts`                  |
-| Content provider interface      | `src/lib/server/content/types.ts`                           |
-| D1 provider (active)            | `src/lib/server/content/providers/d1.ts`                    |
-| GitHub provider (stub)          | `src/lib/server/content/providers/github.ts`                |
-| Drizzle schema                  | `src/lib/server/content/schema.ts`                          |
-| R2 media service                | `src/lib/server/media/`                                     |
-| Auth construction               | `src/lib/server/auth/index.ts`                              |
-| Bootstrap helpers               | `src/lib/server/auth/bootstrap.ts`                          |
-| Role permissions                | `src/lib/server/auth/permissions.ts`                        |
-| i18n helpers                    | `src/lib/i18n/index.ts` (content), `src/lib/paraglide/` (UI, generated) |
-| Slug normalization              | `src/lib/utils.ts` (`slugify`, `generateSlugFromTitle`)     |
+| Concern                     | File(s)                                                                 |
+| --------------------------- | ----------------------------------------------------------------------- |
+| Subdomain dispatch          | `src/hooks.server.ts` (`subdomainHook`, `isCmsRoute`)                   |
+| Platform binding validation | `src/lib/server/config/platform-status.ts`                              |
+| Content provider interface  | `src/lib/server/content/types.ts`                                       |
+| D1 provider (active)        | `src/lib/server/content/providers/d1.ts`                                |
+| GitHub provider (stub)      | `src/lib/server/content/providers/github.ts`                            |
+| Drizzle schema              | `src/lib/server/content/schema.ts`                                      |
+| R2 media service            | `src/lib/server/media/`                                                 |
+| Auth construction           | `src/lib/server/auth/index.ts`                                          |
+| Bootstrap helpers           | `src/lib/server/auth/bootstrap.ts`                                      |
+| Role permissions            | `src/lib/server/auth/permissions.ts`                                    |
+| i18n helpers                | `src/lib/i18n/index.ts` (content), `src/lib/paraglide/` (UI, generated) |
+| Slug normalization          | `src/lib/utils.ts` (`slugify`, `generateSlugFromTitle`)                 |
 
 ## Deliberate non-goals for v1
 

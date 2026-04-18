@@ -145,6 +145,10 @@ export interface ContentProvider {
     slug: string;
     localizations: TagRecord["localizations"];
   }): Promise<TagRecord>;
+  updateTag(
+    id: string,
+    data: Partial<Pick<TagRecord, "slug" | "localizations">>,
+  ): Promise<TagRecord>;
   deleteTag(id: string): Promise<void>;
 
   // Site Settings

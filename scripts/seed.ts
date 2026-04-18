@@ -50,13 +50,14 @@ const outFile = join(outDir, "seed.sql");
 writeFileSync(outFile, sql + "\n");
 
 console.log(`[seed] wrote ${outFile}`);
-console.log(`[seed] applying to ${remote ? "REMOTE" : "LOCAL"} D1 (${dbName})…`);
+console.log(
+  `[seed] applying to ${remote ? "REMOTE" : "LOCAL"} D1 (${dbName})…`,
+);
 
 try {
-  execSync(
-    `npx wrangler d1 execute ${dbName} ${target} --file=${outFile}`,
-    { stdio: "inherit" },
-  );
+  execSync(`npx wrangler d1 execute ${dbName} ${target} --file=${outFile}`, {
+    stdio: "inherit",
+  });
   console.log("[seed] done.");
 } catch (err) {
   console.error("[seed] failed:", err instanceof Error ? err.message : err);

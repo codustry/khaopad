@@ -55,6 +55,7 @@ Fix: `@opentelemetry/api` is in `optionalDependencies`. Installed on every `pnpm
 `subdomainHook` in `src/hooks.server.ts` looks at the `Host` header to decide `www` vs `cms`. In prod this just works — Cloudflare preserves the Host header when proxying.
 
 **In local dev** you need `/etc/hosts` entries:
+
 ```
 127.0.0.1  www.khaopad.local  cms.khaopad.local
 ```

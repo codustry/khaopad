@@ -2,7 +2,7 @@
 	import { enhance } from '$app/forms';
 	import * as m from '$lib/paraglide/messages';
 	import { slugify } from '$lib/utils';
-	import type { ArticleRecord } from '$lib/server/content/types';
+	import type { ArticleRecord, CategoryRecord, TagRecord } from '$lib/server/content/types';
 
 	type Values = {
 		titleEn: string;
@@ -14,6 +14,8 @@
 		slugInput: string;
 		status: ArticleRecord['status'];
 		coverMediaId: string;
+		categoryId: string;
+		tagIds: string[];
 	};
 
 	let {
@@ -21,11 +23,15 @@
 		formState = null,
 		action = '',
 		submitLabel,
+		categories = [],
+		tags = [],
 	}: {
 		existing?: ArticleRecord | null;
 		formState?: { error?: string; values?: Partial<Values> } | null;
 		action?: string;
 		submitLabel: string;
+		categories?: CategoryRecord[];
+		tags?: TagRecord[];
 	} = $props();
 
 	// Seed initial values once from (in priority): failed-submit echo → existing record → blanks.
@@ -40,6 +46,8 @@
 		slugInput: formState?.values?.slugInput ?? existing?.slug ?? '',
 		status: formState?.values?.status ?? existing?.status ?? 'draft',
 		coverMediaId: formState?.values?.coverMediaId ?? existing?.coverMediaId ?? '',
+		categoryId: formState?.values?.categoryId ?? existing?.categoryId ?? '',
+		tagIds: formState?.values?.tagIds ?? existing?.tagIds ?? [],
 	});
 	const seed = initialValues();
 
@@ -52,6 +60,8 @@
 	let slugInput = $state(seed.slugInput);
 	let status = $state<ArticleRecord['status']>(seed.status);
 	let coverMediaId = $state(seed.coverMediaId);
+	let categoryId = $state(seed.categoryId);
+	let tagIds = $state<string[]>(seed.tagIds);
 	let loading = $state(false);
 
 	// Auto-derive slug preview from English title until the user types their own.
@@ -221,6 +231,46 @@
 					</div>
 				</div>
 			</div>
+		</div>
+
+		<label class="block">
+			<span class="text-sm font-medium">{m.cms_article_category()}</span>
+			<select
+				name="category_id"
+				bind:value={categoryId}
+				class="mt-1 w-full px-3 py-2 border border-input rounded-md bg-background text-sm"
+			>
+				<option value="">{m.cms_article_category_none()}</option>
+				{#each categories as cat (cat.id)}
+					<option value={cat.id}>
+						{cat.localizations.en?.name ?? cat.slug}
+					</option>
+				{/each}
+			</select>
+		</label>
+
+		<div class="block">
+			<span class="text-sm font-medium">{m.cms_article_tags()}</span>
+			{#if tags.length === 0}
+				<p class="mt-1 text-xs text-muted-foreground">{m.cms_article_tags_none()}</p>
+			{:else}
+				<div class="mt-1 flex flex-wrap gap-2">
+					{#each tags as tag (tag.id)}
+						<label
+							class="inline-flex items-center gap-1.5 px-2 py-1 border border-input rounded-md text-sm cursor-pointer hover:bg-accent"
+						>
+							<input
+								type="checkbox"
+								name="tag_ids"
+								value={tag.id}
+								bind:group={tagIds}
+								class="h-3.5 w-3.5"
+							/>
+							<span>{tag.localizations.en?.name ?? tag.slug}</span>
+						</label>
+					{/each}
+				</div>
+			{/if}
 		</div>
 	</section>
 

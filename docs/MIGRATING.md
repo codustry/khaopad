@@ -14,7 +14,7 @@ This guide is **not** for: starting a new project (just fork Khao Pad directly),
 
 ## The shape of the end state
 
-Khao Pad **is** a SvelteKit app. There's no "Khao Pad runtime" you import. Migrating means your code lives *inside* the Khao Pad repo layout, not beside it:
+Khao Pad **is** a SvelteKit app. There's no "Khao Pad runtime" you import. Migrating means your code lives _inside_ the Khao Pad repo layout, not beside it:
 
 ```
 your-app/                         ← repo root, after migration
@@ -82,10 +82,12 @@ git mv src/routes/pricing src/routes/\(www\)/pricing
 ```
 
 **What to leave at the top level:**
+
 - `src/routes/api/` — API endpoints. They're accessible on both subdomains.
 - `src/routes/+error.svelte` — global error page (if you have one).
 
 **What NOT to move into `(cms)`:** your own admin panels, if any. The `(cms)` group has auth guards and subdomain enforcement specific to Khao Pad. If you have your own admin UI, either:
+
 - Fold it into Khao Pad's CMS (add a route under `(cms)/your-feature/`), or
 - Put it under `(www)/admin/` with your own auth, but it'll be visible on the public subdomain — usually not what you want.
 
@@ -94,6 +96,7 @@ git mv src/routes/pricing src/routes/\(www\)/pricing
 Your existing root `+layout.svelte` probably imports your global CSS, nav bar, footer, theme provider. Khao Pad has a minimal root layout (`src/routes/+layout.svelte`) and a public-site-specific layout (`src/routes/(www)/+layout.svelte`).
 
 **Rule of thumb:**
+
 - Things that should appear on **both** `www` and `cms` (e.g. `<ThemeProvider>`, global `app.css`) go in `src/routes/+layout.svelte`.
 - Things that are **public-site-only** (nav, footer, marketing analytics) go in `src/routes/(www)/+layout.svelte`.
 - Leave `src/routes/(cms)/+layout.svelte` alone unless you have a reason.
@@ -135,7 +138,7 @@ This is the big one. Khao Pad ships with **D1** + **Drizzle**. Your existing app
 
 1. **Dual-database.** Khao Pad keeps D1 for CMS content; your existing code keeps its DB for your business data. Two connection strings, two ORMs, two migration pipelines. Simplest integration, acceptable long-term for small teams.
 2. **Move your data to D1.** Rewrite your queries to Drizzle-on-D1. Works if your data is relational, < ~10GB, and doesn't need heavy analytics. D1 is SQLite — read [PLATFORM-NOTES.md §1](./PLATFORM-NOTES.md) for what you give up (no interactive transactions).
-3. **Move CMS content *out* of D1.** Khao Pad's `ContentProvider` abstraction supports a second mode (GitHub, planned). If you'd rather not have two databases, swap the CMS to file-backed storage when available (v1.1).
+3. **Move CMS content _out_ of D1.** Khao Pad's `ContentProvider` abstraction supports a second mode (GitHub, planned). If you'd rather not have two databases, swap the CMS to file-backed storage when available (v1.1).
 
 For most teams the answer is **#1 (dual-database) during migration, then evaluate**.
 
@@ -146,6 +149,7 @@ Khao Pad uses **Better Auth** with D1-backed sessions. Cookies are scoped to the
 **If you have no auth today:** Khao Pad's auth is a free win. Use it for your app too via the same session hook.
 
 **If you have existing auth** (Clerk, Auth.js, Lucia, custom):
+
 - The pragmatic path is to keep both. Khao Pad uses Better Auth for CMS access only; your app uses your auth for users.
 - Don't try to unify in the migration PR. That's a separate, scarier change.
 
@@ -154,6 +158,7 @@ If you want to replace your auth with Better Auth, see [BETTERAUTH.md](./BETTERA
 ### 9. Update `wrangler.toml`
 
 Merge your bindings into Khao Pad's `wrangler.toml`. Keep Khao Pad's:
+
 - `[[d1_databases]] binding = "DB"` (CMS data)
 - `[[r2_buckets]] binding = "MEDIA_BUCKET"`
 - `[[kv_namespaces]] binding = "CONTENT_CACHE"`
@@ -177,17 +182,17 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md). At minimum:
 
 Quick decision tree:
 
-| Your code is…                                        | Put it in…                                     |
-| ---------------------------------------------------- | ---------------------------------------------- |
-| A public page (`/about`, `/pricing`, landing)        | `src/routes/(www)/…`                           |
-| A reusable Svelte component                          | `src/lib/components/…`                         |
-| A server-only utility (sends emails, calls APIs)     | `src/lib/server/…`                             |
-| A shared client-side helper                          | `src/lib/…`                                    |
-| An API endpoint (`/api/foo`)                         | `src/routes/api/foo/+server.ts`                |
-| A background job / cron                              | Cloudflare Workers cron triggers in `wrangler.toml` + a `scheduled()` handler |
-| Static assets (images, fonts)                        | `static/`                                      |
-| Database migrations for YOUR tables                  | `drizzle/` (number after Khao Pad's existing migrations) |
-| Tests                                                | Next to the code (`*.test.ts`) or `tests/`     |
+| Your code is…                                    | Put it in…                                                                    |
+| ------------------------------------------------ | ----------------------------------------------------------------------------- |
+| A public page (`/about`, `/pricing`, landing)    | `src/routes/(www)/…`                                                          |
+| A reusable Svelte component                      | `src/lib/components/…`                                                        |
+| A server-only utility (sends emails, calls APIs) | `src/lib/server/…`                                                            |
+| A shared client-side helper                      | `src/lib/…`                                                                   |
+| An API endpoint (`/api/foo`)                     | `src/routes/api/foo/+server.ts`                                               |
+| A background job / cron                          | Cloudflare Workers cron triggers in `wrangler.toml` + a `scheduled()` handler |
+| Static assets (images, fonts)                    | `static/`                                                                     |
+| Database migrations for YOUR tables              | `drizzle/` (number after Khao Pad's existing migrations)                      |
+| Tests                                            | Next to the code (`*.test.ts`) or `tests/`                                    |
 
 ## Things that will bite you
 

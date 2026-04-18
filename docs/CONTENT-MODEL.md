@@ -63,7 +63,9 @@ export interface ArticleRecord {
 
 export interface ArticleCreateInput {
   slug?: string; // optional — derived from en.title if omitted
-  localizations: { en: LocalizedContent } & Partial<Record<Locale, LocalizedContent>>;
+  localizations: { en: LocalizedContent } & Partial<
+    Record<Locale, LocalizedContent>
+  >;
   // ...
 }
 ```
@@ -110,17 +112,17 @@ Every route uses `locals.content` (type: `ContentProvider`) — never Drizzle, n
 ```ts
 interface ContentProvider {
   // Articles
-  getArticle(id): Promise<ArticleRecord | null>
-  getArticleBySlug(slug): Promise<ArticleRecord | null>
-  listArticles(filter?): Promise<PaginatedResult<ArticleRecord>>
-  createArticle(data): Promise<ArticleRecord>
-  updateArticle(id, data): Promise<ArticleRecord>
-  deleteArticle(id): Promise<void>
+  getArticle(id): Promise<ArticleRecord | null>;
+  getArticleBySlug(slug): Promise<ArticleRecord | null>;
+  listArticles(filter?): Promise<PaginatedResult<ArticleRecord>>;
+  createArticle(data): Promise<ArticleRecord>;
+  updateArticle(id, data): Promise<ArticleRecord>;
+  deleteArticle(id): Promise<void>;
 
   // Categories, Tags (same pattern)
   // Site settings
-  getSettings(): Promise<SiteSettings>
-  updateSettings(data): Promise<SiteSettings>
+  getSettings(): Promise<SiteSettings>;
+  updateSettings(data): Promise<SiteSettings>;
 }
 ```
 

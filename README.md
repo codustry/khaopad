@@ -172,12 +172,12 @@ Deploys automatically to Cloudflare Workers on push to `main` via GitHub Actions
 
 Khao Pad reads everything through Cloudflare's binding/env model. There are four layers — know which goes where:
 
-| Layer                  | Where it lives                           | Scope        | Example                       |
-| ---------------------- | ---------------------------------------- | ------------ | ----------------------------- |
-| Bindings               | `wrangler.toml` `[[d1_databases]]` etc.  | Per project  | `DB`, `MEDIA_BUCKET`          |
-| Plain vars             | `wrangler.toml` `[vars]`                 | Per project  | `CONTENT_MODE`, locales, URLs |
-| Cloudflare secrets     | `wrangler secret put`                    | Per project  | `BETTER_AUTH_SECRET`          |
-| GitHub Actions secrets | GitHub repo/org → Settings → Secrets     | CI only      | `CLOUDFLARE_API_TOKEN`        |
+| Layer                  | Where it lives                          | Scope       | Example                       |
+| ---------------------- | --------------------------------------- | ----------- | ----------------------------- |
+| Bindings               | `wrangler.toml` `[[d1_databases]]` etc. | Per project | `DB`, `MEDIA_BUCKET`          |
+| Plain vars             | `wrangler.toml` `[vars]`                | Per project | `CONTENT_MODE`, locales, URLs |
+| Cloudflare secrets     | `wrangler secret put`                   | Per project | `BETTER_AUTH_SECRET`          |
+| GitHub Actions secrets | GitHub repo/org → Settings → Secrets    | CI only     | `CLOUDFLARE_API_TOKEN`        |
 
 Secrets are **never** committed to `wrangler.toml`. Plain vars can be, and are safe to read in both server and client code (treat them like public config).
 
@@ -185,10 +185,10 @@ Secrets are **never** committed to `wrangler.toml`. Plain vars can be, and are s
 
 Configured at the GitHub **org or repo** level. At Codustry they're already set on the organization and inherited by every repo:
 
-| Secret                   | Purpose                                                    |
-| ------------------------ | ---------------------------------------------------------- |
-| `CLOUDFLARE_API_TOKEN`   | Lets the CI runner call the Cloudflare API (deploy, D1).   |
-| `CLOUDFLARE_ACCOUNT_ID`  | Tells `wrangler` which account to deploy into.             |
+| Secret                  | Purpose                                                  |
+| ----------------------- | -------------------------------------------------------- |
+| `CLOUDFLARE_API_TOKEN`  | Lets the CI runner call the Cloudflare API (deploy, D1). |
+| `CLOUDFLARE_ACCOUNT_ID` | Tells `wrangler` which account to deploy into.           |
 
 Token permissions required: **Workers Scripts — Edit**, **Account D1 — Edit**, **Account Workers KV Storage — Edit**, **Workers R2 Storage — Edit**, **Zone DNS — Read** (for routes). Create at `dash.cloudflare.com/profile/api-tokens` → "Edit Cloudflare Workers" template, then narrow to your account.
 
@@ -196,10 +196,10 @@ Token permissions required: **Workers Scripts — Edit**, **Account D1 — Edit*
 
 Set once per environment via `wrangler secret put <NAME>`:
 
-| Secret                | Purpose                                                             | How to generate                        |
-| --------------------- | ------------------------------------------------------------------- | -------------------------------------- |
-| `BETTER_AUTH_SECRET`  | Signs/encrypts Better Auth session cookies. Must be long + random.  | `openssl rand -base64 32`              |
-| `GITHUB_TOKEN` *(optional, Mode B)* | PAT used by the GitHub content provider to read/write markdown files in the content repo. | Fine-grained PAT with Contents: Read & Write on the content repo. |
+| Secret                              | Purpose                                                                                   | How to generate                                                   |
+| ----------------------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                | Signs/encrypts Better Auth session cookies. Must be long + random.                        | `openssl rand -base64 32`                                         |
+| `GITHUB_TOKEN` _(optional, Mode B)_ | PAT used by the GitHub content provider to read/write markdown files in the content repo. | Fine-grained PAT with Contents: Read & Write on the content repo. |
 
 > **Never** put these in `[vars]` — they leak to the dashboard and CI logs.
 
@@ -227,17 +227,17 @@ id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"               # from `wrangler kv namesp
 
 Non-secret config that ships with the Worker:
 
-| Var                 | Required | Default                     | Purpose                                                   |
-| ------------------- | :------: | --------------------------- | --------------------------------------------------------- |
-| `CONTENT_MODE`      | yes      | `d1`                        | `d1` (active) or `github` (planned).                      |
-| `SUPPORTED_LOCALES` | yes      | `en,th`                     | Comma-separated. Must match `project.inlang/settings.json`. |
-| `DEFAULT_LOCALE`    | yes      | `en`                        | Fallback locale. Must be in `SUPPORTED_LOCALES`.          |
-| `PUBLIC_SITE_URL`   | yes      | `https://www.example.com`   | Canonical origin for `www` subdomain.                     |
-| `CMS_SITE_URL`      | yes      | `https://cms.example.com`   | Canonical origin for `cms` subdomain.                     |
-| `BETTER_AUTH_URL`   | yes      | = `CMS_SITE_URL`            | Base URL Better Auth uses in callbacks/cookies.           |
-| `GITHUB_OWNER`      | Mode B   | —                           | Org/user owning the content repo.                         |
-| `GITHUB_REPO`       | Mode B   | —                           | Repo name holding markdown content.                       |
-| `GITHUB_BRANCH`     | Mode B   | `main`                      | Branch the provider reads/writes.                         |
+| Var                 | Required | Default                   | Purpose                                                     |
+| ------------------- | :------: | ------------------------- | ----------------------------------------------------------- |
+| `CONTENT_MODE`      |   yes    | `d1`                      | `d1` (active) or `github` (planned).                        |
+| `SUPPORTED_LOCALES` |   yes    | `en,th`                   | Comma-separated. Must match `project.inlang/settings.json`. |
+| `DEFAULT_LOCALE`    |   yes    | `en`                      | Fallback locale. Must be in `SUPPORTED_LOCALES`.            |
+| `PUBLIC_SITE_URL`   |   yes    | `https://www.example.com` | Canonical origin for `www` subdomain.                       |
+| `CMS_SITE_URL`      |   yes    | `https://cms.example.com` | Canonical origin for `cms` subdomain.                       |
+| `BETTER_AUTH_URL`   |   yes    | = `CMS_SITE_URL`          | Base URL Better Auth uses in callbacks/cookies.             |
+| `GITHUB_OWNER`      |  Mode B  | —                         | Org/user owning the content repo.                           |
+| `GITHUB_REPO`       |  Mode B  | —                         | Repo name holding markdown content.                         |
+| `GITHUB_BRANCH`     |  Mode B  | `main`                    | Branch the provider reads/writes.                           |
 
 ### 5. Routes & DNS (production only)
 
@@ -289,12 +289,15 @@ BETTER_AUTH_SECRET=dev-local-only-not-a-real-secret
 
 ### v1.0 (MVP)
 
-- [x] Project scaffold and architecture
-- [ ] D1 content provider (articles, categories, tags)
-- [ ] Better Auth integration
-- [ ] CMS admin panel (article CRUD, media library)
-- [ ] Public blog with multilingual routing
-- [ ] GitHub Actions deployment
+- [x] **M1** — Project scaffold and architecture (route groups, platform guards, Paraglide i18n)
+- [x] **M2** — D1 migrations, seed script, first-run setup
+- [x] **M3** — Better Auth integration + CMS admin panel (article CRUD, first-admin signup, role-based permissions)
+- [x] **M4** — Media library (R2 upload/delete, cover images, migration guide)
+- [x] **M5** — Categories & tags (CMS taxonomy UI, article pickers, public blog filtering, CI workflow)
+- [ ] **M6** — GitHub Actions deploy pipeline (staging + production)
+- [ ] **M7** — Markdown editor UX (syntax highlight, image picker, preview)
+
+See [docs/MILESTONES.md](docs/MILESTONES.md) for a detailed breakdown of what shipped in each milestone.
 
 ### v1.1
 

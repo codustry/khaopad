@@ -4,7 +4,11 @@ import type { Actions, PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals }) => {
   if (!locals.user) throw redirect(302, "/login");
-  return {};
+  const [categories, tags] = await Promise.all([
+    locals.content.listCategories(),
+    locals.content.listTags(),
+  ]);
+  return { categories, tags };
 };
 
 export const actions: Actions = {
@@ -20,6 +24,11 @@ export const actions: Actions = {
     const bodyTh = String(form.get("body_th") ?? "");
     const slugInput = String(form.get("slug") ?? "").trim();
     const coverMediaId = String(form.get("cover_media_id") ?? "").trim();
+    const categoryId = String(form.get("category_id") ?? "").trim();
+    const tagIds = form
+      .getAll("tag_ids")
+      .map((v) => String(v).trim())
+      .filter(Boolean);
     const status = String(form.get("status") ?? "draft") as
       | "draft"
       | "published"
@@ -38,6 +47,8 @@ export const actions: Actions = {
           slugInput,
           status,
           coverMediaId,
+          categoryId,
+          tagIds,
         },
       });
     }
@@ -59,6 +70,8 @@ export const actions: Actions = {
           slugInput,
           status,
           coverMediaId,
+          categoryId,
+          tagIds,
         },
       });
     }
@@ -69,6 +82,8 @@ export const actions: Actions = {
         authorId: locals.user.id,
         status,
         coverMediaId: coverMediaId || undefined,
+        categoryId: categoryId || undefined,
+        tagIds: tagIds.length ? tagIds : undefined,
         publishedAt:
           status === "published" ? new Date().toISOString() : undefined,
         localizations: {
@@ -93,6 +108,8 @@ export const actions: Actions = {
           slugInput,
           status,
           coverMediaId,
+          categoryId,
+          tagIds,
         },
       });
     }
