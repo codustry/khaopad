@@ -56,21 +56,52 @@ BETTER_AUTH_SECRET=dev-local-only-not-a-real-secret
 
 **`pnpm dev` (plain Vite).** No Cloudflare runtime at all. `platform.env` is undefined, so the 503 screen renders. Useful for working on purely client-side Svelte code without needing Wrangler, and for verifying the 503 page itself still looks right.
 
-## CI deploy
+## CI deploy pipeline
 
-`.github/workflows/deploy.yml` fires on push to `main`:
+`.github/workflows/deploy.yml` runs four sequential jobs: **gate → resolve-env → deploy → smoke-test**.
 
-```yaml
-- pnpm install --frozen-lockfile
-- pnpm build
-- wrangler d1 migrations apply khaopad-db --remote # only pending migrations
-- wrangler deploy
+| Trigger                      | Target env   | Notes                                      |
+| ---------------------------- | ------------ | ------------------------------------------ |
+| Push to `main`               | `staging`    | Automatic after every merge                |
+| Tag `v*.*.*` (e.g. `v1.2.0`) | `production` | Cut a release tag to promote               |
+| `workflow_dispatch` (manual) | your choice  | Select `staging` or `production` in the UI |
+
+**Jobs:**
+
+1. **gate** — install, Paraglide compile, `svelte-check`, `eslint`, `prettier`, `vite build`. If any fail, nothing deploys. Same checks as `ci.yml` so PRs and deploys never disagree.
+2. **resolve-env** — emits `environment` (`staging` / `production`) and `public_url` (from repo Variables) as step outputs.
+3. **deploy** — attaches to a GitHub Environment (same name), applies pending D1 migrations via `wrangler d1 migrations apply --env <target>`, then `wrangler deploy --env <target>`. Add required-reviewer protection on the `production` environment in repo Settings → Environments to gate prod behind an approval.
+4. **smoke-test** — curls the public URL up to 6× with 10s backoff. `2xx`, `3xx`, and `503` all count as "Worker responded" (503 = Khao Pad's config-guard page, which still means the Worker itself is live). `000`/`5xx-other` fails the run.
+
+### Pre-reqs
+
+**Secrets** (repo or org → Settings → Secrets):
+
+- `CLOUDFLARE_API_TOKEN` — scopes: Workers Scripts Edit, D1 Edit, KV Edit, R2 Edit, Zone DNS Read
+- `CLOUDFLARE_ACCOUNT_ID`
+
+**Variables** (repo → Settings → Variables → Actions) — optional but recommended:
+
+- `STAGING_PUBLIC_URL` (e.g. `https://staging-www.example.com`)
+- `PRODUCTION_PUBLIC_URL` (e.g. `https://www.example.com`)
+
+Without these, smoke-test emits a warning and exits 0 (so the pipeline still goes green on fresh forks before DNS is wired).
+
+### Promotion flow
+
+```
+PR merged into main
+     ↓
+gate passes  →  deploy to staging  →  smoke-test staging
+     ↓
+manual QA on staging-*.example.com
+     ↓
+tag release:  git tag v1.2.0 && git push origin v1.2.0
+     ↓
+gate passes  →  (optional reviewer approval)  →  deploy to production  →  smoke-test prod
 ```
 
-Pre-reqs:
-
-- GitHub Actions secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (at org or repo level).
-- Token scopes: Workers Scripts Edit, D1 Edit, KV Edit, R2 Edit, Zone DNS Read.
+Need to roll back? Re-run the last good tag's deploy run in the Actions UI, or push a new tag pointing at the previous commit. D1 migrations are forward-only — down-migrations aren't generated, so plan schema changes to be additive where possible.
 
 ## First-deploy checklist
 
@@ -89,7 +120,27 @@ After first deploy: visit `cms.your-domain.com` → see the "No admin exists yet
 
 ## Environments (prod/staging/dev)
 
-Not wired yet, but when we add them: Cloudflare Workers has `[env.staging]` blocks in `wrangler.toml`. Each env gets its own bindings and `[vars]` and deploys via `wrangler deploy --env staging`. CI adds a matching workflow job. Keep D1/R2/KV **per environment** — don't share DBs across envs or you'll blow away prod when testing destructive migrations.
+Cloudflare Workers supports `[env.staging]` / `[env.production]` blocks in `wrangler.toml`, and Khao Pad now ships with both. Each env gets its own D1 database, R2 bucket, and KV namespace — **never share state across envs** or a destructive migration run against staging will wipe prod.
+
+### Provisioning a new env
+
+Everything under `[env.staging]` / `[env.production]` defaults to placeholder IDs (`STAGING_DB_ID`, `PRODUCTION_DB_ID`, etc). To fill them in:
+
+```bash
+# 1. Create the resources for that env
+wrangler d1 create khaopad-db-staging
+wrangler r2 bucket create khaopad-media-staging
+wrangler kv namespace create khaopad-staging-cache
+
+# 2. Paste the returned IDs into the matching [env.staging.*] blocks
+# 3. Apply migrations once to seed the schema
+wrangler d1 migrations apply khaopad-db --remote --env staging
+
+# 4. Push secrets for that env
+wrangler secret put BETTER_AUTH_SECRET --env staging
+```
+
+Repeat with `--env production` for prod. The top-level config in `wrangler.toml` (with `LOCAL_DB_ID` / `LOCAL_KV_ID`) is only used by `pnpm dev` and `pnpm wrangler:dev` locally — CI always deploys through a named env.
 
 ---
 

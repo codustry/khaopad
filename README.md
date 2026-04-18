@@ -294,7 +294,7 @@ BETTER_AUTH_SECRET=dev-local-only-not-a-real-secret
 - [x] **M3** — Better Auth integration + CMS admin panel (article CRUD, first-admin signup, role-based permissions)
 - [x] **M4** — Media library (R2 upload/delete, cover images, migration guide)
 - [x] **M5** — Categories & tags (CMS taxonomy UI, article pickers, public blog filtering, CI workflow)
-- [ ] **M6** — GitHub Actions deploy pipeline (staging + production)
+- [x] **M6** — Deploy pipeline (staging on `main`, production on `v*.*.*` tag, D1 migrations + smoke test)
 - [ ] **M7** — Markdown editor UX (syntax highlight, image picker, preview)
 
 See [docs/MILESTONES.md](docs/MILESTONES.md) for a detailed breakdown of what shipped in each milestone.
