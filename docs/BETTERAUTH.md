@@ -96,7 +96,8 @@ This runs on every request. `getSession` reads the `better-auth.session_token` c
 **Layer B — auth guard (`src/routes/(cms)/+layout.server.ts`).**
 
 ```ts
-if (url.pathname === "/login" || url.pathname === "/signup") return { user: locals.user };
+if (url.pathname === "/login" || url.pathname === "/signup")
+  return { user: locals.user };
 if (!locals.user) throw redirect(302, "/login");
 return { user: locals.user };
 ```

@@ -73,6 +73,9 @@ export const GET: RequestHandler = async ({ locals }) => {
 
 /** Strip path separators and control chars; keep extension. */
 function sanitizeFilename(name: string): string {
-  const base = name.replace(/[\\/]/g, "_").replace(/[^\w.\-+ ]/g, "_").trim();
+  const base = name
+    .replace(/[\\/]/g, "_")
+    .replace(/[^\w.\-+ ]/g, "_")
+    .trim();
   return base || "upload.bin";
 }

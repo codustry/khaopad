@@ -26,6 +26,11 @@ export function canManageSettings(user: AuthUser | null): boolean {
   return hasRole(user, "admin");
 }
 
+/** Check if user can manage categories/tags (editor+) */
+export function canManageTaxonomy(user: AuthUser | null): boolean {
+  return hasRole(user, "editor");
+}
+
 /** Check if user can publish/unpublish any content (editor+) */
 export function canPublish(user: AuthUser | null): boolean {
   return hasRole(user, "editor");

@@ -117,6 +117,13 @@ export class GitHubContentProvider implements ContentProvider {
     throw new Error("GitHubContentProvider not yet implemented");
   }
 
+  async updateTag(
+    _id: string,
+    _data: Partial<Pick<TagRecord, "slug" | "localizations">>,
+  ): Promise<TagRecord> {
+    throw new Error("GitHubContentProvider not yet implemented");
+  }
+
   async deleteTag(_id: string): Promise<void> {
     throw new Error("GitHubContentProvider not yet implemented");
   }

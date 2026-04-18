@@ -6,12 +6,12 @@
 
 Config lives in four different places depending on what it is. Know which goes where:
 
-| Layer                  | Where                                        | Scope       | Examples                           |
-| ---------------------- | -------------------------------------------- | ----------- | ---------------------------------- |
-| Bindings               | `wrangler.toml` `[[d1_databases]]` etc.      | Per project | `DB`, `MEDIA_BUCKET`, `CONTENT_CACHE` |
-| Plain vars             | `wrangler.toml` `[vars]`                     | Per project | `CONTENT_MODE`, locales, URLs      |
-| Cloudflare secrets     | `wrangler secret put`                        | Per project | `BETTER_AUTH_SECRET`, `GITHUB_TOKEN` |
-| GitHub Actions secrets | GitHub repo/org → Settings → Secrets         | CI only     | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
+| Layer                  | Where                                   | Scope       | Examples                                        |
+| ---------------------- | --------------------------------------- | ----------- | ----------------------------------------------- |
+| Bindings               | `wrangler.toml` `[[d1_databases]]` etc. | Per project | `DB`, `MEDIA_BUCKET`, `CONTENT_CACHE`           |
+| Plain vars             | `wrangler.toml` `[vars]`                | Per project | `CONTENT_MODE`, locales, URLs                   |
+| Cloudflare secrets     | `wrangler secret put`                   | Per project | `BETTER_AUTH_SECRET`, `GITHUB_TOKEN`            |
+| GitHub Actions secrets | GitHub repo/org → Settings → Secrets    | CI only     | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
 
 **Secrets are never committed.** They live either in Cloudflare's encrypted secret store (runtime) or in GitHub's (CI). Plain vars in `wrangler.toml [vars]` are considered public — treat them like anything else in the repo.
 
@@ -63,11 +63,12 @@ BETTER_AUTH_SECRET=dev-local-only-not-a-real-secret
 ```yaml
 - pnpm install --frozen-lockfile
 - pnpm build
-- wrangler d1 migrations apply khaopad-db --remote   # only pending migrations
+- wrangler d1 migrations apply khaopad-db --remote # only pending migrations
 - wrangler deploy
 ```
 
 Pre-reqs:
+
 - GitHub Actions secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (at org or repo level).
 - Token scopes: Workers Scripts Edit, D1 Edit, KV Edit, R2 Edit, Zone DNS Read.
 

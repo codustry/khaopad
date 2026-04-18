@@ -15,7 +15,11 @@ export const load: PageServerLoad = async ({ locals, params }) => {
   if (!canEditArticle(locals.user, article.authorId)) {
     throw error(403, "You are not allowed to edit this article");
   }
-  return { article };
+  const [categories, tags] = await Promise.all([
+    locals.content.listCategories(),
+    locals.content.listTags(),
+  ]);
+  return { article, categories, tags };
 };
 
 function requireAuthor(locals: App.Locals) {
@@ -41,6 +45,11 @@ export const actions: Actions = {
     const bodyTh = String(form.get("body_th") ?? "");
     const slugInput = String(form.get("slug") ?? "").trim();
     const coverMediaId = String(form.get("cover_media_id") ?? "").trim();
+    const categoryId = String(form.get("category_id") ?? "").trim();
+    const tagIds = form
+      .getAll("tag_ids")
+      .map((v) => String(v).trim())
+      .filter(Boolean);
     const nextStatus = String(form.get("status") ?? existing.status) as
       | "draft"
       | "published"
@@ -59,6 +68,8 @@ export const actions: Actions = {
           slugInput,
           status: nextStatus,
           coverMediaId,
+          categoryId,
+          tagIds,
         },
       });
     }
@@ -76,6 +87,8 @@ export const actions: Actions = {
     const update: ArticleUpdateInput = {
       status: nextStatus,
       coverMediaId: coverMediaId ? coverMediaId : null,
+      categoryId: categoryId ? categoryId : null,
+      tagIds,
       publishedAt:
         nextStatus === "published"
           ? (existing.publishedAt ?? new Date().toISOString())
@@ -108,6 +121,8 @@ export const actions: Actions = {
           slugInput,
           status: nextStatus,
           coverMediaId,
+          categoryId,
+          tagIds,
         },
       });
     }

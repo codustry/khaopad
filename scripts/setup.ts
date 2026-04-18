@@ -45,21 +45,32 @@ function run(label: string, cmd: string): string {
   console.log(`\n──── ${label} ────`);
   console.log(`$ ${cmd}`);
   try {
-    const out = execSync(cmd, { encoding: "utf-8", stdio: ["ignore", "pipe", "inherit"] });
+    const out = execSync(cmd, {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "inherit"],
+    });
     process.stdout.write(out);
     return out;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`  (step failed or resource exists — continuing): ${msg.split("\n")[0]}`);
+    console.warn(
+      `  (step failed or resource exists — continuing): ${msg.split("\n")[0]}`,
+    );
     return "";
   }
 }
 
 const args = parseArgs();
 
-const d1Out = run("1/3 Create D1 database", `npx wrangler d1 create ${args.db}`);
+const d1Out = run(
+  "1/3 Create D1 database",
+  `npx wrangler d1 create ${args.db}`,
+);
 run("2/3 Create R2 bucket", `npx wrangler r2 bucket create ${args.bucket}`);
-const kvOut = run("3/3 Create KV namespace", `npx wrangler kv namespace create ${args.kv}`);
+const kvOut = run(
+  "3/3 Create KV namespace",
+  `npx wrangler kv namespace create ${args.kv}`,
+);
 
 // Try to extract IDs for convenience.
 const dbId = d1Out.match(/database_id\s*=\s*"([^"]+)"/)?.[1];

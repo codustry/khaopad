@@ -261,6 +261,7 @@ function isCmsRoute(path: string): boolean {
     "/articles",
     "/media",
     "/categories",
+    "/tags",
     "/users",
     "/settings",
   ];

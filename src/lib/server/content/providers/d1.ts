@@ -469,6 +469,50 @@ export class D1ContentProvider implements ContentProvider {
     return (await this.getTag(id))!;
   }
 
+  async updateTag(
+    id: string,
+    data: Partial<Pick<TagRecord, "slug" | "localizations">>,
+  ): Promise<TagRecord> {
+    if (data.slug) {
+      await this.db
+        .update(schema.tags)
+        .set({ slug: data.slug })
+        .where(eq(schema.tags.id, id));
+    }
+
+    if (data.localizations) {
+      for (const [locale, content] of Object.entries(data.localizations)) {
+        if (!content) continue;
+        const existing = await this.db
+          .select()
+          .from(schema.tagLocalizations)
+          .where(
+            and(
+              eq(schema.tagLocalizations.tagId, id),
+              eq(schema.tagLocalizations.locale, locale as Locale),
+            ),
+          )
+          .get();
+
+        if (existing) {
+          await this.db
+            .update(schema.tagLocalizations)
+            .set({ name: content.name })
+            .where(eq(schema.tagLocalizations.id, existing.id));
+        } else {
+          await this.db.insert(schema.tagLocalizations).values({
+            id: nanoid(),
+            tagId: id,
+            locale: locale as Locale,
+            name: content.name,
+          });
+        }
+      }
+    }
+
+    return (await this.getTag(id))!;
+  }
+
   async deleteTag(id: string): Promise<void> {
     await this.db.delete(schema.tags).where(eq(schema.tags.id, id));
   }

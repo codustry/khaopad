@@ -26,6 +26,9 @@
 				<a href="/categories" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
 					{m.cms_categories()}
 				</a>
+				<a href="/tags" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
+					{m.cms_tags()}
+				</a>
 				{#if data.user.role === 'super_admin' || data.user.role === 'admin'}
 					<a href="/users" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
 						{m.cms_users()}
