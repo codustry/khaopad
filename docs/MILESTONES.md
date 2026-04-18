@@ -34,7 +34,7 @@ Tracks what shipped in each milestone and what is pending. Updated every time a 
 - `coverMediaId` picker in the article form with preview.
 - `docs/MIGRATING.md` — guide for folding an existing SvelteKit project into Khao Pad.
 
-### M5 — Categories & tags (this milestone)
+### M5 — Categories & tags
 
 - CMS `/categories` and `/tags` pages: list/create/edit/delete with inline editor and EN/TH localizations.
 - `canManageTaxonomy` permission gate (editor+ can write, anyone authenticated can read).
@@ -44,15 +44,22 @@ Tracks what shipped in each milestone and what is pending. Updated every time a 
 - GitHub Actions `ci.yml` runs `svelte-check`, `eslint`, `prettier`, and `vite build` on every PR.
 - `updateTag` added to `ContentProvider` (and stubbed in GitHub provider) so categories and tags now share a symmetric surface.
 
+### M6 — Deploy pipeline (this milestone)
+
+- `wrangler.toml` now defines `[env.staging]` and `[env.production]` with per-env D1 / R2 / KV bindings so state is never shared across envs.
+- `.github/workflows/deploy.yml` rewritten as a four-stage pipeline: **gate → resolve-env → deploy → smoke-test**.
+  - Push to `main` → auto-deploy to **staging**.
+  - Push tag `v*.*.*` → deploy to **production**.
+  - `workflow_dispatch` input → deploy to the chosen env manually.
+- The `gate` job runs the same checks as `ci.yml` (svelte-check + lint + build) so PRs and deploys can't disagree.
+- `deploy` attaches to a GitHub Environment of the same name — add required-reviewer protection on `production` under Settings → Environments to gate prod behind an approval.
+- D1 migrations apply with `--env <target>` so each env's schema is bumped independently.
+- `smoke-test` curls the public URL (from repo Variables `STAGING_PUBLIC_URL` / `PRODUCTION_PUBLIC_URL`) up to 6× with 10 s backoff; treats 2xx/3xx/503 as healthy.
+- `docs/DEPLOYMENT.md` now documents the full promotion flow, required secrets/variables, and per-env provisioning steps.
+
 ## Pending
 
-### M6 — Deploy pipeline
-
-- GitHub Actions `deploy.yml` for staging and production environments.
-- Wrangler secrets + environment promotion flow.
-- Smoke tests against the deployed worker.
-
-### M7 — Editor UX
+### M7 — Editor UX (next)
 
 - Markdown editor with syntax highlighting and live preview.
 - Inline image picker (pull from media library).

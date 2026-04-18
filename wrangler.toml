@@ -49,3 +49,76 @@ BETTER_AUTH_URL = "https://cms.example.com"
 # GITHUB_OWNER = "your-org"
 # GITHUB_REPO = "your-repo"
 # GITHUB_BRANCH = "main"
+
+# ──────────────────────────────────────
+# Environments
+# ──────────────────────────────────────
+# Each environment gets its OWN D1 database, R2 bucket, and KV namespace —
+# never share state across envs (a destructive migration on staging should
+# never touch production). `pnpm setup` creates the default set; re-run it
+# with `--env staging` to provision a parallel stack.
+#
+# Deploy:
+#   wrangler deploy --env staging
+#   wrangler deploy --env production
+#
+# The top-level config above is what `pnpm dev` and `pnpm wrangler:dev` use
+# locally. CI deploys go through one of the named envs below.
+
+[env.staging]
+name = "khaopad-staging"
+# routes = [
+#   { pattern = "staging-www.example.com/*", zone_name = "example.com" },
+#   { pattern = "staging-cms.example.com/*", zone_name = "example.com" },
+# ]
+
+[env.staging.vars]
+CONTENT_MODE = "d1"
+SUPPORTED_LOCALES = "en,th"
+DEFAULT_LOCALE = "en"
+PUBLIC_SITE_URL = "https://staging-www.example.com"
+CMS_SITE_URL = "https://staging-cms.example.com"
+BETTER_AUTH_URL = "https://staging-cms.example.com"
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "khaopad-db-staging"
+database_id = "STAGING_DB_ID"
+migrations_dir = "drizzle"
+
+[[env.staging.r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "khaopad-media-staging"
+
+[[env.staging.kv_namespaces]]
+binding = "CONTENT_CACHE"
+id = "STAGING_KV_ID"
+
+[env.production]
+name = "khaopad"
+# routes = [
+#   { pattern = "www.example.com/*", zone_name = "example.com" },
+#   { pattern = "cms.example.com/*", zone_name = "example.com" },
+# ]
+
+[env.production.vars]
+CONTENT_MODE = "d1"
+SUPPORTED_LOCALES = "en,th"
+DEFAULT_LOCALE = "en"
+PUBLIC_SITE_URL = "https://www.example.com"
+CMS_SITE_URL = "https://cms.example.com"
+BETTER_AUTH_URL = "https://cms.example.com"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "khaopad-db"
+database_id = "PRODUCTION_DB_ID"
+migrations_dir = "drizzle"
+
+[[env.production.r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "khaopad-media"
+
+[[env.production.kv_namespaces]]
+binding = "CONTENT_CACHE"
+id = "PRODUCTION_KV_ID"

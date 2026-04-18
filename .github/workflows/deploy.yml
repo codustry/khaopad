@@ -1,12 +1,108 @@
 name: Deploy to Cloudflare Workers
 
+# Deploy pipeline:
+#   - Every push to main             → deploy to staging
+#   - Every version tag  `v*.*.*`    → deploy to production
+#   - Manual run with environment    → deploy to the chosen env
+#
+# Both paths run the same CI gates (check / lint / build) first, then
+# apply pending D1 migrations for that env, then deploy the Worker,
+# then probe the public URL as a smoke test.
+
 on:
   push:
     branches: [main]
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options: [staging, production]
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
+  # ──────────────────────────────────────
+  # Gate: same checks as ci.yml. If these fail, nothing deploys.
+  # ──────────────────────────────────────
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Compile Paraglide messages
+        run: pnpm exec paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide
+
+      - name: Type-check
+        run: pnpm run check
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Build
+        run: pnpm run build
+
+  # ──────────────────────────────────────
+  # Resolve which environment this run targets.
+  # main push      → staging
+  # v*.*.* tag     → production
+  # manual dispatch → input
+  # ──────────────────────────────────────
+  resolve-env:
+    runs-on: ubuntu-latest
+    needs: gate
+    outputs:
+      environment: ${{ steps.pick.outputs.environment }}
+      public_url: ${{ steps.pick.outputs.public_url }}
+    steps:
+      - id: pick
+        env:
+          STAGING_URL: ${{ vars.STAGING_PUBLIC_URL }}
+          PRODUCTION_URL: ${{ vars.PRODUCTION_PUBLIC_URL }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            ENV="${{ github.event.inputs.environment }}"
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            ENV="production"
+          else
+            ENV="staging"
+          fi
+          if [[ "$ENV" == "production" ]]; then
+            URL="${PRODUCTION_URL:-}"
+          else
+            URL="${STAGING_URL:-}"
+          fi
+          echo "environment=$ENV" >> "$GITHUB_OUTPUT"
+          echo "public_url=$URL" >> "$GITHUB_OUTPUT"
+          echo "→ deploying to: $ENV (url: ${URL:-<unset>})"
+
+  # ──────────────────────────────────────
+  # Deploy: migrate D1, then deploy the Worker.
+  # GitHub Environment protections (required reviewers, wait timers) attach
+  # to `environment:` below — configure them under repo Settings → Environments.
+  # ──────────────────────────────────────
   deploy:
     runs-on: ubuntu-latest
+    needs: [gate, resolve-env]
+    environment:
+      name: ${{ needs.resolve-env.outputs.environment }}
+      url: ${{ needs.resolve-env.outputs.public_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -22,15 +118,50 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
 
-      - name: Run D1 migrations
+      - name: Apply D1 migrations (${{ needs.resolve-env.outputs.environment }})
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: d1 migrations apply khaopad-db --remote
+          command: d1 migrations apply khaopad-db --remote --env ${{ needs.resolve-env.outputs.environment }}
 
-      - name: Deploy Worker
+      - name: Deploy Worker (${{ needs.resolve-env.outputs.environment }})
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --env ${{ needs.resolve-env.outputs.environment }}
+
+  # ──────────────────────────────────────
+  # Smoke test: hit the public URL and make sure it responds.
+  # Skipped (with a warning) if the environment URL var isn't set yet.
+  # ──────────────────────────────────────
+  smoke-test:
+    runs-on: ubuntu-latest
+    needs: [resolve-env, deploy]
+    steps:
+      - name: Probe public URL
+        env:
+          URL: ${{ needs.resolve-env.outputs.public_url }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${URL}" ]]; then
+            echo "::warning::Public URL not set for ${{ needs.resolve-env.outputs.environment }}; skipping smoke test."
+            echo "Set STAGING_PUBLIC_URL / PRODUCTION_PUBLIC_URL under repo Settings → Variables to enable."
+            exit 0
+          fi
+          echo "Probing $URL ..."
+          # Retry for up to ~60s — Worker propagation is fast but not instant.
+          for i in 1 2 3 4 5 6; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$URL" || echo "000")
+            echo "  attempt $i → HTTP $code"
+            # 2xx/3xx is healthy. 503 is the Khao Pad "config required" screen —
+            # still counts as the Worker running, just pointed at unconfigured bindings.
+            if [[ "$code" =~ ^(2|3)..$ ]] || [[ "$code" == "503" ]]; then
+              echo "✔ Worker responded ($code)"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Smoke test failed — $URL never returned a healthy status."
+          exit 1
