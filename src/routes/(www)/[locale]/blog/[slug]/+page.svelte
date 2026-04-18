@@ -12,6 +12,13 @@
 
 <article class="container mx-auto px-4 py-12 max-w-3xl">
 	<header class="mb-8">
+		{#if data.coverMediaId}
+			<img
+				src={`/api/media/${data.coverMediaId}`}
+				alt=""
+				class="w-full h-auto mb-6 rounded-lg object-cover aspect-[16/9]"
+			/>
+		{/if}
 		<h1 class="text-4xl font-bold mb-4">{data.title}</h1>
 		<time class="text-sm text-muted-foreground">
 			{formatDate(data.publishedAt ?? data.createdAt, data.locale)}

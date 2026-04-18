@@ -14,6 +14,7 @@ Eventually these become chapters on `docs.khaopad.com` (domain TBD). For now the
 | [I18N.md](./I18N.md) | Two independent i18n layers: Paraglide (UI shell, compile-time) vs content localizations (runtime, per-locale markdown). Why they don't overlap. |
 | [DEPLOYMENT.md](./DEPLOYMENT.md) | Config layers (bindings, vars, CF secrets, GH secrets), the 503 guard, local-dev vs prod, Wrangler simulators. |
 | [PLATFORM-NOTES.md](./PLATFORM-NOTES.md) | Cloudflare-specific gotchas: D1 has no interactive transactions, Workers has no filesystem, Vite 5 pin, `nodejs_compat` flag, why `createAuth` is per-request. |
+| [MIGRATING.md](./MIGRATING.md) | Folding an existing SvelteKit app into Khao Pad: where your routes/components/API/DB go, conflicts to expect, decision tree for "which folder?". |
 
 ## Conventions
 

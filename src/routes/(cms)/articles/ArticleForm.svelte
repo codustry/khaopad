@@ -13,6 +13,7 @@
 		bodyTh: string;
 		slugInput: string;
 		status: ArticleRecord['status'];
+		coverMediaId: string;
 	};
 
 	let {
@@ -38,6 +39,7 @@
 		bodyTh: formState?.values?.bodyTh ?? existing?.localizations.th?.body ?? '',
 		slugInput: formState?.values?.slugInput ?? existing?.slug ?? '',
 		status: formState?.values?.status ?? existing?.status ?? 'draft',
+		coverMediaId: formState?.values?.coverMediaId ?? existing?.coverMediaId ?? '',
 	});
 	const seed = initialValues();
 
@@ -49,6 +51,7 @@
 	let bodyTh = $state(seed.bodyTh);
 	let slugInput = $state(seed.slugInput);
 	let status = $state<ArticleRecord['status']>(seed.status);
+	let coverMediaId = $state(seed.coverMediaId);
 	let loading = $state(false);
 
 	// Auto-derive slug preview from English title until the user types their own.
@@ -179,6 +182,46 @@
 				<option value="archived">{m.status_archived()}</option>
 			</select>
 		</label>
+
+		<div class="block">
+			<span class="text-sm font-medium">{m.cms_cover_media()}</span>
+			<div class="mt-1 flex items-start gap-3">
+				{#if coverMediaId}
+					<img
+						src={`/api/media/${coverMediaId}`}
+						alt=""
+						class="h-20 w-20 object-cover rounded-md border border-border"
+						onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+					/>
+				{:else}
+					<div
+						class="h-20 w-20 rounded-md border border-dashed border-border flex items-center justify-center text-[10px] text-muted-foreground text-center p-1"
+					>
+						{m.cms_cover_media_none()}
+					</div>
+				{/if}
+				<div class="flex-1 space-y-1">
+					<input
+						name="cover_media_id"
+						bind:value={coverMediaId}
+						placeholder="media-id"
+						class="w-full px-3 py-2 border border-input rounded-md bg-background text-sm font-mono"
+					/>
+					<div class="flex items-center justify-between text-xs">
+						<span class="text-muted-foreground">{m.cms_cover_media_help()}</span>
+						{#if coverMediaId}
+							<button
+								type="button"
+								class="text-destructive hover:underline"
+								onclick={() => (coverMediaId = '')}
+							>
+								{m.cms_cover_media_clear()}
+							</button>
+						{/if}
+					</div>
+				</div>
+			</div>
+		</div>
 	</section>
 
 	<div class="flex items-center justify-between">

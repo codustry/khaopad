@@ -19,6 +19,7 @@ export const actions: Actions = {
     const excerptTh = String(form.get("excerpt_th") ?? "").trim();
     const bodyTh = String(form.get("body_th") ?? "");
     const slugInput = String(form.get("slug") ?? "").trim();
+    const coverMediaId = String(form.get("cover_media_id") ?? "").trim();
     const status = String(form.get("status") ?? "draft") as
       | "draft"
       | "published"
@@ -36,6 +37,7 @@ export const actions: Actions = {
           bodyTh,
           slugInput,
           status,
+          coverMediaId,
         },
       });
     }
@@ -56,6 +58,7 @@ export const actions: Actions = {
           bodyTh,
           slugInput,
           status,
+          coverMediaId,
         },
       });
     }
@@ -65,6 +68,7 @@ export const actions: Actions = {
         slug,
         authorId: locals.user.id,
         status,
+        coverMediaId: coverMediaId || undefined,
         publishedAt:
           status === "published" ? new Date().toISOString() : undefined,
         localizations: {
@@ -88,6 +92,7 @@ export const actions: Actions = {
           bodyTh,
           slugInput,
           status,
+          coverMediaId,
         },
       });
     }

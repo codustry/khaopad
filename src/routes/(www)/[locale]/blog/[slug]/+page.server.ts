@@ -29,6 +29,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
     publishedAt: article.publishedAt,
     createdAt: article.createdAt,
     slug: article.slug,
+    coverMediaId: article.coverMediaId,
     seo: {
       title: localization.seoTitle ?? localization.title,
       description: localization.seoDescription ?? localization.excerpt,
