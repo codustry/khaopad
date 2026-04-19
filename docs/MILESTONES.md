@@ -57,13 +57,17 @@ Tracks what shipped in each milestone and what is pending. Updated every time a 
 - `smoke-test` curls the public URL (from repo Variables `STAGING_PUBLIC_URL` / `PRODUCTION_PUBLIC_URL`) up to 6× with 10 s backoff; treats 2xx/3xx/503 as healthy.
 - `docs/DEPLOYMENT.md` now documents the full promotion flow, required secrets/variables, and per-env provisioning steps.
 
+### M7 — Editor UX (this milestone)
+
+- New `$lib/components/editor/MarkdownEditor.svelte` drop-in replaces the bare article body `<textarea>` in both `new` and `[id]` routes for EN and TH.
+- Toolbar: bold, italic, H1/H2, link, media-insert, bulleted/numbered lists, inline code, blockquote.
+- Three view modes (Write / Split / Preview) — split shows live `marked`-rendered HTML in a `prose` pane next to the editor; `@tailwindcss/typography` plugin enabled via `@plugin` in `app.css`.
+- Keyboard shortcuts: ⌘B (bold), ⌘I (italic), ⌘K (link).
+- `MediaPicker` modal lazy-loads `GET /api/media`, renders a thumbnail grid, and inserts `![alt](/api/media/:id)` for images or `[name](/api/media/:id)` for other types at the cursor.
+- Autosave: debounced write to `localStorage[khaopad:draft:article:<scope>:<field>]`; on re-open, compares against the seeded value and offers a restore banner if different. Cleared after a successful save via the parent's `use:enhance` callback.
+- i18n: 22 new Paraglide keys (EN + TH) covering toolbar labels, modes, picker copy, and the parameterized draft-available banner.
+
 ## Pending
-
-### M7 — Editor UX (next)
-
-- Markdown editor with syntax highlighting and live preview.
-- Inline image picker (pull from media library).
-- Autosave drafts.
 
 ### v1.1+
 

@@ -3,6 +3,7 @@
 	import * as m from '$lib/paraglide/messages';
 	import { slugify } from '$lib/utils';
 	import type { ArticleRecord, CategoryRecord, TagRecord } from '$lib/server/content/types';
+	import MarkdownEditor from '$lib/components/editor/MarkdownEditor.svelte';
 
 	type Values = {
 		titleEn: string;
@@ -73,6 +74,13 @@
 		slugTouched = true;
 		slugInput = (e.target as HTMLInputElement).value;
 	}
+
+	// Autosave draft keys — scope per article ("new" for unsaved, id for existing).
+	// On successful save we'll call the editor's `clearDraft()` so recovery
+	// prompts don't reappear after the round-trip.
+	const draftScope = $derived(existing?.id ?? 'new');
+	let editorEn = $state<{ clearDraft: () => void } | null>(null);
+	let editorTh = $state<{ clearDraft: () => void } | null>(null);
 </script>
 
 <form
@@ -81,9 +89,15 @@
 	class="space-y-6"
 	use:enhance={() => {
 		loading = true;
-		return async ({ update }) => {
+		return async ({ update, result }) => {
 			await update();
 			loading = false;
+			// On a successful save, clear the localStorage drafts so the
+			// recovery banner doesn't reappear with stale content.
+			if (result.type === 'success' || result.type === 'redirect') {
+				editorEn?.clearDraft();
+				editorTh?.clearDraft();
+			}
 		};
 	}}
 >
@@ -118,16 +132,19 @@
 			/>
 		</label>
 
-		<label class="block">
+		<div class="block">
 			<span class="text-sm font-medium">{m.cms_body()}</span>
-			<textarea
-				name="body_en"
-				bind:value={bodyEn}
-				required
-				rows={10}
-				class="mt-1 w-full px-3 py-2 border border-input rounded-md bg-background text-sm font-mono"
-			></textarea>
-		</label>
+			<div class="mt-1">
+				<MarkdownEditor
+					bind:this={editorEn}
+					bind:value={bodyEn}
+					name="body_en"
+					required
+					rows={14}
+					draftKey={`article:${draftScope}:body_en`}
+				/>
+			</div>
+		</div>
 	</section>
 
 	<section class="border border-border rounded-lg p-4 space-y-4">
@@ -154,15 +171,18 @@
 			/>
 		</label>
 
-		<label class="block">
+		<div class="block">
 			<span class="text-sm font-medium">{m.cms_body()}</span>
-			<textarea
-				name="body_th"
-				bind:value={bodyTh}
-				rows={10}
-				class="mt-1 w-full px-3 py-2 border border-input rounded-md bg-background text-sm font-mono"
-			></textarea>
-		</label>
+			<div class="mt-1">
+				<MarkdownEditor
+					bind:this={editorTh}
+					bind:value={bodyTh}
+					name="body_th"
+					rows={14}
+					draftKey={`article:${draftScope}:body_th`}
+				/>
+			</div>
+		</div>
 	</section>
 
 	<section class="border border-border rounded-lg p-4 space-y-4">

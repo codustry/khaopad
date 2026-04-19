@@ -295,7 +295,7 @@ BETTER_AUTH_SECRET=dev-local-only-not-a-real-secret
 - [x] **M4** — Media library (R2 upload/delete, cover images, migration guide)
 - [x] **M5** — Categories & tags (CMS taxonomy UI, article pickers, public blog filtering, CI workflow)
 - [x] **M6** — Deploy pipeline (staging on `main`, production on `v*.*.*` tag, D1 migrations + smoke test)
-- [ ] **M7** — Markdown editor UX (syntax highlight, image picker, preview)
+- [x] **M7** — Markdown editor UX (toolbar, split preview, media picker, draft autosave)
 
 See [docs/MILESTONES.md](docs/MILESTONES.md) for a detailed breakdown of what shipped in each milestone.
 
