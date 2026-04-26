@@ -295,7 +295,7 @@
 	</section>
 
 	<div class="flex items-center justify-between">
-		<a href="/articles" class="text-sm text-muted-foreground hover:underline">
+		<a href="/cms/articles" class="text-sm text-muted-foreground hover:underline">
 			← {m.cms_back_to_list()}
 		</a>
 		<button

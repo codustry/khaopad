@@ -14,28 +14,23 @@ import { localeFromPathname } from "$lib/i18n";
 import { R2MediaService } from "$lib/server/media";
 
 /**
- * Subdomain detection hook.
- * Routes requests to (www) or (cms) route groups based on hostname.
+ * Surface detection hook.
+ *
+ * Khao Pad is one SvelteKit app serving two surfaces from the same host:
+ * the public site at `/*` and the admin CMS at `/cms/*`. We tag every
+ * request with `event.locals.surface` so downstream hooks (auth, media,
+ * locale) can branch on it without re-parsing the URL.
+ *
+ * The previous design used host-based routing (`cms.example.com` vs
+ * `www.example.com`). That broke on cookieless, single-host deploys
+ * (workers.dev, localhost) and contradicted Paraglide's recommendation
+ * that private routes live under a path prefix and read locale from
+ * cookies. See docs/ARCHITECTURE.md for the migration rationale.
  */
-const subdomainHook: Handle = async ({ event, resolve }) => {
-  const host = event.request.headers.get("host") ?? "";
-
-  // Determine subdomain
-  if (host.startsWith("cms.") || host.includes("cms.")) {
-    event.locals.subdomain = "cms";
-  } else {
-    event.locals.subdomain = "www";
-  }
-
-  // Block CMS routes from www and vice versa
-  const path = event.url.pathname;
-  if (event.locals.subdomain === "www" && isCmsRoute(path)) {
-    return new Response("Not Found", { status: 404 });
-  }
-  if (event.locals.subdomain === "cms" && isWwwOnlyRoute(path)) {
-    return new Response("Not Found", { status: 404 });
-  }
-
+const surfaceHook: Handle = async ({ event, resolve }) => {
+  event.locals.surface = isCmsPath(event.url.pathname) ? "cms" : "www";
+  // Back-compat: `subdomain` is still read by older hooks. Keep until removed.
+  event.locals.subdomain = event.locals.surface;
   return resolve(event);
 };
 
@@ -254,32 +249,16 @@ const authHook: Handle = async ({ event, resolve }) => {
 
 // ─── Route classification helpers ────────────────────────
 
-/** CMS-only route paths (under (cms) group) */
-function isCmsRoute(path: string): boolean {
-  const cmsRoutes = [
-    "/dashboard",
-    "/articles",
-    "/media",
-    "/categories",
-    "/tags",
-    "/users",
-    "/settings",
-  ];
-  return (
-    cmsRoutes.some((r) => path.startsWith(r)) ||
-    path === "/login" ||
-    path === "/signup"
-  );
-}
-
-/** Routes that should only be accessible from www */
-function isWwwOnlyRoute(path: string): boolean {
-  // Blog and locale-prefixed routes are www-only
-  return /^\/(th|en)\//.test(path);
+/**
+ * Returns true if the request targets the admin CMS surface.
+ * Single source of truth — used by every hook that needs to branch on surface.
+ */
+function isCmsPath(path: string): boolean {
+  return path === "/cms" || path.startsWith("/cms/");
 }
 
 export const handle = sequence(
-  subdomainHook,
+  surfaceHook,
   bindingsHook,
   configurationGuardHook,
   paraglideLocaleHook,

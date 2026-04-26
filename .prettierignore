@@ -1,0 +1,12 @@
+node_modules/
+.svelte-kit/
+build/
+dist/
+.wrangler/
+src/lib/paraglide/
+pnpm-lock.yaml
+project.inlang/.meta.json
+project.inlang/README.md
+.github/workflows/
+vite.config.ts.timestamp-*.mjs
+drizzle/

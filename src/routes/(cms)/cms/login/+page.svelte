@@ -20,7 +20,7 @@
 				error = result.error;
 				return;
 			}
-			window.location.href = '/dashboard';
+			window.location.href = '/cms/dashboard';
 		} catch {
 			error = 'Something went wrong';
 		} finally {
@@ -42,7 +42,7 @@
 
 		{#if data.bootstrapNeeded}
 			<div class="mb-4 border border-border rounded-md bg-muted/50 p-3 text-sm">
-				No admin exists yet. <a href="/signup" class="underline font-medium">{m.cms_sign_up()}</a>
+				No admin exists yet. <a href="/cms/signup" class="underline font-medium">{m.cms_sign_up()}</a>
 			</div>
 		{/if}
 

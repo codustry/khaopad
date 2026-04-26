@@ -1,5 +1,5 @@
 <script lang="ts">
-	import '../../app.css';
+	import '../../../app.css';
 	import * as m from '$lib/paraglide/messages';
 	let { children, data } = $props();
 </script>
@@ -14,26 +14,26 @@
 				<h1 class="text-lg font-bold">{m.cms_app_name()}</h1>
 			</div>
 			<nav class="flex-1 space-y-1">
-				<a href="/dashboard" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
+				<a href="/cms/dashboard" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
 					{m.cms_dashboard()}
 				</a>
-				<a href="/articles" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
+				<a href="/cms/articles" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
 					{m.cms_articles()}
 				</a>
-				<a href="/media" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
+				<a href="/cms/media" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
 					{m.cms_media()}
 				</a>
-				<a href="/categories" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
+				<a href="/cms/categories" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
 					{m.cms_categories()}
 				</a>
-				<a href="/tags" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
+				<a href="/cms/tags" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
 					{m.cms_tags()}
 				</a>
 				{#if data.user.role === 'super_admin' || data.user.role === 'admin'}
-					<a href="/users" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
+					<a href="/cms/users" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
 						{m.cms_users()}
 					</a>
-					<a href="/settings" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
+					<a href="/cms/settings" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
 						{m.cms_settings()}
 					</a>
 				{/if}

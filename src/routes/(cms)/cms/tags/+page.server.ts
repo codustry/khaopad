@@ -4,7 +4,7 @@ import { slugify } from "$lib/utils";
 import type { Actions, PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals }) => {
-  if (!locals.user) throw redirect(302, "/login");
+  if (!locals.user) throw redirect(302, "/cms/login");
   const items = await locals.content.listTags();
   return { items };
 };
