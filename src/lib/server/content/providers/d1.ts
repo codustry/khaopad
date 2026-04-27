@@ -564,6 +564,18 @@ export class D1ContentProvider implements ContentProvider {
     const now = new Date().toISOString();
 
     for (const [key, value] of Object.entries(data)) {
+      // A `value` of `undefined` means "field omitted by the caller" — most
+      // commonly an optional form field left blank. We treat that as a
+      // delete so the row goes away (caller can re-create later) and the
+      // NOT NULL `value` column never sees a null bind. `null` is treated
+      // the same way for symmetry.
+      if (value === undefined || value === null) {
+        await this.db
+          .delete(schema.siteSettings)
+          .where(eq(schema.siteSettings.key, key));
+        continue;
+      }
+
       const serialized =
         typeof value === "string" ? value : JSON.stringify(value);
       const existing = await this.db
