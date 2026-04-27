@@ -5,8 +5,6 @@ import {
   Image as ImageIcon,
   Folder,
   Tag,
-  Users,
-  Settings,
 } from "lucide-svelte";
 import * as m from "$lib/paraglide/messages";
 
@@ -27,6 +25,9 @@ export type NavGroup = {
   items: ReadonlyArray<NavItem>;
 };
 
+// NOTE: /cms/users and /cms/settings are not implemented yet (slated for
+// a future milestone). They were removed from the sidebar to avoid 404s.
+// Re-add them once the corresponding +page.svelte files exist.
 export const navGroups: ReadonlyArray<NavGroup> = [
   {
     id: "main",
@@ -43,24 +44,6 @@ export const navGroups: ReadonlyArray<NavGroup> = [
     items: [
       { href: "/cms/categories", label: m.cms_categories, icon: Folder },
       { href: "/cms/tags", label: m.cms_tags, icon: Tag },
-    ],
-  },
-  {
-    id: "admin",
-    title: m.cms_settings,
-    items: [
-      {
-        href: "/cms/users",
-        label: m.cms_users,
-        icon: Users,
-        roles: ["super_admin", "admin"],
-      },
-      {
-        href: "/cms/settings",
-        label: m.cms_settings,
-        icon: Settings,
-        roles: ["super_admin", "admin"],
-      },
     ],
   },
 ];
