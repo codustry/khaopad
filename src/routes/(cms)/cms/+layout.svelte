@@ -1,52 +1,99 @@
 <script lang="ts">
 	import '../../../app.css';
-	import * as m from '$lib/paraglide/messages';
-	let { children, data } = $props();
+	import { goto } from '$app/navigation';
+	import { Menu, X } from 'lucide-svelte';
+	import Sidebar from '$lib/components/cms/Sidebar.svelte';
+	import CmsLocaleToggle from '$lib/components/cms/CmsLocaleToggle.svelte';
+	import type { Snippet } from 'svelte';
+	import type { LayoutData } from './$types';
+
+	let {
+		children,
+		data,
+	}: {
+		children: Snippet;
+		data: LayoutData;
+	} = $props();
+
+	let mobileOpen = $state(false);
+
+	async function logout() {
+		try {
+			await fetch('/api/auth/sign-out', { method: 'POST' });
+		} catch {
+			// network failure: still try to leave
+		}
+		goto('/cms/login', { invalidateAll: true });
+	}
+
+	// Re-derived per page so the sidebar sees route changes for active state.
+	// data.user is null on the public-ish auth pages (login/signup).
 </script>
 
+<svelte:head>
+	<link rel="preconnect" href="https://fonts.googleapis.com" />
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+	<link
+		href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+		rel="stylesheet"
+	/>
+</svelte:head>
+
 {#if !data.user}
+	<!-- Auth pages (login / signup) render full-bleed without the shell. -->
 	{@render children()}
 {:else}
-	<div class="min-h-screen flex">
-		<!-- Sidebar -->
-		<aside class="w-64 border-r border-border bg-sidebar-background p-4 flex flex-col">
-			<div class="mb-8">
-				<h1 class="text-lg font-bold">{m.cms_app_name()}</h1>
-			</div>
-			<nav class="flex-1 space-y-1">
-				<a href="/cms/dashboard" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
-					{m.cms_dashboard()}
-				</a>
-				<a href="/cms/articles" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
-					{m.cms_articles()}
-				</a>
-				<a href="/cms/media" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
-					{m.cms_media()}
-				</a>
-				<a href="/cms/categories" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
-					{m.cms_categories()}
-				</a>
-				<a href="/cms/tags" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
-					{m.cms_tags()}
-				</a>
-				{#if data.user.role === 'super_admin' || data.user.role === 'admin'}
-					<a href="/cms/users" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
-						{m.cms_users()}
-					</a>
-					<a href="/cms/settings" class="block px-3 py-2 rounded-md hover:bg-sidebar-accent text-sm">
-						{m.cms_settings()}
-					</a>
-				{/if}
-			</nav>
-			<div class="text-xs text-muted-foreground pt-4 border-t border-border">
-				<p>{data.user.name}</p>
-				<p class="capitalize">{data.user.role.replace('_', ' ')}</p>
-			</div>
-		</aside>
+	<div class="flex min-h-screen bg-background">
+		<!-- Desktop sidebar (lg+) -->
+		<div class="hidden shrink-0 lg:block">
+			<Sidebar user={data.user} onLogout={logout} />
+		</div>
 
-		<!-- Main content -->
-		<main class="flex-1 p-8">
-			{@render children()}
-		</main>
+		<!-- Mobile drawer -->
+		{#if mobileOpen}
+			<div
+				class="fixed inset-0 z-40 bg-black/50 lg:hidden"
+				onclick={() => (mobileOpen = false)}
+				role="presentation"
+			></div>
+			<div
+				class="fixed inset-y-0 left-0 z-50 lg:hidden"
+				role="dialog"
+				aria-modal="true"
+				aria-label="Navigation"
+			>
+				<Sidebar user={data.user} onLogout={logout} />
+			</div>
+		{/if}
+
+		<!-- Main column -->
+		<div class="flex min-w-0 flex-1 flex-col">
+			<!-- Topbar -->
+			<header
+				class="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur-sm sm:px-6"
+			>
+				<button
+					type="button"
+					onclick={() => (mobileOpen = !mobileOpen)}
+					class="grid h-8 w-8 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground lg:hidden"
+					aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+				>
+					{#if mobileOpen}
+						<X class="h-4 w-4" />
+					{:else}
+						<Menu class="h-4 w-4" />
+					{/if}
+				</button>
+
+				<div class="flex-1"></div>
+
+				<CmsLocaleToggle />
+			</header>
+
+			<!-- Page content -->
+			<main class="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+				{@render children()}
+			</main>
+		</div>
 	</div>
 {/if}
