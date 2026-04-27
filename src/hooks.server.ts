@@ -231,10 +231,17 @@ const authHook: Handle = async ({ event, resolve }) => {
     BETTER_AUTH_URL: env.BETTER_AUTH_URL,
   });
 
-  // Resolve session from request cookies
-  const session = await auth.api.getSession({
-    headers: event.request.headers,
-  });
+  // Resolve session from request cookies. Wrap defensively: getSession
+  // can throw if the cookie is malformed or if a session-refresh write
+  // fails, and we don't want every page to 500 over auth lookup.
+  let session: Awaited<ReturnType<typeof auth.api.getSession>> = null;
+  try {
+    session = await auth.api.getSession({
+      headers: event.request.headers,
+    });
+  } catch {
+    session = null;
+  }
 
   if (session) {
     event.locals.user = session.user as unknown as App.Locals["user"];
