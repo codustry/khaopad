@@ -18,7 +18,7 @@ Khao Pad fills the gap: **start lightweight, scale when needed, stay on Cloudfla
 
 ## Features
 
-- **One repo, two subdomains** — `www` for public site, `cms` for admin panel
+- **One repo, one host, two surfaces** — public site at `/`, admin CMS at `/cms/*`
 - **Multilingual first** — shared slug and media, separate content per language (TH/EN)
 - **Pluggable storage** — D1 mode now, GitHub file-based mode later
 - **Cloudflare-native** — D1 database, R2 media, KV caching, Workers deployment
@@ -32,12 +32,11 @@ Khao Pad fills the gap: **start lightweight, scale when needed, stay on Cloudfla
 ┌──────────────────────────────────────────┐
 │            Single SvelteKit App           │
 │                                           │
-│  hooks.server.ts (subdomain routing)      │
+│  hooks.server.ts (path-based surface)     │
 │                                           │
-│  ┌─────────────┐  ┌───────────────────┐   │
-│  │  (www)/      │  │  (cms)/           │   │
-│  │  Public site │  │  Admin panel      │   │
-│  └─────────────┘  └───────────────────┘   │
+│  /*           → (www)/  public site       │
+│  /cms/*       → (cms)/  admin panel       │
+│  /api/auth/*  → Better Auth handler       │
 │                                           │
 │  ┌──────────────────────────────────────┐ │
 │  │  ContentProvider (interface)          │ │
@@ -117,16 +116,16 @@ For **local dev** with `pnpm wrangler:dev`, Wrangler spins up local simulators f
 
 ### Local Development
 
-For subdomain testing locally, add to `/etc/hosts`:
-
-```
-127.0.0.1 www.khaopad.local cms.khaopad.local
+```bash
+pnpm dev
 ```
 
-Then access:
+- Public site: `http://localhost:5173`
+- CMS admin: `http://localhost:5173/cms`
+- First admin signup: `http://localhost:5173/cms/signup` (one-shot, before any user exists)
+- Login: `http://localhost:5173/cms/login`
 
-- Public site: `http://www.khaopad.local:5173`
-- CMS admin: `http://cms.khaopad.local:5173`
+No `/etc/hosts` editing needed — both surfaces share one host. Locale switches via `/en/blog` ↔ `/th/blog` on the public side; the CMS reads locale from a cookie so admin URLs stay clean.
 
 ## Content Model
 
@@ -227,17 +226,17 @@ id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"               # from `wrangler kv namesp
 
 Non-secret config that ships with the Worker:
 
-| Var                 | Required | Default                   | Purpose                                                     |
-| ------------------- | :------: | ------------------------- | ----------------------------------------------------------- |
-| `CONTENT_MODE`      |   yes    | `d1`                      | `d1` (active) or `github` (planned).                        |
-| `SUPPORTED_LOCALES` |   yes    | `en,th`                   | Comma-separated. Must match `project.inlang/settings.json`. |
-| `DEFAULT_LOCALE`    |   yes    | `en`                      | Fallback locale. Must be in `SUPPORTED_LOCALES`.            |
-| `PUBLIC_SITE_URL`   |   yes    | `https://www.example.com` | Canonical origin for `www` subdomain.                       |
-| `CMS_SITE_URL`      |   yes    | `https://cms.example.com` | Canonical origin for `cms` subdomain.                       |
-| `BETTER_AUTH_URL`   |   yes    | = `CMS_SITE_URL`          | Base URL Better Auth uses in callbacks/cookies.             |
-| `GITHUB_OWNER`      |  Mode B  | —                         | Org/user owning the content repo.                           |
-| `GITHUB_REPO`       |  Mode B  | —                         | Repo name holding markdown content.                         |
-| `GITHUB_BRANCH`     |  Mode B  | `main`                    | Branch the provider reads/writes.                           |
+| Var                 | Required | Default               | Purpose                                                                         |
+| ------------------- | :------: | --------------------- | ------------------------------------------------------------------------------- |
+| `CONTENT_MODE`      |   yes    | `d1`                  | `d1` (active) or `github` (planned).                                            |
+| `SUPPORTED_LOCALES` |   yes    | `en,th`               | Comma-separated. Must match `project.inlang/settings.json`.                     |
+| `DEFAULT_LOCALE`    |   yes    | `en`                  | Fallback locale. Must be in `SUPPORTED_LOCALES`.                                |
+| `PUBLIC_SITE_URL`   |   yes    | `https://example.com` | Canonical origin for both surfaces (one host).                                  |
+| `CMS_SITE_URL`      |   yes    | = `PUBLIC_SITE_URL`   | Deprecated alias kept for media URL generation; same host as public since v1.1. |
+| `BETTER_AUTH_URL`   |   yes    | = `PUBLIC_SITE_URL`   | Base URL Better Auth uses in callbacks/cookies.                                 |
+| `GITHUB_OWNER`      |  Mode B  | —                     | Org/user owning the content repo.                                               |
+| `GITHUB_REPO`       |  Mode B  | —                     | Repo name holding markdown content.                                             |
+| `GITHUB_BRANCH`     |  Mode B  | `main`                | Branch the provider reads/writes.                                               |
 
 ### 5. Routes & DNS (production only)
 
@@ -245,12 +244,11 @@ Uncomment the `routes` block in `wrangler.toml` after your domain is on Cloudfla
 
 ```toml
 routes = [
-  { pattern = "www.example.com/*", zone_name = "example.com" },
-  { pattern = "cms.example.com/*", zone_name = "example.com" },
+  { pattern = "example.com/*", zone_name = "example.com" },
 ]
 ```
 
-Both subdomains must exist as proxied (orange-cloud) DNS records — `CNAME` to your Worker is fine since Cloudflare terminates TLS and routes by the pattern above. The `subdomainHook` in `hooks.server.ts` reads the `Host` header to dispatch between the `(www)` and `(cms)` route groups.
+A single proxied (orange-cloud) DNS record pointing at the Worker is enough — Cloudflare terminates TLS and the `surfaceHook` in `hooks.server.ts` decides whether each request is the public site (`/`) or the admin CMS (`/cms/*`).
 
 ### 6. Local dev
 
@@ -267,9 +265,9 @@ BETTER_AUTH_SECRET=dev-local-only-not-a-real-secret
 
 - [ ] `pnpm setup` ran and `wrangler.toml` has real `database_id` + KV `id`
 - [ ] `BETTER_AUTH_SECRET` set in Cloudflare (`wrangler secret put BETTER_AUTH_SECRET`)
-- [ ] `PUBLIC_SITE_URL`, `CMS_SITE_URL`, `BETTER_AUTH_URL` updated to real domains in `[vars]`
+- [ ] `PUBLIC_SITE_URL`, `CMS_SITE_URL`, `BETTER_AUTH_URL` updated to real domain in `[vars]`
 - [ ] `routes` block uncommented with real domain + zone
-- [ ] Both subdomains point to the Worker in Cloudflare DNS
+- [ ] DNS record points to the Worker in Cloudflare
 - [ ] GitHub org/repo has `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`
 - [ ] `pnpm build` passes locally
 - [ ] Migrations applied remote (`pnpm db:migrate:remote`) or CI will do it on first push

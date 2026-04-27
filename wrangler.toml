@@ -7,9 +7,11 @@ assets = { directory = ".svelte-kit/cloudflare", binding = "ASSETS" }
 # ──────────────────────────────────────
 # Routes — uncomment and configure for production
 # ──────────────────────────────────────
+# Single host serves both surfaces:
+#   /            → public site
+#   /cms/*       → admin CMS
 # routes = [
-#   { pattern = "www.example.com/*", zone_name = "example.com" },
-#   { pattern = "cms.example.com/*", zone_name = "example.com" },
+#   { pattern = "example.com/*", zone_name = "example.com" },
 # ]
 
 # ──────────────────────────────────────
@@ -42,9 +44,11 @@ id = "LOCAL_KV_ID"                    # Replace with actual KV ID for production
 CONTENT_MODE = "d1"                   # "d1" or "github"
 SUPPORTED_LOCALES = "en,th"
 DEFAULT_LOCALE = "en"
-PUBLIC_SITE_URL = "https://www.example.com"
-CMS_SITE_URL = "https://cms.example.com"
-BETTER_AUTH_URL = "https://cms.example.com"
+PUBLIC_SITE_URL = "https://example.com"
+# CMS_SITE_URL is kept for backwards-compat (R2 media URL generation).
+# Since v1.1 the CMS lives at /cms/* on the same host as the public site.
+CMS_SITE_URL = "https://example.com"
+BETTER_AUTH_URL = "https://example.com"
 # GitHub content mode vars (only needed when CONTENT_MODE = "github")
 # GITHUB_OWNER = "your-org"
 # GITHUB_REPO = "your-repo"
@@ -68,17 +72,16 @@ BETTER_AUTH_URL = "https://cms.example.com"
 [env.staging]
 name = "khaopad-staging"
 # routes = [
-#   { pattern = "staging-www.example.com/*", zone_name = "example.com" },
-#   { pattern = "staging-cms.example.com/*", zone_name = "example.com" },
+#   { pattern = "staging.example.com/*", zone_name = "example.com" },
 # ]
 
 [env.staging.vars]
 CONTENT_MODE = "d1"
 SUPPORTED_LOCALES = "en,th"
 DEFAULT_LOCALE = "en"
-PUBLIC_SITE_URL = "https://staging-www.example.com"
-CMS_SITE_URL = "https://staging-cms.example.com"
-BETTER_AUTH_URL = "https://staging-cms.example.com"
+PUBLIC_SITE_URL = "https://staging.example.com"
+CMS_SITE_URL = "https://staging.example.com"
+BETTER_AUTH_URL = "https://staging.example.com"
 
 [[env.staging.d1_databases]]
 binding = "DB"
@@ -97,17 +100,16 @@ id = "STAGING_KV_ID"
 [env.production]
 name = "khaopad"
 # routes = [
-#   { pattern = "www.example.com/*", zone_name = "example.com" },
-#   { pattern = "cms.example.com/*", zone_name = "example.com" },
+#   { pattern = "example.com/*", zone_name = "example.com" },
 # ]
 
 [env.production.vars]
 CONTENT_MODE = "d1"
 SUPPORTED_LOCALES = "en,th"
 DEFAULT_LOCALE = "en"
-PUBLIC_SITE_URL = "https://www.example.com"
-CMS_SITE_URL = "https://cms.example.com"
-BETTER_AUTH_URL = "https://cms.example.com"
+PUBLIC_SITE_URL = "https://example.com"
+CMS_SITE_URL = "https://example.com"
+BETTER_AUTH_URL = "https://example.com"
 
 [[env.production.d1_databases]]
 binding = "DB"

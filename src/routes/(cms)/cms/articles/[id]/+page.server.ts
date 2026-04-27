@@ -9,7 +9,7 @@ import type { ArticleUpdateInput } from "$lib/server/content/types";
 import type { Actions, PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals, params }) => {
-  if (!locals.user) throw redirect(302, "/login");
+  if (!locals.user) throw redirect(302, "/cms/login");
   const article = await locals.content.getArticle(params.id);
   if (!article) throw error(404, "Article not found");
   if (!canEditArticle(locals.user, article.authorId)) {
@@ -23,7 +23,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 };
 
 function requireAuthor(locals: App.Locals) {
-  if (!locals.user) throw redirect(302, "/login");
+  if (!locals.user) throw redirect(302, "/cms/login");
   return locals.user;
 }
 
@@ -159,6 +159,6 @@ export const actions: Actions = {
       return fail(403, { error: "You are not allowed to delete this article" });
     }
     await locals.content.deleteArticle(params.id);
-    throw redirect(303, "/articles");
+    throw redirect(303, "/cms/articles");
   },
 };

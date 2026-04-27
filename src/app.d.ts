@@ -9,7 +9,12 @@ declare global {
     }
 
     interface Locals {
-      /** Which subdomain the request is hitting */
+      /**
+       * Which surface the request is hitting.
+       * "cms" for `/cms/*` (admin), "www" for everything else (public).
+       */
+      surface: "www" | "cms";
+      /** @deprecated Use `surface`. Kept as alias during the v1.1 migration. */
       subdomain: "www" | "cms";
       /** Current locale for the request */
       locale: string;

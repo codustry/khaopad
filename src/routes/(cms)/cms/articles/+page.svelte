@@ -50,7 +50,7 @@
 				</select>
 			</label>
 			<a
-				href="/articles/new"
+				href="/cms/articles/new"
 				class="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm hover:opacity-90"
 			>
 				{m.cms_new_article()}
@@ -76,7 +76,7 @@
 					{#each data.articles.items as article (article.id)}
 						<tr class="border-t border-border hover:bg-muted/50">
 							<td class="px-4 py-3">
-								<a href={`/articles/${article.id}`} class="hover:underline font-medium">
+								<a href={`/cms/articles/${article.id}`} class="hover:underline font-medium">
 									{article.localizations.en?.title ??
 										article.localizations.th?.title ??
 										article.slug}

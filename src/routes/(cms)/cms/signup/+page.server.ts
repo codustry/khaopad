@@ -66,6 +66,6 @@ export const actions: Actions = {
     // Promote to super_admin because this is the very first account.
     await promoteToSuperAdmin(platform.env.DB, userId);
 
-    throw redirect(302, "/login?bootstrapped=1");
+    throw redirect(302, "/cms/login?bootstrapped=1");
   },
 };

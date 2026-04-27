@@ -3,7 +3,7 @@ import { generateSlugFromTitle, slugify } from "$lib/utils";
 import type { Actions, PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals }) => {
-  if (!locals.user) throw redirect(302, "/login");
+  if (!locals.user) throw redirect(302, "/cms/login");
   const [categories, tags] = await Promise.all([
     locals.content.listCategories(),
     locals.content.listTags(),
@@ -13,7 +13,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 export const actions: Actions = {
   default: async ({ request, locals }) => {
-    if (!locals.user) throw redirect(302, "/login");
+    if (!locals.user) throw redirect(302, "/cms/login");
 
     const form = await request.formData();
     const titleEn = String(form.get("title_en") ?? "").trim();
@@ -93,7 +93,7 @@ export const actions: Actions = {
             : {}),
         },
       });
-      throw redirect(303, `/articles/${article.id}`);
+      throw redirect(303, `/cms/articles/${article.id}`);
     } catch (err) {
       if (err instanceof Response) throw err; // let redirect through
       return fail(400, {

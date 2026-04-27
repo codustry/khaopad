@@ -20,7 +20,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 export const actions: Actions = {
   delete: async ({ request, locals }) => {
-    if (!locals.user) throw redirect(302, "/login");
+    if (!locals.user) throw redirect(302, "/cms/login");
     const form = await request.formData();
     const id = String(form.get("id") ?? "");
     if (!id) return fail(400, { error: "Missing article id" });

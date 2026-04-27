@@ -5,7 +5,7 @@ import type { PageServerLoad } from "./$types";
 export const load: PageServerLoad = async ({ locals, platform }) => {
   // If already logged in, redirect to dashboard
   if (locals.user) {
-    throw redirect(302, "/dashboard");
+    throw redirect(302, "/cms/dashboard");
   }
 
   const bootstrapNeeded =

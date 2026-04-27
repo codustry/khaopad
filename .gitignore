@@ -11,3 +11,10 @@ build
 .DS_Store
 *.db
 *.db-journal
+
+# Vite hot-reload temp files
+vite.config.ts.timestamp-*.mjs
+vite.config.js.timestamp-*.mjs
+
+# Per-machine local agent state
+.claude/
