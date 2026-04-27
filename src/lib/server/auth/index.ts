@@ -21,7 +21,8 @@ import * as schema from "../content/schema";
  * Same effect for `D1PreparedStatement.bind`.
  */
 function wrapD1ForDates(d1: D1Database): D1Database {
-  const coerce = (v: unknown): unknown => (v instanceof Date ? v.toISOString() : v);
+  const coerce = (v: unknown): unknown =>
+    v instanceof Date ? v.toISOString() : v;
 
   return new Proxy(d1, {
     get(target, prop, receiver) {
@@ -32,8 +33,10 @@ function wrapD1ForDates(d1: D1Database): D1Database {
         return new Proxy(stmt, {
           get(stmtTarget, stmtProp) {
             const inner = Reflect.get(stmtTarget, stmtProp);
-            if (stmtProp !== "bind" || typeof inner !== "function") return inner;
-            return (...args: unknown[]) => inner.call(stmtTarget, ...args.map(coerce));
+            if (stmtProp !== "bind" || typeof inner !== "function")
+              return inner;
+            return (...args: unknown[]) =>
+              inner.call(stmtTarget, ...args.map(coerce));
           },
         });
       };

@@ -39,17 +39,12 @@ declare global {
         DB: D1Database;
         MEDIA_BUCKET: R2Bucket;
         CONTENT_CACHE: KVNamespace;
-        CONTENT_MODE: string;
         SUPPORTED_LOCALES: string;
         DEFAULT_LOCALE: string;
         PUBLIC_SITE_URL: string;
         CMS_SITE_URL: string;
         BETTER_AUTH_SECRET: string;
         BETTER_AUTH_URL: string;
-        GITHUB_TOKEN?: string;
-        GITHUB_OWNER?: string;
-        GITHUB_REPO?: string;
-        GITHUB_BRANCH?: string;
       };
     }
   }

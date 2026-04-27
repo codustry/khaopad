@@ -99,7 +99,7 @@ The subdomain hook enforces that `/dashboard`, `/articles`, etc. are only reacha
 
 Routes never touch D1 or R2 directly. They go through `locals.content` (a `ContentProvider`) and `locals.media` (a `MediaService`), constructed per-request in `bindingsHook`. The interface lives in `src/lib/server/content/types.ts`; implementations in `src/lib/server/content/providers/`.
 
-Today there's one active provider (`D1ContentProvider`). A `GitHubContentProvider` shell exists for Mode B (planned v1.1) — same interface, markdown files in a repo instead of D1 rows. Switching modes is a single env var (`CONTENT_MODE=d1|github`), no route code changes.
+There's exactly one shipped provider — `D1ContentProvider` — and the `createContentProvider` factory wires it directly. The interface is kept so test fixtures or alternate backends can slot in without touching route code, but the project does not advertise nor maintain a second backend.
 
 See [CONTENT-MODEL.md](./CONTENT-MODEL.md) for schema details.
 
@@ -107,11 +107,10 @@ See [CONTENT-MODEL.md](./CONTENT-MODEL.md) for schema details.
 
 | Concern                     | File(s)                                                                 |
 | --------------------------- | ----------------------------------------------------------------------- |
-| Subdomain dispatch          | `src/hooks.server.ts` (`subdomainHook`, `isCmsRoute`)                   |
+| Surface dispatch (`/cms/*`) | `src/hooks.server.ts` (`surfaceHook`, `isCmsPath`)                      |
 | Platform binding validation | `src/lib/server/config/platform-status.ts`                              |
 | Content provider interface  | `src/lib/server/content/types.ts`                                       |
-| D1 provider (active)        | `src/lib/server/content/providers/d1.ts`                                |
-| GitHub provider (stub)      | `src/lib/server/content/providers/github.ts`                            |
+| D1 provider                 | `src/lib/server/content/providers/d1.ts`                                |
 | Drizzle schema              | `src/lib/server/content/schema.ts`                                      |
 | R2 media service            | `src/lib/server/media/`                                                 |
 | Auth construction           | `src/lib/server/auth/index.ts`                                          |

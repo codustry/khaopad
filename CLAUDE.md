@@ -23,8 +23,8 @@ A modular CMS built with SvelteKit for Cloudflare. One repo, two subdomains:
 ## Architecture
 
 - Single SvelteKit app with route groups: `(www)` for public, `(cms)` for admin
-- Subdomain routing via `hooks.server.ts`
-- Content storage abstraction (`ContentProvider` interface) supports D1 mode (now) and GitHub mode (future)
+- Path-based surface routing via `hooks.server.ts` — `/cms/*` is admin, everything else is public
+- Content storage is D1-backed (`D1ContentProvider`); the `ContentProvider` interface is kept as a seam for tests
 - Media always stored in R2, metadata in D1
 
 ## Key directories
@@ -79,6 +79,6 @@ pnpm run deploy        # Build + deploy to Cloudflare Workers
 ## i18n — Two layers
 
 1. **Paraglide JS** (`$lib/paraglide/messages`) — UI strings (buttons, labels, navigation). Compile-time, type-safe, tree-shakable. Add messages to `messages/th.json` and `messages/en.json`, import as `import * as m from '$lib/paraglide/messages'`, use as `m.key_name()`.
-2. **Content localizations** — Article/category/tag body text stored per locale in D1 (`article_localizations` table) or GitHub files (`th.md`, `en.md`). These are user-generated content, not UI translations.
+2. **Content localizations** — Article/category/tag body text stored per locale in D1 (`article_localizations` table). These are user-generated content, not UI translations.
 
 Do not mix these two layers. Paraglide is for the app shell; content localizations are for CMS data.
