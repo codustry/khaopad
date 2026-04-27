@@ -134,11 +134,10 @@ This is the big one. Khao Pad ships with **D1** + **Drizzle**. Your existing app
 
 **If you're already on D1:** great. Merge your Drizzle schema into `src/lib/server/content/schema.ts` (or adjacent), re-run `pnpm db:generate`, ship.
 
-**If you're on a different database:** you have three choices, in order of effort:
+**If you're on a different database:** you have two choices, in order of effort:
 
 1. **Dual-database.** Khao Pad keeps D1 for CMS content; your existing code keeps its DB for your business data. Two connection strings, two ORMs, two migration pipelines. Simplest integration, acceptable long-term for small teams.
 2. **Move your data to D1.** Rewrite your queries to Drizzle-on-D1. Works if your data is relational, < ~10GB, and doesn't need heavy analytics. D1 is SQLite — read [PLATFORM-NOTES.md §1](./PLATFORM-NOTES.md) for what you give up (no interactive transactions).
-3. **Move CMS content _out_ of D1.** Khao Pad's `ContentProvider` abstraction supports a second mode (GitHub, planned). If you'd rather not have two databases, swap the CMS to file-backed storage when available (v1.1).
 
 For most teams the answer is **#1 (dual-database) during migration, then evaluate**.
 

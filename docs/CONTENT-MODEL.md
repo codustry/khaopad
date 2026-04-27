@@ -126,22 +126,18 @@ interface ContentProvider {
 }
 ```
 
-Two implementations:
+One shipped implementation:
 
-- **`D1ContentProvider`** (active) — Drizzle over D1.
-- **`GitHubContentProvider`** (stub, v1.1) — reads/writes markdown files via the GitHub Contents API. Slug becomes the file path. Same interface.
+- **`D1ContentProvider`** — Drizzle over D1. Wired directly by `createContentProvider` in `src/lib/server/content/index.ts`.
 
-The route code doesn't know which is active. `bindingsHook` picks based on `env.CONTENT_MODE`.
+### Why abstract at all if there's only one provider?
 
-### Why abstract at all?
+The interface is cheap to maintain (one extra method call per query) and earns its keep in two places:
 
-Three futures the abstraction pays for:
+1. **Testing.** An in-memory `ContentProvider` lets unit tests bypass Miniflare entirely.
+2. **Future flexibility.** If a real demand for an alternate backend appears, the seam is already there — call sites won't need to change.
 
-1. **Small sites want git as the database.** Editors commit markdown, CI deploys, no D1 needed. GitHub mode serves this.
-2. **Content export/import.** Same interface → a script that reads from D1 and writes to GitHub is a few lines.
-3. **Testing.** An in-memory `ContentProvider` for unit tests avoids spinning up Miniflare.
-
-Cost: an extra method call per query. Acceptable.
+What we explicitly do **not** do: ship a second active backend. An earlier draft of this project envisioned a GitHub-backed provider as a "Mode B" alongside D1; it was removed because it doubled the bug surface, broke down at media (R2 isn't versioned), and confused the product pitch. See [the v1.1 release notes](./MILESTONES.md) for the rationale.
 
 ---
 

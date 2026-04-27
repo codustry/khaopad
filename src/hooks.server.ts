@@ -9,7 +9,6 @@ import {
   validatePlatformEnv,
 } from "$lib/server/config/platform-status";
 import { createContentProvider } from "$lib/server/content";
-import type { ContentMode } from "$lib/server/content";
 import { localeFromPathname } from "$lib/i18n";
 import { R2MediaService } from "$lib/server/media";
 
@@ -65,8 +64,7 @@ const bindingsHook: Handle = async ({ event, resolve }) => {
   }
 
   try {
-    const contentMode = (env!.CONTENT_MODE ?? "d1") as ContentMode;
-    event.locals.content = createContentProvider(contentMode, env!);
+    event.locals.content = createContentProvider(env!);
 
     const mediaBaseUrl =
       event.locals.subdomain === "cms"
@@ -234,7 +232,7 @@ const authHook: Handle = async ({ event, resolve }) => {
   // Resolve session from request cookies. Wrap defensively: getSession
   // can throw if the cookie is malformed or if a session-refresh write
   // fails, and we don't want every page to 500 over auth lookup.
-  let session: Awaited<ReturnType<typeof auth.api.getSession>> = null;
+  let session: Awaited<ReturnType<typeof auth.api.getSession>>;
   try {
     session = await auth.api.getSession({
       headers: event.request.headers,

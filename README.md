@@ -20,7 +20,7 @@ Khao Pad fills the gap: **start lightweight, scale when needed, stay on Cloudfla
 
 - **One repo, one host, two surfaces** — public site at `/`, admin CMS at `/cms/*`
 - **Multilingual first** — shared slug and media, separate content per language (TH/EN)
-- **Pluggable storage** — D1 mode now, GitHub file-based mode later
+- **D1 + R2 storage** — articles in D1 (SQLite at the edge), media in R2, KV for caching. Sub-10ms reads from anywhere
 - **Cloudflare-native** — D1 database, R2 media, KV caching, Workers deployment
 - **Better Auth** — email/password auth with role-based access (Super Admin, Admin, Editor, Author)
 - **Paraglide JS** — compile-time i18n with type-safe translations via inlang
@@ -38,11 +38,7 @@ Khao Pad fills the gap: **start lightweight, scale when needed, stay on Cloudfla
 │  /cms/*       → (cms)/  admin panel       │
 │  /api/auth/*  → Better Auth handler       │
 │                                           │
-│  ┌──────────────────────────────────────┐ │
-│  │  ContentProvider (interface)          │ │
-│  │  ├── D1ContentProvider (active)      │ │
-│  │  └── GitHubContentProvider (planned) │ │
-│  └──────────────────────────────────────┘ │
+│  ContentProvider → D1ContentProvider      │
 │                                           │
 │  Cloudflare: D1 · R2 · KV · Workers      │
 └──────────────────────────────────────────┘
@@ -142,17 +138,11 @@ Articles share the same slug and media across languages. Only the text content d
 
 **Slugs are always English ASCII** (`^[a-z0-9]+(?:-[a-z0-9]+)*$`) and auto-generated from the English title via `slugify()`. The same slug serves every locale — there is no per-language slug.
 
-## Storage Modes
+## Storage
 
-### Mode A: Cloudflare D1 (default)
+Articles, categories, tags, and user/session data live in **Cloudflare D1** (SQLite at the edge — sub-10ms reads worldwide). Media files (uploads, cover images) live in **Cloudflare R2**. Cached read-throughs sit in **KV**.
 
-Content metadata and article records stored in D1 (SQLite). Best for most projects.
-
-### Mode B: GitHub-backed (planned)
-
-Content stored as markdown/JSON files in the repo. Good for the smallest/simplest sites. Set `CONTENT_MODE=github` in `wrangler.toml`.
-
-Both modes share the same `ContentProvider` interface — your CMS code doesn't change.
+Database access is mediated by a `ContentProvider` interface (`src/lib/server/content/types.ts`). The default and only shipped implementation is D1-backed; the interface is kept so test fixtures or alternate backends can slot in without rewriting call sites.
 
 ## User Roles
 
@@ -195,10 +185,9 @@ Token permissions required: **Workers Scripts — Edit**, **Account D1 — Edit*
 
 Set once per environment via `wrangler secret put <NAME>`:
 
-| Secret                              | Purpose                                                                                   | How to generate                                                   |
-| ----------------------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`                | Signs/encrypts Better Auth session cookies. Must be long + random.                        | `openssl rand -base64 32`                                         |
-| `GITHUB_TOKEN` _(optional, Mode B)_ | PAT used by the GitHub content provider to read/write markdown files in the content repo. | Fine-grained PAT with Contents: Read & Write on the content repo. |
+| Secret               | Purpose                                                            | How to generate           |
+| -------------------- | ------------------------------------------------------------------ | ------------------------- |
+| `BETTER_AUTH_SECRET` | Signs/encrypts Better Auth session cookies. Must be long + random. | `openssl rand -base64 32` |
 
 > **Never** put these in `[vars]` — they leak to the dashboard and CI logs.
 
@@ -228,15 +217,11 @@ Non-secret config that ships with the Worker:
 
 | Var                 | Required | Default               | Purpose                                                                         |
 | ------------------- | :------: | --------------------- | ------------------------------------------------------------------------------- |
-| `CONTENT_MODE`      |   yes    | `d1`                  | `d1` (active) or `github` (planned).                                            |
 | `SUPPORTED_LOCALES` |   yes    | `en,th`               | Comma-separated. Must match `project.inlang/settings.json`.                     |
 | `DEFAULT_LOCALE`    |   yes    | `en`                  | Fallback locale. Must be in `SUPPORTED_LOCALES`.                                |
 | `PUBLIC_SITE_URL`   |   yes    | `https://example.com` | Canonical origin for both surfaces (one host).                                  |
 | `CMS_SITE_URL`      |   yes    | = `PUBLIC_SITE_URL`   | Deprecated alias kept for media URL generation; same host as public since v1.1. |
 | `BETTER_AUTH_URL`   |   yes    | = `PUBLIC_SITE_URL`   | Base URL Better Auth uses in callbacks/cookies.                                 |
-| `GITHUB_OWNER`      |  Mode B  | —                     | Org/user owning the content repo.                                               |
-| `GITHUB_REPO`       |  Mode B  | —                     | Repo name holding markdown content.                                             |
-| `GITHUB_BRANCH`     |  Mode B  | `main`                | Branch the provider reads/writes.                                               |
 
 ### 5. Routes & DNS (production only)
 
@@ -299,8 +284,11 @@ See [docs/MILESTONES.md](docs/MILESTONES.md) for a detailed breakdown of what sh
 
 ### v1.1
 
-- [ ] GitHub content provider (Mode A)
-- [ ] Migration CLI (GitHub → D1)
+- [x] CMS at `/cms/*` path prefix (was `cms.` subdomain)
+- [x] shadcn-style admin shell (sidebar, login/signup, oklch theme)
+- [x] D1 Date-binding fix for Better Auth signup
+- [ ] User management UI (`/cms/users` — list, invite, role change)
+- [ ] Site settings UI (`/cms/settings`)
 - [ ] OAuth providers (Google, GitHub)
 - [ ] Rich media management
 
