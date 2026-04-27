@@ -45,10 +45,13 @@ export const actions: Actions = {
     });
 
     // Better Auth creates the user + credential row in one batched call.
+    // Pass `headers` so the auto-sign-in path has request context for the
+    // session cookie write.
     let result;
     try {
       result = await auth.api.signUpEmail({
         body: { name, email, password },
+        headers: request.headers,
         asResponse: false,
       });
     } catch (err) {
