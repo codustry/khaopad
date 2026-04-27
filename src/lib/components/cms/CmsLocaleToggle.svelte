@@ -1,16 +1,33 @@
 <script lang="ts">
 	import { Languages } from 'lucide-svelte';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime';
+	import { getLocale, cookieName, cookieMaxAge } from '$lib/paraglide/runtime';
 
 	const current = $derived(getLocale());
 	const next = $derived(current === 'en' ? 'th' : 'en');
 
+	/**
+	 * Switch the CMS UI locale **without changing the URL**.
+	 *
+	 * Why we don't call Paraglide's built-in `setLocale()`:
+	 *   `setLocale()` walks every strategy in the configured array
+	 *   `["url", "cookie", "baseLocale"]`. The URL strategy fires first
+	 *   and rewrites `window.location.href` via `localizeUrl()` — for a
+	 *   path like `/cms/articles` that turns into `/th/cms/articles`,
+	 *   which is wrong: the CMS surface is intentionally locale-prefix-
+	 *   free (private route, cookie-only locale, no SEO need). There is
+	 *   no per-strategy opt-out on `setLocale()` itself, so we write the
+	 *   cookie by hand and soft-reload via SvelteKit's invalidation.
+	 *
+	 * The `(www)` public site keeps the URL strategy untouched so
+	 * `/en/blog` ↔ `/th/blog` continues to work correctly there.
+	 */
 	function switchLocale() {
-		// Cookie strategy: writes the locale cookie and reloads. The Paraglide
-		// strategy array `["url", "cookie", "baseLocale"]` falls through to
-		// the cookie on /cms/* (no /en or /th prefix to match), so the URL
-		// stays clean.
-		setLocale(next);
+		if (typeof document === 'undefined') return;
+		document.cookie = `${cookieName}=${next}; path=/; max-age=${cookieMaxAge}; SameSite=Lax`;
+		// Full reload picks up the new locale via SSR. We can't use
+		// invalidateAll() here: Paraglide messages are bound at the module
+		// scope and a soft data refresh doesn't re-evaluate them.
+		window.location.reload();
 	}
 </script>
 

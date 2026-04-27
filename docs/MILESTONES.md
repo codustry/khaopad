@@ -71,12 +71,14 @@ Tracks what shipped in each milestone and what's pending. Updated every time a m
 A consolidation release: ship the architectural change everyone needs, modernize the admin shell, fix a class of D1 + Better Auth bugs, and cut the unimplemented "Mode B" GitHub backend that had been hanging around since M1.
 
 **Routing**
+
 - CMS moved from `cms.example.com` subdomain to `/cms/*` path prefix on the same host (#11). Unblocks Cloudflare workers.dev demos, removes `/etc/hosts` editing for local dev, lines up with how Sanity Studio / Strapi / KeystoneJS ship their admin panels.
 - `subdomainHook` → `surfaceHook` in `hooks.server.ts`. `event.locals.surface` is the new property; `event.locals.subdomain` kept as a deprecated alias.
 - `/` redirects to the visitor's preferred locale (`/en` or `/th`) via cookie / Accept-Language / default precedence (#13). Removes a stale pre-reskin home page that was orphaned at the bare root.
 - Single-host wrangler config replaces the `www.` / `cms.` split: one DNS record, one route pattern, no zone gymnastics.
 
 **Admin reskin (PR #12)**
+
 - Hand-rolled collapsible sidebar with localStorage state, lucide icons, role-gated items (Users / Settings hidden from author/editor), active-route highlight that survives nested paths.
 - Two-column auth pages on `/cms/login` and `/cms/signup` (brand panel + form on `lg+`, single column on mobile).
 - Cookie-based locale toggle in the admin topbar (no URL change). The Paraglide strategy `["url","cookie","baseLocale"]` already does this — `/cms/*` has no `/en` or `/th` URL prefix to match, so the URL strategy falls through to cookie automatically.
@@ -84,11 +86,13 @@ A consolidation release: ship the architectural change everyone needs, modernize
 - oklch palette + IBM Plex Sans Thai. `.dark` block in `app.css` for a future dark-mode toggle.
 
 **Auth resilience**
-- D1 + Date-binding fix (#14). Better Auth's adapter passed JS `Date` objects directly to D1, which only accepts string/number/boolean/null/Uint8Array — every signup crashed with `D1_TYPE_ERROR`. The fix wraps the D1 driver in `createAuth` so `prepare(sql).bind(...args)` swaps Dates for ISO strings before Cloudflare's binding code sees them. (`databaseHooks` don't help here — Better Auth's transform layer runs after hooks and converts ISO strings *back* to Dates if the field type is `"date"`.)
+
+- D1 + Date-binding fix (#14). Better Auth's adapter passed JS `Date` objects directly to D1, which only accepts string/number/boolean/null/Uint8Array — every signup crashed with `D1_TYPE_ERROR`. The fix wraps the D1 driver in `createAuth` so `prepare(sql).bind(...args)` swaps Dates for ISO strings before Cloudflare's binding code sees them. (`databaseHooks` don't help here — Better Auth's transform layer runs after hooks and converts ISO strings _back_ to Dates if the field type is `"date"`.)
 - `auth.api.signUpEmail` now receives `request.headers` so the auto-sign-in path has a request context for the session cookie write.
 - `auth.api.getSession` is wrapped in try/catch in the auth hook — a malformed session cookie no longer turns every page into a 500.
 
 **Scope tightening (PR #17)**
+
 - Removed the never-shipped GitHub-backed "Mode B" content storage entirely (`src/lib/server/content/providers/github.ts`, `CONTENT_MODE` env var, `GITHUB_*` config knobs, `.github/workflows/content-sync.yml`). Doubled the bug surface for hypothetical users; broke at media (R2 isn't versioned); confused the product pitch. The `ContentProvider` interface stays as a seam for tests.
 - Sidebar entries for `/cms/users` and `/cms/settings` removed (#16) — the routes were referenced but had no `+page.svelte`. Re-added in v1.2 below when the pages exist.
 
