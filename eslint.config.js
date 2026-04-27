@@ -50,8 +50,15 @@ export default defineConfig(
     rules: {},
   },
   {
-    // CMS routes use root-relative paths; `(www)` uses `localePath()` for locale-prefixed URLs.
-    files: ["src/routes/(cms)/**/*.svelte", "src/routes/(www)/**/*.svelte"],
+    // CMS routes use root-relative paths; `(www)` uses `localePath()` for
+    // locale-prefixed URLs; shared CMS shell components and UI primitives
+    // accept absolute hrefs as props or render hardcoded admin links.
+    files: [
+      "src/routes/(cms)/**/*.svelte",
+      "src/routes/(www)/**/*.svelte",
+      "src/lib/components/cms/**/*.svelte",
+      "src/lib/components/ui/**/*.svelte",
+    ],
     rules: {
       "svelte/no-navigation-without-resolve": "off",
     },
