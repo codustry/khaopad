@@ -1,6 +1,6 @@
 # Milestones
 
-Tracks what shipped in each milestone and what is pending. Updated every time a milestone PR merges into `main`.
+Tracks what shipped in each milestone and what's pending. Updated every time a milestone (or release) PR merges into `main`.
 
 ## Shipped
 
@@ -9,7 +9,7 @@ Tracks what shipped in each milestone and what is pending. Updated every time a 
 - SvelteKit 2 + Svelte 5 + Tailwind 4 + Cloudflare adapter.
 - Route groups `(www)` / `(cms)` with subdomain routing in `hooks.server.ts`.
 - Paraglide JS 2 wired up for UI strings (EN default, TH secondary).
-- `ContentProvider` interface with D1 + stub GitHub implementations.
+- `ContentProvider` interface with D1 implementation.
 - Platform guard (`locals.platform.env`) so local `pnpm dev` degrades gracefully without bindings.
 
 ### M2 — D1 migrations, seed, first-run setup
@@ -22,7 +22,7 @@ Tracks what shipped in each milestone and what is pending. Updated every time a 
 ### M3 — Auth & CMS article CRUD
 
 - Better Auth (email/password, D1-backed sessions) with role hierarchy (super_admin > admin > editor > author).
-- First-admin signup — `/register` only accepts the very first user, after which it 403s.
+- First-admin signup — `/cms/signup` only accepts the very first user, after which it 403s.
 - CMS list/create/edit/delete pages for articles with per-locale (EN required, TH optional) forms.
 - Permission helpers: `canEditArticle`, `canPublish`, `canDeleteArticle`.
 - EN-only ASCII slugs shared across locales, auto-derived from EN title.
@@ -30,21 +30,20 @@ Tracks what shipped in each milestone and what is pending. Updated every time a 
 ### M4 — Media library
 
 - R2-backed upload/delete API (`/api/media/*`).
-- CMS `/media` page with drag-upload, alt-text, copy-ID, delete.
+- CMS `/cms/media` page with drag-upload, alt-text, copy-ID, delete.
 - `coverMediaId` picker in the article form with preview.
 - `docs/MIGRATING.md` — guide for folding an existing SvelteKit project into Khao Pad.
 
 ### M5 — Categories & tags
 
-- CMS `/categories` and `/tags` pages: list/create/edit/delete with inline editor and EN/TH localizations.
+- CMS `/cms/categories` and `/cms/tags` pages: list/create/edit/delete with inline editor and EN/TH localizations.
 - `canManageTaxonomy` permission gate (editor+ can write, anyone authenticated can read).
 - Category `<select>` + tag multi-checkbox picker inside the article form; persisted via `categoryId` / `tagIds` on `ArticleUpdateInput`.
 - Public blog filters: `/blog?category=<slug>` and `/blog?tag=<slug>` with clear-filter banner and clickable taxonomy chips on each article card.
 - Article cards on `/blog` now surface their category + tags.
 - GitHub Actions `ci.yml` runs `svelte-check`, `eslint`, `prettier`, and `vite build` on every PR.
-- `updateTag` added to `ContentProvider` (and stubbed in GitHub provider) so categories and tags now share a symmetric surface.
 
-### M6 — Deploy pipeline (this milestone)
+### M6 — Deploy pipeline
 
 - `wrangler.toml` now defines `[env.staging]` and `[env.production]` with per-env D1 / R2 / KV bindings so state is never shared across envs.
 - `.github/workflows/deploy.yml` rewritten as a four-stage pipeline: **gate → resolve-env → deploy → smoke-test**.
@@ -57,7 +56,7 @@ Tracks what shipped in each milestone and what is pending. Updated every time a 
 - `smoke-test` curls the public URL (from repo Variables `STAGING_PUBLIC_URL` / `PRODUCTION_PUBLIC_URL`) up to 6× with 10 s backoff; treats 2xx/3xx/503 as healthy.
 - `docs/DEPLOYMENT.md` now documents the full promotion flow, required secrets/variables, and per-env provisioning steps.
 
-### M7 — Editor UX (this milestone)
+### M7 — Editor UX
 
 - New `$lib/components/editor/MarkdownEditor.svelte` drop-in replaces the bare article body `<textarea>` in both `new` and `[id]` routes for EN and TH.
 - Toolbar: bold, italic, H1/H2, link, media-insert, bulleted/numbered lists, inline code, blockquote.
@@ -67,11 +66,48 @@ Tracks what shipped in each milestone and what is pending. Updated every time a 
 - Autosave: debounced write to `localStorage[khaopad:draft:article:<scope>:<field>]`; on re-open, compares against the seeded value and offers a restore banner if different. Cleared after a successful save via the parent's `use:enhance` callback.
 - i18n: 22 new Paraglide keys (EN + TH) covering toolbar labels, modes, picker copy, and the parameterized draft-available banner.
 
+### v1.1 — Path-prefix routing, shadcn reskin, scope tightening
+
+A consolidation release: ship the architectural change everyone needs, modernize the admin shell, fix a class of D1 + Better Auth bugs, and cut the unimplemented "Mode B" GitHub backend that had been hanging around since M1.
+
+**Routing**
+- CMS moved from `cms.example.com` subdomain to `/cms/*` path prefix on the same host (#11). Unblocks Cloudflare workers.dev demos, removes `/etc/hosts` editing for local dev, lines up with how Sanity Studio / Strapi / KeystoneJS ship their admin panels.
+- `subdomainHook` → `surfaceHook` in `hooks.server.ts`. `event.locals.surface` is the new property; `event.locals.subdomain` kept as a deprecated alias.
+- `/` redirects to the visitor's preferred locale (`/en` or `/th`) via cookie / Accept-Language / default precedence (#13). Removes a stale pre-reskin home page that was orphaned at the bare root.
+- Single-host wrangler config replaces the `www.` / `cms.` split: one DNS record, one route pattern, no zone gymnastics.
+
+**Admin reskin (PR #12)**
+- Hand-rolled collapsible sidebar with localStorage state, lucide icons, role-gated items (Users / Settings hidden from author/editor), active-route highlight that survives nested paths.
+- Two-column auth pages on `/cms/login` and `/cms/signup` (brand panel + form on `lg+`, single column on mobile).
+- Cookie-based locale toggle in the admin topbar (no URL change). The Paraglide strategy `["url","cookie","baseLocale"]` already does this — `/cms/*` has no `/en` or `/th` URL prefix to match, so the URL strategy falls through to cookie automatically.
+- shadcn-style primitives in `$lib/components/ui/`: Button, Input, Label, Card (+ Header/Title/Description/Content/Footer), Separator, Badge, Avatar with initials fallback.
+- oklch palette + IBM Plex Sans Thai. `.dark` block in `app.css` for a future dark-mode toggle.
+
+**Auth resilience**
+- D1 + Date-binding fix (#14). Better Auth's adapter passed JS `Date` objects directly to D1, which only accepts string/number/boolean/null/Uint8Array — every signup crashed with `D1_TYPE_ERROR`. The fix wraps the D1 driver in `createAuth` so `prepare(sql).bind(...args)` swaps Dates for ISO strings before Cloudflare's binding code sees them. (`databaseHooks` don't help here — Better Auth's transform layer runs after hooks and converts ISO strings *back* to Dates if the field type is `"date"`.)
+- `auth.api.signUpEmail` now receives `request.headers` so the auto-sign-in path has a request context for the session cookie write.
+- `auth.api.getSession` is wrapped in try/catch in the auth hook — a malformed session cookie no longer turns every page into a 500.
+
+**Scope tightening (PR #17)**
+- Removed the never-shipped GitHub-backed "Mode B" content storage entirely (`src/lib/server/content/providers/github.ts`, `CONTENT_MODE` env var, `GITHUB_*` config knobs, `.github/workflows/content-sync.yml`). Doubled the bug surface for hypothetical users; broke at media (R2 isn't versioned); confused the product pitch. The `ContentProvider` interface stays as a seam for tests.
+- Sidebar entries for `/cms/users` and `/cms/settings` removed (#16) — the routes were referenced but had no `+page.svelte`. Re-added in v1.2 below when the pages exist.
+
+**Net effect:** ~500 lines deleted, 6 PRs merged (#11–#13, #14–#16, #17). README, ARCHITECTURE, CONTENT-MODEL, MIGRATING, CLAUDE.md all updated to match. Live demo at `khaopad-example.codustry.workers.dev` runs all of v1.1 end-to-end.
+
 ## Pending
 
-### v1.1+
+### v1.2 — User & settings management
 
-- GitHub content provider (Mode A) + migration CLI (GitHub → D1).
-- OAuth providers (Google, GitHub).
-- Audit trail, content versioning, scheduled publishing.
-- Full-text search; plugin system; multi-site.
+The most-requested gaps after v1.1, both flagged by sidebar 404s on the live demo.
+
+- **`/cms/users`** — list users, change roles, soft-delete, invite-by-email link (no actual email sending — copyable URL).
+- **`/cms/settings`** — site name, default locale, SEO defaults, branding (logo upload to R2). Stored in the existing `site_settings` D1 table.
+- Re-add both items to the admin sidebar once the pages exist.
+
+### v1.3+ — Future ideas (not committed)
+
+- OAuth providers (Google, GitHub) for multi-admin sites that don't want to manage passwords.
+- Audit trail (who edited what, when) — schema is ready (`audit_log` table), needs UI + write hooks.
+- Content versioning / diff view per article.
+- Scheduled publishing (set `publishedAt` in the future, public site respects it).
+- Full-text search via D1 FTS5 or KV-indexed.
