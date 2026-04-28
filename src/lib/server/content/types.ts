@@ -53,6 +53,12 @@ export interface ArticleCreateInput {
   localizations: { en: LocalizedContent } & Partial<
     Record<Locale, LocalizedContent>
   >;
+  /**
+   * User who saved the snapshot. Stored on `article_versions.created_by`
+   * so the history view can attribute each save. Optional; null when a
+   * script (e.g. backfill, import) does the write.
+   */
+  actorId?: string;
 }
 
 export interface ArticleUpdateInput {
@@ -67,6 +73,24 @@ export interface ArticleUpdateInput {
   status?: ArticleRecord["status"];
   publishedAt?: string | null;
   localizations?: Partial<Record<Locale, LocalizedContent>>;
+  /** See `ArticleCreateInput.actorId`. */
+  actorId?: string;
+}
+
+/** A single saved snapshot of an article localization. */
+export interface ArticleVersionRecord {
+  id: string;
+  articleId: string;
+  locale: Locale;
+  /** Monotonic per (articleId, locale). v1 is the first save. */
+  version: number;
+  title: string;
+  excerpt: string | null;
+  body: string;
+  seoTitle: string | null;
+  seoDescription: string | null;
+  createdBy: string | null;
+  createdAt: string;
 }
 
 export interface ArticleFilter {
@@ -158,6 +182,15 @@ export interface ContentProvider {
   createArticle(data: ArticleCreateInput): Promise<ArticleRecord>;
   updateArticle(id: string, data: ArticleUpdateInput): Promise<ArticleRecord>;
   deleteArticle(id: string): Promise<void>;
+
+  /**
+   * Return every saved snapshot for an article, newest first. Empty
+   * array means no edits have been made since the article was created
+   * pre-versioning (article_versions was added in v1.5).
+   */
+  listArticleVersions(articleId: string): Promise<ArticleVersionRecord[]>;
+  /** Return a single snapshot, or null if not found. */
+  getArticleVersion(versionId: string): Promise<ArticleVersionRecord | null>;
 
   // Categories
   getCategory(id: string): Promise<CategoryRecord | null>;

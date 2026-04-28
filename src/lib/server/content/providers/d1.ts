@@ -19,6 +19,7 @@ import type {
   ArticleCreateInput,
   ArticleUpdateInput,
   ArticleFilter,
+  ArticleVersionRecord,
   PaginatedResult,
   CategoryRecord,
   TagRecord,
@@ -225,6 +226,80 @@ export class D1ContentProvider implements ContentProvider {
     }));
   }
 
+  /**
+   * Snapshot a localization into article_versions. Computes the next
+   * monotonic version number per (articleId, locale).
+   *
+   * Best-effort: a failed snapshot must not break the primary
+   * write the user actually cares about. Wrapped in try/catch and
+   * swallowed.
+   */
+  private async snapshotVersion(args: {
+    articleId: string;
+    locale: Locale;
+    title: string;
+    excerpt: string | null;
+    body: string;
+    seoTitle?: string | null;
+    seoDescription?: string | null;
+    actorId?: string | null;
+  }): Promise<void> {
+    try {
+      const last = await this.db
+        .select({ version: schema.articleVersions.version })
+        .from(schema.articleVersions)
+        .where(
+          and(
+            eq(schema.articleVersions.articleId, args.articleId),
+            eq(schema.articleVersions.locale, args.locale),
+          ),
+        )
+        .orderBy(desc(schema.articleVersions.version))
+        .limit(1)
+        .get();
+      const next = (last?.version ?? 0) + 1;
+
+      await this.db.insert(schema.articleVersions).values({
+        id: nanoid(),
+        articleId: args.articleId,
+        locale: args.locale,
+        version: next,
+        title: args.title,
+        excerpt: args.excerpt,
+        body: args.body,
+        seoTitle: args.seoTitle ?? null,
+        seoDescription: args.seoDescription ?? null,
+        createdBy: args.actorId ?? null,
+      });
+    } catch {
+      // Versioning is best-effort. Skipping a snapshot is acceptable;
+      // breaking the save isn't.
+    }
+  }
+
+  async listArticleVersions(
+    articleId: string,
+  ): Promise<ArticleVersionRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(schema.articleVersions)
+      .where(eq(schema.articleVersions.articleId, articleId))
+      .orderBy(desc(schema.articleVersions.createdAt))
+      .all();
+    return rows as ArticleVersionRecord[];
+  }
+
+  async getArticleVersion(
+    versionId: string,
+  ): Promise<ArticleVersionRecord | null> {
+    const row = await this.db
+      .select()
+      .from(schema.articleVersions)
+      .where(eq(schema.articleVersions.id, versionId))
+      .get();
+    return (row as ArticleVersionRecord | undefined) ?? null;
+  }
+
   async createArticle(data: ArticleCreateInput): Promise<ArticleRecord> {
     const id = nanoid();
     const now = new Date().toISOString();
@@ -256,7 +331,7 @@ export class D1ContentProvider implements ContentProvider {
       updatedAt: now,
     });
 
-    // Insert localizations
+    // Insert localizations + snapshot v1 of each.
     for (const [locale, content] of Object.entries(data.localizations)) {
       if (!content) continue;
       await this.db.insert(schema.articleLocalizations).values({
@@ -268,6 +343,16 @@ export class D1ContentProvider implements ContentProvider {
         body: content.body,
         seoTitle: content.seoTitle,
         seoDescription: content.seoDescription,
+      });
+      await this.snapshotVersion({
+        articleId: id,
+        locale: locale as Locale,
+        title: content.title,
+        excerpt: content.excerpt ?? null,
+        body: content.body,
+        seoTitle: content.seoTitle ?? null,
+        seoDescription: content.seoDescription ?? null,
+        actorId: data.actorId ?? data.authorId,
       });
     }
 
@@ -350,6 +435,20 @@ export class D1ContentProvider implements ContentProvider {
             seoDescription: content.seoDescription,
           });
         }
+
+        // Snapshot the new state. Versions only ever capture content
+        // that's actually being saved, never an unchanged side of a
+        // bilingual save.
+        await this.snapshotVersion({
+          articleId: id,
+          locale: locale as Locale,
+          title: content.title,
+          excerpt: content.excerpt ?? null,
+          body: content.body,
+          seoTitle: content.seoTitle ?? null,
+          seoDescription: content.seoDescription ?? null,
+          actorId: data.actorId,
+        });
       }
     }
 
