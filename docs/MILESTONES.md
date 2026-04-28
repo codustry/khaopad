@@ -132,15 +132,25 @@ Three features in one PR — they share the audit-log infrastructure and the adm
 
 **i18n** — 22 new Paraglide keys (EN + TH).
 
+### v1.4 — Full-text search (PR #26)
+
+SQLite FTS5 virtual table over the per-locale `article_localizations` rows. Drizzle doesn't model virtual tables, so the migration (`drizzle/0002_fts5_articles.sql`) is hand-written: an `articles_fts` external-content table indexing `title`, `excerpt`, `body`, with `articleId` and `locale` carried as unindexed columns; tokenizer `unicode61 remove_diacritics 2` so Thai content tokenizes sensibly. Three `AFTER INSERT/UPDATE/DELETE` triggers on `article_localizations` keep the index in sync transparently — application code never touches FTS directly. A backfill at the end of the migration seeds the index from existing rows.
+
+`ContentProvider.searchArticles(query, opts)` returns `SearchHit[]` joined against `articles` so the result respects status + scheduled publishing (`onlyPublished` flag is plumbed through). Query handling defaults to a quoted phrase match for safety, but lets advanced users pass FTS5 syntax (`AND` / `OR` / `NOT` / `NEAR` / parens / quotes / wildcards) by detecting those tokens and skipping the auto-quote. Public `/blog?q=` adds a search form to the index page; CMS articles list reuses the same flag.
+
+**i18n** — 4 new `blog_search_*` keys (EN + TH).
+
+### v1.5 — Content versioning (PR #27)
+
+Per-article revision history with diff and restore. New `article_versions` table (Drizzle migration 0003) stores `articleId`, `locale`, monotonic `version` per `(articleId, locale)`, plus the snapshotted `title`, `excerpt`, `body`, `seoTitle`, `seoDescription`, `createdBy` (FK to `users`, `ON DELETE SET NULL` so deleted authors don't blow up the timeline), and `createdAt`. CASCADE from `articles` so deleting an article cleans up its history.
+
+Snapshots are taken at the application layer in `D1ContentProvider` — only for the locales actually present in the create / update payload, never phantom snapshots for untouched locales. `actorId` is now part of `ArticleCreateInput` / `ArticleUpdateInput` so SQLite triggers don't have to guess at request context. New methods: `listArticleVersions`, `getArticleVersion`. LCS-via-DP line diff lives at `$lib/server/content/diff.ts` (no external dep — `diff-match-patch` was overkill for what's effectively `git diff`).
+
+UI: `/cms/articles/[id]/history` is a timeline with batched actor lookups (one query for all `createdBy` IDs across the page). `/cms/articles/[id]/history/[versionId]` renders title / excerpt diffs as before/after blocks and the body as a per-line +/– list. Restore writes a fresh update through the normal path — which itself snapshots the now-replaced version — so undo is just "restore the previous version again." The action also writes an audit-log entry with `restoredFrom` / `restoredVersion` metadata.
+
+**i18n** — 11 new `cms_history_*` keys (EN + TH).
+
 ## Pending
-
-### v1.4 — Full-text search
-
-D1 supports SQLite's FTS5 virtual tables. Plan: add a `articles_fts` virtual table (title + excerpt + body, all locales), populate via Drizzle hook on article-localization writes, expose via `/cms/articles/search` and the public `/blog?q=` query. Adds a search box to the CMS articles list and to the public blog index. ~1 day of focused work.
-
-### v1.5 — Content versioning
-
-Per-article revision history. New `article_versions` table that snapshots each `article_localizations` row on every update. UI: a "History" tab on `/cms/articles/[id]` showing a list of versions with side-by-side diff view (use `diff-match-patch` or similar). Restore a previous version with one click. Storage cost is real but small for typical CMS use. ~2-3 days.
 
 ### v1.6+ — Future ideas (not committed)
 
