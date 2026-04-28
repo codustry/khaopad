@@ -120,13 +120,28 @@ Closes the two sidebar 404s left by v1.1. Pure UI work on top of infrastructure 
 
 **i18n** — 38 new Paraglide keys (EN + TH) covering role labels, field labels, help text, error strings, invite-card copy.
 
+### v1.3 — Token invitations + audit log + scheduled publishing (PR #24)
+
+Three features in one PR — they share the audit-log infrastructure and the admin-shell layout, and shipping separately would create review churn.
+
+**Token-based invitations** replaces the v1.2 placeholder card on `/cms/users`. New `invitations` table (Drizzle migration 0001) with `email`, `role`, `token`, `expiresAt`, `acceptedAt`. The token is a random base64url string (~128 bits of entropy); the URL itself is the bearer credential — presence + unconsumed + not-expired = valid. Helpers in `$lib/server/invitations/` cover create / find / consume (atomic via a where-clause guard on `acceptedAt IS NULL`, so a race between two browsers leaves exactly one winner) / revoke / list. The `/cms/users` page now has a real form: pick role, generate, copy with one click, see all outstanding invites, revoke any of them. `/cms/invite/[token]` is a full-bleed accept page with granular error states for invalid / consumed / expired tokens; on POST it runs Better Auth `signUpEmail`, sets the new user's role from the invitation, marks the invitation consumed, and redirects to `/cms/login?invited=1`. The `(cms)` layout gate was widened to allow `/cms/invite/*` without auth. Default TTL: 7 days.
+
+**Audit-log viewer page** — extracted v1.2's `logAudit` helper to `$lib/server/audit/` with a typed `AuditAction` union covering every action the project logs (article.create / article.publish / category.update / tag.delete / media.delete / settings.update / invitation.create / invitation.accept / etc.). Best-effort writes — wrapped in try/catch so a missing table or transient D1 error never breaks the primary action the user cared about. Audit hooks added throughout: articles (create / update / publish / unpublish / delete), categories (create / update / delete), tags (create / update / delete), media (delete), settings (update), invitations (create / accept / revoke). The `/cms/audit` page (admin+ only) is paginated 50/page, shows actor avatar + name + email, action badge color-coded by verb (create/accept = primary, delete/revoke = destructive, else secondary), entity reference, timestamp, and an expandable JSON metadata block. Left-joins `users` so deleted-user rows still render gracefully. Sidebar gets a new "Audit log" entry in the Admin group.
+
+**Scheduled publishing** — new `ArticleFilter.onlyPublished?: boolean` flag (default `false` so the CMS sees everything; public reads opt in). When set, the D1 provider adds `(publishedAt IS NULL OR publishedAt <= now)` to the WHERE clause — rows with no `publishedAt` slip through (treated as "publish immediately when status is 'published'"). Public blog index passes the flag; the `[slug]` page adds the same date check after the status check (a published article with a future `publishedAt` 404s). `ArticleForm.svelte` gets a `<input type="datetime-local">` next to the status select that pre-fills from `existing.publishedAt` and shows a "⏱ Scheduled for {when}" notice when status is published AND the date is in the future. Save action: explicit datetime from the form wins; otherwise the existing fallback rules apply (published → now, draft → null, archived → keep existing).
+
+**i18n** — 22 new Paraglide keys (EN + TH).
+
 ## Pending
 
-### v1.3+ — Future ideas (not committed)
+### v1.4 — Full-text search
+
+D1 supports SQLite's FTS5 virtual tables. Plan: add a `articles_fts` virtual table (title + excerpt + body, all locales), populate via Drizzle hook on article-localization writes, expose via `/cms/articles/search` and the public `/blog?q=` query. Adds a search box to the CMS articles list and to the public blog index. ~1 day of focused work.
+
+### v1.5 — Content versioning
+
+Per-article revision history. New `article_versions` table that snapshots each `article_localizations` row on every update. UI: a "History" tab on `/cms/articles/[id]` showing a list of versions with side-by-side diff view (use `diff-match-patch` or similar). Restore a previous version with one click. Storage cost is real but small for typical CMS use. ~2-3 days.
+
+### v1.6+ — Future ideas (not committed)
 
 - OAuth providers (Google, GitHub) for multi-admin sites that don't want to manage passwords.
-- Token-based user invitations — replace the v1.2 "share /cms/signup" placeholder with one-shot signed links + role assignment on accept.
-- Audit-log viewer page — write hooks already exist for user changes; needs UI + write hooks for article/category/tag actions.
-- Content versioning / diff view per article.
-- Scheduled publishing (set `publishedAt` in the future, public site respects it).
-- Full-text search via D1 FTS5 or KV-indexed.
