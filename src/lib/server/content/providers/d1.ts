@@ -22,6 +22,8 @@ import type {
   PaginatedResult,
   CategoryRecord,
   TagRecord,
+  SearchHit,
+  SearchOptions,
   SiteSettings,
   Locale,
 } from "../types";
@@ -149,6 +151,78 @@ export class D1ContentProvider implements ContentProvider {
       page,
       limit,
     };
+  }
+
+  /**
+   * FTS5-backed full-text search.
+   *
+   * The query string passes straight through to FTS5's `MATCH` operator
+   * (so `"khao pad"` is a phrase, `khao*` is a prefix, `khao OR rice`
+   * is a boolean), with one safety pass: bare strings get wrapped in
+   * double quotes so unbalanced punctuation doesn't crash the query
+   * parser. Power users can opt into the raw syntax by including a
+   * double quote, parenthesis, or asterisk.
+   *
+   * The visibility filters (locale / onlyPublished / onlyPublishedStatus)
+   * apply via a JOIN against `articles` so we don't leak draft/scheduled
+   * content via search results.
+   */
+  async searchArticles(
+    query: string,
+    opts: SearchOptions = {},
+  ): Promise<SearchHit[]> {
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+    // Heuristic: if the user typed something that looks like an FTS5
+    // expression (quotes, parens, asterisk, AND/OR), pass it through;
+    // otherwise wrap as a phrase to defang punctuation.
+    const looksAdvanced = /["()*]|\b(AND|OR|NOT|NEAR)\b/.test(trimmed);
+    const ftsQuery = looksAdvanced
+      ? trimmed
+      : `"${trimmed.replace(/"/g, '""')}"`;
+
+    const limit = Math.max(1, Math.min(opts.limit ?? 20, 100));
+    const localeFilter = opts.locale
+      ? sql`AND fts.locale = ${opts.locale}`
+      : sql``;
+    const statusFilter = opts.onlyPublishedStatus
+      ? sql`AND a.status = 'published'`
+      : sql``;
+    const scheduleFilter = opts.onlyPublished
+      ? sql`AND (a.published_at IS NULL OR a.published_at <= ${new Date().toISOString()})`
+      : sql``;
+
+    // Drizzle doesn't model FTS5 virtual tables; the query is hand-
+    // rolled with sql`` template tags. Returns the raw array; the
+    // `unknown[]` cast is the standard escape hatch for D1 raw rows.
+    type Row = {
+      article_id: string;
+      locale: string;
+      title: string;
+      snippet: string;
+    };
+    const rows = (await this.db.all(sql`
+        SELECT
+          fts.article_id,
+          fts.locale,
+          fts.title,
+          snippet(articles_fts, 2, '<mark>', '</mark>', '…', 24) AS snippet
+        FROM articles_fts AS fts
+        JOIN articles AS a ON a.id = fts.article_id
+        WHERE articles_fts MATCH ${ftsQuery}
+        ${localeFilter}
+        ${statusFilter}
+        ${scheduleFilter}
+        ORDER BY rank
+        LIMIT ${limit}
+      `)) as unknown as Row[];
+
+    return rows.map((r) => ({
+      articleId: r.article_id,
+      locale: r.locale,
+      title: r.title,
+      snippet: r.snippet,
+    }));
   }
 
   async createArticle(data: ArticleCreateInput): Promise<ArticleRecord> {

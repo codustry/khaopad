@@ -123,11 +123,38 @@ export interface PaginatedResult<T> {
 }
 
 // ─── Content Provider Interface ──────────────────────────
+/** A single search hit, returned by `searchArticles`. */
+export interface SearchHit {
+  articleId: string;
+  locale: string;
+  title: string;
+  /** A short HTML snippet around the matched terms (`<mark>…</mark>`). */
+  snippet: string;
+}
+
+export interface SearchOptions {
+  /** Restrict to a single locale. Defaults to all. */
+  locale?: Locale;
+  /** Hide articles whose `publishedAt` is in the future. */
+  onlyPublished?: boolean;
+  /** Hide draft/archived articles. */
+  onlyPublishedStatus?: boolean;
+  limit?: number;
+}
+
 export interface ContentProvider {
   // Articles
   getArticle(id: string): Promise<ArticleRecord | null>;
   getArticleBySlug(slug: string): Promise<ArticleRecord | null>;
   listArticles(filter?: ArticleFilter): Promise<PaginatedResult<ArticleRecord>>;
+  /**
+   * Full-text search over article localizations. Returns top-N hits
+   * ranked by FTS5's BM25 algorithm. The query string is passed
+   * straight through to FTS5's `MATCH` operator — see SQLite's FTS5
+   * docs for the supported syntax (phrase queries with quotes,
+   * boolean AND/OR, prefix with `*`, etc.).
+   */
+  searchArticles(query: string, opts?: SearchOptions): Promise<SearchHit[]>;
   createArticle(data: ArticleCreateInput): Promise<ArticleRecord>;
   updateArticle(id: string, data: ArticleUpdateInput): Promise<ArticleRecord>;
   deleteArticle(id: string): Promise<void>;
