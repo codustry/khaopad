@@ -22,6 +22,7 @@ export const load: PageServerLoad = async ({ locals, params, url }) => {
 
   const articles = await locals.content.listArticles({
     status: "published",
+    onlyPublished: true,
     locale,
     page: 1,
     limit: 20,

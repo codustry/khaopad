@@ -1,11 +1,23 @@
 import { error, fail, redirect } from "@sveltejs/kit";
 import { drizzle } from "drizzle-orm/d1";
 import { count, desc, eq } from "drizzle-orm";
-import { nanoid } from "nanoid";
 import * as schema from "$lib/server/content/schema";
 import { canManageUser, canManageUsers } from "$lib/server/auth/permissions";
+import { logAudit } from "$lib/server/audit";
+import {
+  createInvitation,
+  listInvitations,
+  revokeInvitation,
+  type InvitationRole,
+} from "$lib/server/invitations";
 import type { UserRole } from "$lib/server/auth/types";
 import type { Actions, PageServerLoad } from "./$types";
+
+const VALID_INVITE_ROLES: ReadonlyArray<InvitationRole> = [
+  "admin",
+  "editor",
+  "author",
+];
 
 const VALID_ROLES = [
   "super_admin",
@@ -29,20 +41,37 @@ export const load: PageServerLoad = async ({ locals, platform }) => {
   if (!platform?.env?.DB) throw error(503, "Platform not configured");
 
   const db = drizzle(platform.env.DB, { schema });
-  const items = await db
-    .select({
-      id: schema.users.id,
-      name: schema.users.name,
-      email: schema.users.email,
-      role: schema.users.role,
-      createdAt: schema.users.createdAt,
-      image: schema.users.image,
-    })
-    .from(schema.users)
-    .orderBy(desc(schema.users.createdAt));
+  const [items, invites] = await Promise.all([
+    db
+      .select({
+        id: schema.users.id,
+        name: schema.users.name,
+        email: schema.users.email,
+        role: schema.users.role,
+        createdAt: schema.users.createdAt,
+        image: schema.users.image,
+      })
+      .from(schema.users)
+      .orderBy(desc(schema.users.createdAt)),
+    listInvitations(platform.env.DB),
+  ]);
+
+  // Surface only outstanding invites — accepted ones are noise.
+  const now = Date.now();
+  const outstandingInvites = invites
+    .filter((i) => !i.acceptedAt && new Date(i.expiresAt).getTime() > now)
+    .map((i) => ({
+      id: i.id,
+      email: i.email,
+      role: i.role,
+      token: i.token,
+      expiresAt: i.expiresAt,
+      createdAt: i.createdAt,
+    }));
 
   return {
     items,
+    invites: outstandingInvites,
     me: {
       id: locals.user.id,
       role: locals.user.role,
@@ -78,29 +107,6 @@ async function countSuperAdmins(d1: D1Database): Promise<number> {
     .where(eq(schema.users.role, "super_admin"))
     .get();
   return row?.n ?? 0;
-}
-
-/** Best-effort audit-log entry — never throws into the action flow. */
-async function logAudit(
-  d1: D1Database,
-  actorId: string | null,
-  action: string,
-  entityId: string,
-  metadata: Record<string, unknown>,
-) {
-  try {
-    const db = drizzle(d1, { schema });
-    await db.insert(schema.auditLog).values({
-      id: nanoid(),
-      userId: actorId,
-      action,
-      entityType: "user",
-      entityId,
-      metadata: JSON.stringify(metadata),
-    });
-  } catch {
-    // Audit logging is best-effort. A missing row is better than a 500.
-  }
 }
 
 export const actions: Actions = {
@@ -214,6 +220,76 @@ export const actions: Actions = {
     await logAudit(platform.env.DB, locals.user!.id, "user.delete", id, {
       role: target.role,
     });
+    return { ok: true };
+  },
+
+  /**
+   * Generate a one-shot signup link. Returns the token to the client so
+   * the UI can build the full URL with the request origin (we don't
+   * have access to it here without sniffing headers).
+   */
+  invite: async ({ request, locals, platform }) => {
+    requireUserManager(locals);
+    if (!platform?.env?.DB) throw error(503, "Platform not configured");
+
+    const form = await request.formData();
+    const email = String(form.get("email") ?? "").trim();
+    const role = String(form.get("role") ?? "").trim() as InvitationRole;
+
+    if (!email || !email.includes("@")) {
+      return fail(400, { error: "A valid email is required." });
+    }
+    if (!VALID_INVITE_ROLES.includes(role)) {
+      return fail(400, { error: `Invalid role: ${role}` });
+    }
+    // Plain admins can't invite admins (mirrors the role-management rule).
+    if (role === "admin" && locals.user!.role === "admin") {
+      return fail(403, {
+        error: "Admins can only invite editors and authors.",
+      });
+    }
+
+    const created = await createInvitation(platform.env.DB, {
+      email,
+      role,
+      createdBy: locals.user!.id,
+    });
+
+    await logAudit(
+      platform.env.DB,
+      locals.user!.id,
+      "invitation.create",
+      created.id,
+      { email, role },
+    );
+
+    return {
+      ok: true,
+      invite: {
+        token: created.token,
+        email,
+        role,
+        expiresAt: created.expiresAt,
+      },
+    };
+  },
+
+  revokeInvite: async ({ request, locals, platform }) => {
+    requireUserManager(locals);
+    if (!platform?.env?.DB) throw error(503, "Platform not configured");
+
+    const form = await request.formData();
+    const id = String(form.get("id") ?? "").trim();
+    if (!id) return fail(400, { error: "Missing invitation id." });
+
+    await revokeInvitation(platform.env.DB, id);
+    await logAudit(
+      platform.env.DB,
+      locals.user!.id,
+      "invitation.revoke",
+      id,
+      {},
+    );
     return { ok: true };
   },
 };

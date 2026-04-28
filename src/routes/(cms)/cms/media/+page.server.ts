@@ -1,5 +1,6 @@
 import { error, redirect } from "@sveltejs/kit";
 import { hasRole } from "$lib/server/auth/permissions";
+import { logAudit } from "$lib/server/audit";
 import type { Actions, PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -9,7 +10,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 };
 
 export const actions: Actions = {
-  delete: async ({ request, locals }) => {
+  delete: async ({ request, locals, platform }) => {
     if (!locals.user) throw error(401, "Not authenticated");
     if (!hasRole(locals.user, "admin")) throw error(403, "Forbidden");
 
@@ -21,6 +22,11 @@ export const actions: Actions = {
     if (!record) return { ok: false, error: "Not found" };
 
     await locals.media.delete(id);
+    if (platform?.env?.DB) {
+      await logAudit(platform.env.DB, locals.user.id, "media.delete", id, {
+        filename: record.filename,
+      });
+    }
     return { ok: true };
   },
 };

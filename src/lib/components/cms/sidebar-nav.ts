@@ -7,6 +7,7 @@ import {
   Tag,
   Users,
   Settings,
+  ScrollText,
 } from "lucide-svelte";
 import * as m from "$lib/paraglide/messages";
 
@@ -53,6 +54,12 @@ export const navGroups: ReadonlyArray<NavGroup> = [
         href: "/cms/users",
         label: m.cms_users,
         icon: Users,
+        roles: ["super_admin", "admin"],
+      },
+      {
+        href: "/cms/audit",
+        label: m.cms_audit,
+        icon: ScrollText,
         roles: ["super_admin", "admin"],
       },
       {

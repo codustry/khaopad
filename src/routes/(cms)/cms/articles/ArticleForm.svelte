@@ -17,6 +17,8 @@
 		coverMediaId: string;
 		categoryId: string;
 		tagIds: string[];
+		/** "yyyy-MM-ddThh:mm" for the local datetime input; "" means publish immediately */
+		publishedAtLocal: string;
 	};
 
 	let {
@@ -49,7 +51,25 @@
 		coverMediaId: formState?.values?.coverMediaId ?? existing?.coverMediaId ?? '',
 		categoryId: formState?.values?.categoryId ?? existing?.categoryId ?? '',
 		tagIds: formState?.values?.tagIds ?? existing?.tagIds ?? [],
+		publishedAtLocal:
+			formState?.values?.publishedAtLocal ?? isoToLocalInput(existing?.publishedAt) ?? '',
 	});
+
+	/**
+	 * Convert an ISO timestamp string into the format `<input type="datetime-local">`
+	 * accepts (`YYYY-MM-DDTHH:mm`). Returns `null` for missing input. The browser
+	 * will then re-emit it back to us as the same shape on submit.
+	 */
+	function isoToLocalInput(iso: string | null | undefined): string | null {
+		if (!iso) return null;
+		const d = new Date(iso);
+		if (Number.isNaN(d.getTime())) return null;
+		const pad = (n: number) => n.toString().padStart(2, '0');
+		return (
+			`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+			`T${pad(d.getHours())}:${pad(d.getMinutes())}`
+		);
+	}
 	const seed = initialValues();
 
 	let titleEn = $state(seed.titleEn);
@@ -63,7 +83,17 @@
 	let coverMediaId = $state(seed.coverMediaId);
 	let categoryId = $state(seed.categoryId);
 	let tagIds = $state<string[]>(seed.tagIds);
+	let publishedAtLocal = $state(seed.publishedAtLocal);
 	let loading = $state(false);
+
+	// "Scheduled" means: status is published AND publishedAt is in the future.
+	// Surface a small chip so the editor knows the article won't go live yet.
+	const scheduledNotice = $derived.by(() => {
+		if (status !== 'published' || !publishedAtLocal) return null;
+		const t = new Date(publishedAtLocal).getTime();
+		if (Number.isNaN(t) || t <= Date.now()) return null;
+		return new Date(publishedAtLocal).toLocaleString();
+	});
 
 	// Auto-derive slug preview from English title until the user types their own.
 	let slugTouched = $state(Boolean(seed.slugInput));
@@ -211,6 +241,22 @@
 				<option value="published">{m.status_published()}</option>
 				<option value="archived">{m.status_archived()}</option>
 			</select>
+		</label>
+
+		<label class="block">
+			<span class="text-sm font-medium">{m.cms_published_at()}</span>
+			<input
+				type="datetime-local"
+				name="published_at_local"
+				bind:value={publishedAtLocal}
+				class="mt-1 w-full px-3 py-2 border border-input rounded-md bg-background text-sm"
+			/>
+			<span class="text-xs text-muted-foreground">{m.cms_published_at_help()}</span>
+			{#if scheduledNotice}
+				<span class="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-amber-700">
+					⏱ {m.cms_scheduled_for({ when: scheduledNotice })}
+				</span>
+			{/if}
 		</label>
 
 		<div class="block">

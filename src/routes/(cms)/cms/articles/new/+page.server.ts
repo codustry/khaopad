@@ -1,5 +1,6 @@
 import { fail, redirect } from "@sveltejs/kit";
 import { generateSlugFromTitle, slugify } from "$lib/utils";
+import { logAudit } from "$lib/server/audit";
 import type { Actions, PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -12,7 +13,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 };
 
 export const actions: Actions = {
-  default: async ({ request, locals }) => {
+  default: async ({ request, locals, platform }) => {
     if (!locals.user) throw redirect(302, "/cms/login");
 
     const form = await request.formData();
@@ -33,6 +34,9 @@ export const actions: Actions = {
       | "draft"
       | "published"
       | "archived";
+    const publishedAtLocal = String(
+      form.get("published_at_local") ?? "",
+    ).trim();
 
     if (!titleEn || !bodyEn) {
       return fail(400, {
@@ -76,6 +80,15 @@ export const actions: Actions = {
       });
     }
 
+    // publishedAt resolution:
+    //   - explicit datetime from the form wins (treated as local time, stored as ISO)
+    //   - otherwise: published → now(), draft/archived → null
+    const publishedAt = publishedAtLocal
+      ? new Date(publishedAtLocal).toISOString()
+      : status === "published"
+        ? new Date().toISOString()
+        : undefined;
+
     try {
       const article = await locals.content.createArticle({
         slug,
@@ -84,8 +97,7 @@ export const actions: Actions = {
         coverMediaId: coverMediaId || undefined,
         categoryId: categoryId || undefined,
         tagIds: tagIds.length ? tagIds : undefined,
-        publishedAt:
-          status === "published" ? new Date().toISOString() : undefined,
+        publishedAt,
         localizations: {
           en: { title: titleEn, excerpt: excerptEn, body: bodyEn },
           ...(titleTh && bodyTh
@@ -93,6 +105,15 @@ export const actions: Actions = {
             : {}),
         },
       });
+      if (platform?.env?.DB) {
+        await logAudit(
+          platform.env.DB,
+          locals.user.id,
+          "article.create",
+          article.id,
+          { slug: article.slug, status: article.status },
+        );
+      }
       throw redirect(303, `/cms/articles/${article.id}`);
     } catch (err) {
       if (err instanceof Response) throw err; // let redirect through
