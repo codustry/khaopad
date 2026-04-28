@@ -25,6 +25,12 @@
 	<div class="flex items-center justify-between mb-6 gap-3 flex-wrap">
 		<h1 class="text-2xl font-bold">{m.cms_edit_article()}</h1>
 		<div class="flex items-center gap-2">
+			<a
+				href={`/cms/articles/${data.article.id}/history`}
+				class="px-3 py-1.5 border border-border rounded-md text-sm hover:bg-muted"
+			>
+				{m.cms_history_link()}
+			</a>
 			<form method="POST" action="?/togglePublish" use:enhance>
 				<button
 					type="submit"

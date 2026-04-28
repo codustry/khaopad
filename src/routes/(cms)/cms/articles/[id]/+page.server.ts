@@ -112,6 +112,7 @@ export const actions: Actions = {
       categoryId: categoryId ? categoryId : null,
       tagIds,
       publishedAt: resolvedPublishedAt,
+      actorId: user.id,
       localizations: {
         en: { title: titleEn, excerpt: excerptEn, body: bodyEn },
         ...(titleTh && bodyTh

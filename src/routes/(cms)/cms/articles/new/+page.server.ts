@@ -93,6 +93,7 @@ export const actions: Actions = {
       const article = await locals.content.createArticle({
         slug,
         authorId: locals.user.id,
+        actorId: locals.user.id,
         status,
         coverMediaId: coverMediaId || undefined,
         categoryId: categoryId || undefined,
