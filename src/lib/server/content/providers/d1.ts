@@ -1,5 +1,15 @@
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
-import { eq, and, desc, like, sql, inArray } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  like,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { generateSlugFromTitle, slugify } from "$lib/utils";
 import * as schema from "../schema";
@@ -58,6 +68,7 @@ export class D1ContentProvider implements ContentProvider {
       search,
       page = 1,
       limit = 20,
+      onlyPublished = false,
     } = filter;
     const offset = (page - 1) * limit;
 
@@ -65,6 +76,20 @@ export class D1ContentProvider implements ContentProvider {
     if (status) conditions.push(eq(schema.articles.status, status));
     if (categoryId) conditions.push(eq(schema.articles.categoryId, categoryId));
     if (authorId) conditions.push(eq(schema.articles.authorId, authorId));
+    // Scheduled-publishing guard: hide articles whose publishedAt is in
+    // the future. Articles with no publishedAt slip through (treated as
+    // "publish immediately when status is 'published'"). Public callers
+    // pass onlyPublished:true; CMS callers leave it false so editors can
+    // see what's queued up.
+    if (onlyPublished) {
+      const nowIso = new Date().toISOString();
+      conditions.push(
+        or(
+          isNull(schema.articles.publishedAt),
+          lte(schema.articles.publishedAt, nowIso),
+        )!,
+      );
+    }
 
     // Tag filter requires a subquery
     let articleIdsWithTag: string[] | undefined;

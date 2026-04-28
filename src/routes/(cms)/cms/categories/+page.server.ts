@@ -1,5 +1,6 @@
 import { error, fail, redirect } from "@sveltejs/kit";
 import { canManageTaxonomy } from "$lib/server/auth/permissions";
+import { logAudit } from "$lib/server/audit";
 import { slugify } from "$lib/utils";
 import type { Actions, PageServerLoad } from "./$types";
 
@@ -17,7 +18,7 @@ function requireTaxonomyManager(locals: App.Locals) {
 }
 
 export const actions: Actions = {
-  create: async ({ request, locals }) => {
+  create: async ({ request, locals, platform }) => {
     requireTaxonomyManager(locals);
     const form = await request.formData();
     const nameEn = String(form.get("name_en") ?? "").trim();
@@ -58,10 +59,15 @@ export const actions: Actions = {
         values: { nameEn, nameTh, descEn, descTh, slugInput },
       });
     }
+    if (platform?.env?.DB && locals.user) {
+      await logAudit(platform.env.DB, locals.user.id, "category.create", slug, {
+        nameEn,
+      });
+    }
     return { ok: true };
   },
 
-  update: async ({ request, locals }) => {
+  update: async ({ request, locals, platform }) => {
     requireTaxonomyManager(locals);
     const form = await request.formData();
     const id = String(form.get("id") ?? "").trim();
@@ -90,15 +96,29 @@ export const actions: Actions = {
         error: err instanceof Error ? err.message : "Failed to update",
       });
     }
+    if (platform?.env?.DB && locals.user) {
+      await logAudit(platform.env.DB, locals.user.id, "category.update", id, {
+        nameEn,
+      });
+    }
     return { ok: true };
   },
 
-  delete: async ({ request, locals }) => {
+  delete: async ({ request, locals, platform }) => {
     requireTaxonomyManager(locals);
     const form = await request.formData();
     const id = String(form.get("id") ?? "").trim();
     if (!id) return fail(400, { error: "Missing id" });
     await locals.content.deleteCategory(id);
+    if (platform?.env?.DB && locals.user) {
+      await logAudit(
+        platform.env.DB,
+        locals.user.id,
+        "category.delete",
+        id,
+        {},
+      );
+    }
     return { ok: true };
   },
 };

@@ -4,6 +4,7 @@ import {
   canEditArticle,
   canPublish,
 } from "$lib/server/auth/permissions";
+import { logAudit, type AuditAction } from "$lib/server/audit";
 import { slugify } from "$lib/utils";
 import type { ArticleUpdateInput } from "$lib/server/content/types";
 import type { Actions, PageServerLoad } from "./$types";
@@ -28,7 +29,7 @@ function requireAuthor(locals: App.Locals) {
 }
 
 export const actions: Actions = {
-  save: async ({ request, locals, params }) => {
+  save: async ({ request, locals, params, platform }) => {
     const user = requireAuthor(locals);
     const existing = await locals.content.getArticle(params.id);
     if (!existing) return fail(404, { error: "Article not found" });
@@ -54,6 +55,9 @@ export const actions: Actions = {
       | "draft"
       | "published"
       | "archived";
+    const publishedAtLocal = String(
+      form.get("published_at_local") ?? "",
+    ).trim();
 
     if (!titleEn || !bodyEn) {
       return fail(400, {
@@ -84,17 +88,30 @@ export const actions: Actions = {
       });
     }
 
+    // publishedAt resolution:
+    //   - explicit datetime from form (treated as local, stored as ISO) wins
+    //     when status is published/archived
+    //   - draft always clears publishedAt
+    //   - published with no form value falls back to existing or now()
+    //   - archived keeps the existing value
+    const explicitPublishedAt = publishedAtLocal
+      ? new Date(publishedAtLocal).toISOString()
+      : null;
+    const resolvedPublishedAt =
+      nextStatus === "draft"
+        ? null
+        : nextStatus === "published"
+          ? (explicitPublishedAt ??
+            existing.publishedAt ??
+            new Date().toISOString())
+          : (explicitPublishedAt ?? existing.publishedAt);
+
     const update: ArticleUpdateInput = {
       status: nextStatus,
       coverMediaId: coverMediaId ? coverMediaId : null,
       categoryId: categoryId ? categoryId : null,
       tagIds,
-      publishedAt:
-        nextStatus === "published"
-          ? (existing.publishedAt ?? new Date().toISOString())
-          : nextStatus === "draft"
-            ? null
-            : existing.publishedAt,
+      publishedAt: resolvedPublishedAt,
       localizations: {
         en: { title: titleEn, excerpt: excerptEn, body: bodyEn },
         ...(titleTh && bodyTh
@@ -126,10 +143,29 @@ export const actions: Actions = {
         },
       });
     }
+
+    // Audit: log a publish/unpublish event when status changed, plus a
+    // generic update event for any save. Both rows make the timeline
+    // useful when debugging "who published this and when?".
+    if (platform?.env?.DB) {
+      const actions: AuditAction[] = ["article.update"];
+      if (existing.status !== nextStatus) {
+        if (nextStatus === "published") actions.push("article.publish");
+        else if (existing.status === "published")
+          actions.push("article.unpublish");
+      }
+      for (const action of actions) {
+        await logAudit(platform.env.DB, user.id, action, params.id, {
+          slug: existing.slug,
+          from: existing.status,
+          to: nextStatus,
+        });
+      }
+    }
     return { ok: true };
   },
 
-  togglePublish: async ({ locals, params }) => {
+  togglePublish: async ({ locals, params, platform }) => {
     const user = requireAuthor(locals);
     const existing = await locals.content.getArticle(params.id);
     if (!existing) return fail(404, { error: "Article not found" });
@@ -148,17 +184,33 @@ export const actions: Actions = {
           ? (existing.publishedAt ?? new Date().toISOString())
           : null,
     });
+    if (platform?.env?.DB) {
+      await logAudit(
+        platform.env.DB,
+        user.id,
+        next === "published" ? "article.publish" : "article.unpublish",
+        params.id,
+        { slug: existing.slug },
+      );
+    }
     return { ok: true, status: next };
   },
 
-  delete: async ({ locals, params }) => {
+  delete: async ({ locals, params, platform }) => {
     const user = requireAuthor(locals);
     const existing = await locals.content.getArticle(params.id);
     if (!existing) return fail(404, { error: "Article not found" });
     if (!canDeleteArticle(user, existing.authorId)) {
-      return fail(403, { error: "You are not allowed to delete this article" });
+      return fail(403, {
+        error: "You are not allowed to delete this article",
+      });
     }
     await locals.content.deleteArticle(params.id);
+    if (platform?.env?.DB) {
+      await logAudit(platform.env.DB, user.id, "article.delete", params.id, {
+        slug: existing.slug,
+      });
+    }
     throw redirect(303, "/cms/articles");
   },
 };

@@ -78,6 +78,13 @@ export interface ArticleFilter {
   search?: string;
   page?: number;
   limit?: number;
+  /**
+   * When true, the result excludes articles whose `publishedAt` is in
+   * the future (scheduled posts). Always pass `true` from public reads.
+   * Defaults to `false` so the CMS can show every article regardless of
+   * schedule.
+   */
+  onlyPublished?: boolean;
 }
 
 // ─── Categories ──────────────────────────────────────────

@@ -1,5 +1,6 @@
 import { error, fail, redirect } from "@sveltejs/kit";
 import { canManageSettings } from "$lib/server/auth/permissions";
+import { logAudit } from "$lib/server/audit";
 import type { Actions, PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -31,7 +32,7 @@ function parseLocales(input: string): string[] {
  *  circular deps; getSettings() round-trips through `SiteSettings` shape. */
 
 export const actions: Actions = {
-  default: async ({ request, locals }) => {
+  default: async ({ request, locals, platform }) => {
     requireSettingsManager(locals);
 
     const form = await request.formData();
@@ -68,6 +69,15 @@ export const actions: Actions = {
       });
     }
 
+    if (platform?.env?.DB && locals.user) {
+      await logAudit(
+        platform.env.DB,
+        locals.user.id,
+        "settings.update",
+        "site",
+        { siteName, defaultLocale, supportedLocales: supported },
+      );
+    }
     return { ok: true };
   },
 };

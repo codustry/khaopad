@@ -11,6 +11,12 @@ export const load: PageServerLoad = async ({ locals, params }) => {
     throw error(404, "Article not found");
   }
 
+  // Scheduled-publishing guard: a published article with a future
+  // `publishedAt` is not yet visible to the public.
+  if (article.publishedAt && new Date(article.publishedAt) > new Date()) {
+    throw error(404, "Article not found");
+  }
+
   // Slug is shared across locales; fall back to English (the canonical) if the
   // requested locale's content is missing.
   const localization =
