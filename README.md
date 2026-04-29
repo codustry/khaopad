@@ -270,42 +270,25 @@ BETTER_AUTH_SECRET=dev-local-only-not-a-real-secret
 
 ## Roadmap
 
-### v1.0 (MVP)
+Khao Pad started as a CMS. Through v1.5 it became a complete content layer (write, schedule, search, version, audit). v1.6 onward turns it into the **driver of a non-ecommerce website** — meaning a site owner installs Khao Pad and gets the content layer **plus** the surrounding machinery a real website needs (SEO, analytics, IA, performance, engagement).
 
-- [x] **M1** — Project scaffold and architecture (route groups, platform guards, Paraglide i18n)
-- [x] **M2** — D1 migrations, seed script, first-run setup
-- [x] **M3** — Better Auth integration + CMS admin panel (article CRUD, first-admin signup, role-based permissions)
-- [x] **M4** — Media library (R2 upload/delete, cover images, migration guide)
-- [x] **M5** — Categories & tags (CMS taxonomy UI, article pickers, public blog filtering, CI workflow)
-- [x] **M6** — Deploy pipeline (staging on `main`, production on `v*.*.*` tag, D1 migrations + smoke test)
-- [x] **M7** — Markdown editor UX (toolbar, split preview, media picker, draft autosave)
+| Version  | Theme                       | Status       | Highlights                                                                                          |
+| -------- | --------------------------- | ------------ | --------------------------------------------------------------------------------------------------- |
+| **v1.0** | MVP                         | ✅ Shipped    | M1–M7: scaffold, D1 migrations, Better Auth, media library, taxonomy, deploy pipeline, MD editor    |
+| **v1.1** | Path-prefix routing         | ✅ Shipped    | `/cms/*` instead of `cms.` subdomain, shadcn admin reskin, D1+Date binding fix, scope tightening    |
+| **v1.2** | Users & settings UIs        | ✅ Shipped    | `/cms/users` (roles, last-super-admin guard), `/cms/settings`, `canManageUser` permission helper    |
+| **v1.3** | Workflow trio               | ✅ Shipped    | Token invitations, audit-log viewer, scheduled publishing                                           |
+| **v1.4** | Full-text search            | ✅ Shipped    | SQLite FTS5 over per-locale localizations, public `/blog?q=`, CMS list filter                       |
+| **v1.5** | Content versioning          | ✅ Shipped    | Per-article revision history, line diff, one-click restore, attribution                             |
+| **v1.6** | SEO foundations             | 🚧 Pending   | Per-page meta, sitemap, robots, JSON-LD, RSS/Atom, slug redirects, SEO scoring hint                 |
+| **v1.7** | Pages, navigation, IA       | 🚧 Pending   | Static pages, navigation manager, **media folders**, reusable content blocks                        |
+| **v1.8** | Analytics & insight         | 🚧 Pending   | Privacy-friendly D1 page-views, top articles, search-term insights, per-article sparkline          |
+| **v1.9** | Performance & trust         | 🚧 Pending   | Cloudflare Images responsive `srcset`, cache headers, custom 404/500, cookie consent, health check |
+| **v2.0** | Engagement & growth         | 🚧 Pending   | Forms, newsletter, comments, webhooks, public read-only API                                         |
 
-See [docs/MILESTONES.md](docs/MILESTONES.md) for a detailed breakdown of what shipped in each milestone.
+**Backlog** (not committed): OAuth providers, block-based editor, AI-assisted authoring, multi-site / workspaces, A/B testing, member-only / paid content.
 
-### v1.1
-
-- [x] CMS at `/cms/*` path prefix (was `cms.` subdomain)
-- [x] shadcn-style admin shell (sidebar, login/signup, oklch theme)
-- [x] D1 Date-binding fix for Better Auth signup
-- [ ] User management UI (`/cms/users` — list, invite, role change)
-- [ ] Site settings UI (`/cms/settings`)
-- [ ] OAuth providers (Google, GitHub)
-- [ ] Rich media management
-
-### v2.0
-
-- [ ] Custom content types (pages, FAQs)
-- [ ] Audit trail
-- [ ] Content versioning
-- [ ] Scheduled publishing
-- [ ] Full-text search
-
-### v3.0
-
-- [ ] Plugin system
-- [ ] Multi-site support
-- [ ] White-label CMS
-- [ ] API-first headless mode
+See [docs/MILESTONES.md](docs/MILESTONES.md) for the detail block on every shipped and pending milestone, and [open issues](https://github.com/codustry/khaopad/issues) for the per-milestone tracking.
 
 ## License
 
