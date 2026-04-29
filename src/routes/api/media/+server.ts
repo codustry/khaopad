@@ -13,14 +13,13 @@ const ALLOWED_PREFIXES = ["image/", "video/", "audio/", "application/pdf"];
  * resulting MediaRecord.
  */
 export const POST: RequestHandler = async ({ request, locals }) => {
-  // Auth: author+ may upload.
+  // Auth: author+ may upload. (No surface gate — `/api/*` is shared between
+  // surfaces under path-prefix routing; the auth check above is the real gate.
+  // Pre-v1.1 this also checked `locals.subdomain === "cms"` because the CMS
+  // ran on its own host; with path-prefix routing every `/api/*` request
+  // classifies as the `www` surface, so that check 404'd every upload.)
   if (!locals.user) throw error(401, "Not authenticated");
   if (!hasRole(locals.user, "author")) throw error(403, "Forbidden");
-
-  // We only allow uploads on the CMS subdomain — the www surface is read-only.
-  if (locals.subdomain !== "cms") {
-    throw error(404, "Not found");
-  }
 
   const contentType = request.headers.get("content-type") ?? "";
   if (!contentType.includes("multipart/form-data")) {

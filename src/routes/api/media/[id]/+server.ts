@@ -32,7 +32,8 @@ export const GET: RequestHandler = async ({ locals, params, setHeaders }) => {
 export const DELETE: RequestHandler = async ({ locals, params }) => {
   if (!locals.user) throw error(401, "Not authenticated");
   if (!hasRole(locals.user, "admin")) throw error(403, "Forbidden");
-  if (locals.subdomain !== "cms") throw error(404, "Not found");
+  // No surface gate: `/api/*` classifies as `www` under path-prefix routing
+  // (see POST /api/media). The role check above is the real gate.
 
   const record = await locals.media.get(params.id);
   if (!record) throw error(404, "Not found");
