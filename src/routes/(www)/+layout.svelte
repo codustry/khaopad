@@ -2,11 +2,26 @@
 	import '../../app.css';
 	import * as m from '$lib/paraglide/messages';
 	import { localePath, toLocale, getAlternateLocale } from '$lib/i18n';
+	import { page } from '$app/state';
+	import Seo from '$lib/components/seo/Seo.svelte';
+	import type { PageSeo } from '$lib/seo';
 	import type { Snippet } from 'svelte';
 	import type { LayoutData } from './$types';
 
 	let { children, data }: { children: Snippet; data: LayoutData } = $props();
+
+	// Each public +page.server.ts may return `seo: PageSeo`; the layout
+	// reads it via $app/state and renders all SEO tags via <Seo />.
+	const pageSeo = $derived((page.data.seo as PageSeo | undefined) ?? undefined);
+	const seoDefaults = $derived({
+		siteName: data.siteSettings?.siteName ?? m.site_name(),
+		description: m.site_description(),
+		image: undefined,
+		twitter: undefined,
+	});
 </script>
+
+<Seo seo={pageSeo} defaults={seoDefaults} locale={toLocale(data.locale)} />
 
 <div class="min-h-screen flex flex-col">
 	<header class="border-b border-border">

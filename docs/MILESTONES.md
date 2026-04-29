@@ -164,23 +164,27 @@ Through v1.5 we have a complete content layer: write, schedule, search, version.
 
 The release plan below picks the 80/20 slice from each pillar in turn. v1.6 → v2.0 is roughly four months of focused work.
 
-### v1.6 — SEO foundations (pending)
+### v1.6 — SEO foundations
 
-The biggest single gap: `seoTitle` / `seoDescription` are stored on `article_localizations` but never rendered into the public `<head>`. Visitors and search engines see whatever the markdown title is. Fix that, then add the rest of the on-page SEO surface.
+Closes the discoverability gap. `seoTitle` and `seoDescription` were stored on `article_localizations` but only the slug page rendered them; the home and blog index emitted minimal head tags and there was no canonical, OG, Twitter, hreflang, sitemap, robots, or feed surface anywhere. v1.6 makes Khao Pad a real-website SEO baseline — a deployed blog now scores Lighthouse SEO ≥90 out of the box.
 
-**Per-page meta** — A reusable `<Seo>` Svelte component that lives in `(www)/+layout.svelte` and reads from a `pageSeo` store populated by each page's `+page.server.ts` load. Renders `<title>`, `<meta name="description">`, `<link rel="canonical">`, `og:title` / `og:description` / `og:image` / `og:type` / `og:locale`, Twitter Card tags, and `<link rel="alternate" hreflang="...">` pairs for the EN/TH bilingual surface. Each article page passes its own SEO record; the layout supplies sensible defaults from `site_settings`.
+**`<Seo>` component + `PageSeo` plumbing** — `src/lib/seo/index.ts` defines the per-page `PageSeo` record (title, description, canonical, locale, alternates, image, ogType, publishedTime, modifiedTime, robots, jsonLd[]) plus three JSON-LD builders (`articleJsonLd`, `breadcrumbJsonLd`, `websiteJsonLd`) and a `resolveOrigin(url, cdnBaseUrl)` helper. Each public page's `+page.server.ts` returns `seo: PageSeo`; the new `<Seo>` component (mounted in `(www)/+layout.svelte`) reads it via `$app/state` `page.data` and renders `<title>`, `<meta name="description">`, `<link rel="canonical">`, full Open Graph (`og:title` / `og:description` / `og:type` / `og:locale` / `og:url` / `og:image` / `og:site_name` / `article:published_time` / `article:modified_time`), Twitter Card tags, hreflang alternate links (with `x-default` pointing at EN), per-page JSON-LD entries as `<script type="application/ld+json">` blocks, and an RSS auto-discovery `<link rel="alternate">`.
 
-**Sitemap** — `/sitemap.xml` index that points to `/sitemap-en.xml` and `/sitemap-th.xml`. Each per-locale sitemap lists every published article (respecting scheduled publishing) with `<loc>`, `<lastmod>` from `updatedAt`, and `<xhtml:link rel="alternate">` hreflang siblings. Streams from D1 — no caching needed at typical CMS scale; revisit if a single instance ever holds 50k+ URLs.
+**Sitemap** — `/sitemap.xml` is a sitemap index pointing at one `/sitemap-{locale}.xml` per supported locale. Each per-locale sitemap lists the locale home (`/{locale}`), the blog index (`/{locale}/blog`), and every published article in that locale (respecting scheduled publishing), each with `<loc>`, `<lastmod>` from `updatedAt`, and `<xhtml:link rel="alternate" hreflang>` siblings only for locales that actually have content. Cache-Control `public, max-age=300, s-maxage=3600`.
 
-**robots.txt** — Per-environment. Production allows all; staging emits `Disallow: /` to keep the preview off Google. Driven by a new `WORKERS_ENV` binding so the file changes without code.
+**robots.txt** — Per-environment. Reads `WORKERS_ENV` from `platform.env`. Production emits `User-agent: * / Allow: / / Disallow: /cms/ /api/ + Sitemap: …`; any non-production value emits `Disallow: /` so staging/preview never get indexed.
 
-**JSON-LD structured data** — `Article` schema on each blog post (headline, datePublished, dateModified, author, image, articleBody snippet); `BreadcrumbList` on category/tag landing pages; `WebSite` + `Organization` on the site root. All emitted via the `<Seo>` component as a single `<script type="application/ld+json">` block per page.
+**RSS feed** — `/feed.xml` 302s to `/feed-{defaultLocale}.xml`. `/feed-{locale}.xml` returns RSS 2.0 (with the `content:encoded` namespace) for the 50 most recent published articles in that locale, full HTML body wrapped in `<![CDATA[…]]>` so readers can render without re-fetching. Includes `<atom:link rel="self">` for self-discovery.
 
-**RSS / Atom feed** — `/feed.xml` (default locale) and `/feed-{locale}.xml` per locale. 50 most recent published articles with full content. Also surfaces in the `<head>` as `<link rel="alternate" type="application/rss+xml">` so feed readers auto-discover.
+**Slug redirects** — New `slug_redirects` table (Drizzle migration 0004): `oldSlug` (UNIQUE), `newSlug`, `articleId` (FK CASCADE from `articles`), `createdAt`. When `updateArticle({ slug })` actually changes a slug, the D1 provider writes a redirect row in the same call and re-points any chained redirects so an old link survives `a → b → c`. The public `/blog/[slug]` route, on miss, calls `resolveSlugRedirect(oldSlug)` and `throw redirect(301, …)` to the new canonical URL before throwing 404.
 
-**Slug redirects** — A new `slug_redirects` table (`oldSlug`, `newSlug`, `createdAt`). When `updateArticle({ slug })` rewrites a slug, write a redirect row automatically. The public `/blog/[slug]` route checks for a redirect and 301s if found. Keeps backlinks alive across slug edits.
+**JSON-LD** — Home page emits `WebSite` schema with a `SearchAction` pointing at `/{locale}/blog?q={search_term_string}`. Blog post pages emit full `Article` schema (headline, datePublished, dateModified, author, image, mainEntityOfPage, publisher).
 
-**SEO scoring hint** — On the article edit page, show a soft check next to the SEO fields: title length 30–60 chars (good), description 70–160 chars (good), missing description (warn), title exceeds 60 (warn). No hard validation — purely advisory.
+**SEO inputs in the CMS** — The article edit form gets two new collapsible sections (one EN, one TH), each with `seo_title_*` and `seo_description_*` fields. Server-side actions for `new/+page.server.ts` and `[id]/+page.server.ts` parse the new fields and pass them into `localizations.{en,th}.seoTitle / seoDescription`. Failure-echo `values` blocks updated to round-trip the new fields through fail responses.
+
+**SEO scoring hint** — Each SEO field shows a real-time soft verdict color-coded by tone: title 30–60 chars (green "good length"), title <30 or >60 (amber warning), missing override (muted "search engines will use the regular title"); description 70–160 (green), <70 or >160 (amber), missing (muted "will use the excerpt"). Falls back to `titleEn` / `excerptEn` when the override is empty so the score reflects what visitors actually see. Advisory only — never blocks save.
+
+**i18n** — 12 new `cms_seo_*` keys (EN + TH).
 
 ### v1.7 — Pages, navigation, and asset organization (pending)
 
