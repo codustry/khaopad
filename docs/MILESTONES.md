@@ -152,6 +152,89 @@ UI: `/cms/articles/[id]/history` is a timeline with batched actor lookups (one q
 
 ## Pending
 
-### v1.6+ — Future ideas (not committed)
+### Vision — what comes after v1.5
 
-- OAuth providers (Google, GitHub) for multi-admin sites that don't want to manage passwords.
+Through v1.5 we have a complete content layer: write, schedule, search, version. That's table stakes. The bigger thesis is that Khao Pad is the **driver of a non-ecommerce website** — meaning a site owner installs Khao Pad and gets the content layer **plus** the surrounding machinery a real website needs. The five pillars below organize that machinery; each pending milestone delivers a slice of one.
+
+1. **Discoverability (SEO).** A site nobody finds is a site that doesn't exist. Per-page meta, sitemap, robots, structured data, hreflang, feeds, redirects.
+2. **Insight (analytics).** Editors need to know what's working. Privacy-friendly page views, top content, search-term performance, editor metrics.
+3. **Information architecture.** Articles aren't the whole site. Pages, navigation menus, hierarchy, asset organization.
+4. **Performance & trust.** Responsive images, cache control, custom error pages, cookie consent.
+5. **Engagement & growth.** Forms, newsletter, comments, webhooks, integrations.
+
+The release plan below picks the 80/20 slice from each pillar in turn. v1.6 → v2.0 is roughly four months of focused work.
+
+### v1.6 — SEO foundations (pending)
+
+The biggest single gap: `seoTitle` / `seoDescription` are stored on `article_localizations` but never rendered into the public `<head>`. Visitors and search engines see whatever the markdown title is. Fix that, then add the rest of the on-page SEO surface.
+
+**Per-page meta** — A reusable `<Seo>` Svelte component that lives in `(www)/+layout.svelte` and reads from a `pageSeo` store populated by each page's `+page.server.ts` load. Renders `<title>`, `<meta name="description">`, `<link rel="canonical">`, `og:title` / `og:description` / `og:image` / `og:type` / `og:locale`, Twitter Card tags, and `<link rel="alternate" hreflang="...">` pairs for the EN/TH bilingual surface. Each article page passes its own SEO record; the layout supplies sensible defaults from `site_settings`.
+
+**Sitemap** — `/sitemap.xml` index that points to `/sitemap-en.xml` and `/sitemap-th.xml`. Each per-locale sitemap lists every published article (respecting scheduled publishing) with `<loc>`, `<lastmod>` from `updatedAt`, and `<xhtml:link rel="alternate">` hreflang siblings. Streams from D1 — no caching needed at typical CMS scale; revisit if a single instance ever holds 50k+ URLs.
+
+**robots.txt** — Per-environment. Production allows all; staging emits `Disallow: /` to keep the preview off Google. Driven by a new `WORKERS_ENV` binding so the file changes without code.
+
+**JSON-LD structured data** — `Article` schema on each blog post (headline, datePublished, dateModified, author, image, articleBody snippet); `BreadcrumbList` on category/tag landing pages; `WebSite` + `Organization` on the site root. All emitted via the `<Seo>` component as a single `<script type="application/ld+json">` block per page.
+
+**RSS / Atom feed** — `/feed.xml` (default locale) and `/feed-{locale}.xml` per locale. 50 most recent published articles with full content. Also surfaces in the `<head>` as `<link rel="alternate" type="application/rss+xml">` so feed readers auto-discover.
+
+**Slug redirects** — A new `slug_redirects` table (`oldSlug`, `newSlug`, `createdAt`). When `updateArticle({ slug })` rewrites a slug, write a redirect row automatically. The public `/blog/[slug]` route checks for a redirect and 301s if found. Keeps backlinks alive across slug edits.
+
+**SEO scoring hint** — On the article edit page, show a soft check next to the SEO fields: title length 30–60 chars (good), description 70–160 chars (good), missing description (warn), title exceeds 60 (warn). No hard validation — purely advisory.
+
+### v1.7 — Pages, navigation, and asset organization (pending)
+
+A blog isn't a website. A website needs static pages (About, Contact, Privacy) and someone has to manage the menu that links to them.
+
+**Pages** — A new `pages` table separate from `articles`: id, slug (per-locale optional), `parentId` for nesting, `template` (default | landing | legal), `publishedAt`, `localizations` (title, body, seoTitle, seoDescription). Routed at `/(www)/[locale]/[...slug]` with a catch-all to support nested slugs like `/about/team`. Reuses the markdown editor and SEO machinery from v1.6.
+
+**Navigation manager** — `/cms/navigation` admin page. Two named menus by default (`primary`, `footer`); each menu is an ordered tree of items. Each item is either an internal link (to an article, category, page) or a custom URL + label. Stored in a `navigation_menus` table + `navigation_items` join. Public `<SiteHeader>` and `<SiteFooter>` components read the menu from `locals.navigation` (populated by a hook).
+
+**Media folders** — Answer to "can I organize media into folders?" Yes. New `parentId` column on `media` referencing itself, plus a `media_folders` table (id, name, parentId). The `/cms/media` page gets a left tree pane with create/rename/delete folder actions, drag-to-move on rows. Filter by folder via a `folderId` filter on `media.list()`. Backwards-compatible: existing rows have `parentId = null` and live at the root.
+
+**Reusable content blocks** — A `content_blocks` table (id, key, locale, body) for snippets reused across pages (CTA, author bio, footer disclaimer). Markdown editor gets a `{{block:cta-newsletter}}` shortcode that's expanded server-side at render time.
+
+### v1.8 — Analytics and insight (pending)
+
+**Page-view counter** — Edge-side, privacy-respecting. New `analytics_events` table on D1 with a `Cloudflare Worker` middleware that increments a counter per `(path, day)` on every public page request, no IP/UA stored. Aggregates via the queue worker so the request path stays sub-millisecond. Optional integration with Cloudflare Web Analytics for the deeper view (referrers, devices, countries) — opt-in via a setting.
+
+**Editor analytics on the dashboard** — Top 10 articles by views (last 30 days), top search terms (last 30 days, from `searchArticles` calls), draft-to-publish median time, articles updated this week. Sourced from `analytics_events` + `audit_log`. Adds a "Performance" card to the dashboard.
+
+**Per-article analytics** — On each article edit page, a sparkline of the last 30 days of views, pulled from `analytics_events`.
+
+**Search-term insights** — Log every public-facing `searchArticles` query (anonymized, just the term + date) into a new `search_log` table. Dashboard tile: "Search terms with no results" — the high-signal list of content gaps to fill.
+
+### v1.9 — Performance and trust (pending)
+
+**Responsive images** — Cloudflare Images binding. The R2-stored original is the source; the `<img>` tag emits a `<picture>` block with `srcset` for `320w`, `640w`, `1024w`, `1920w` widths and `sizes` defaults. Falls back to the raw R2 URL if the binding isn't configured.
+
+**Cache control** — Explicit `Cache-Control` on each public route: `public, max-age=60, s-maxage=300, stale-while-revalidate=86400` for the blog list; longer for individual articles; `no-store` for `/cms/*`. Documented in `docs/PLATFORM-NOTES.md`.
+
+**Custom 404 / 500** — Branded error pages with: a search box (uses v1.4 FTS), the most-recent 5 articles, and a link home. Lives in `(www)/+error.svelte`.
+
+**Cookie consent** — Minimal banner (Accept / Decline) that gates analytics / OG-image hotlinking; stored in a first-party cookie. Required if any v1.8 analytics get turned on for a public site.
+
+**Health endpoint** — `/api/health` returns 200 with a JSON body listing D1 reachability, R2 reachability, KV reachability, last successful migration. Used by the smoke-test job in `deploy.yml`.
+
+### v2.0 — Engagement and growth (pending)
+
+**Forms** — A new `forms` table (id, name, fields-as-JSON) and `form_submissions` table. CMS editor for fields (text, email, textarea, checkbox). Public submission endpoint with built-in honeypot + rate limit. Submissions land in the CMS for review; optional webhook on submit.
+
+**Newsletter** — Subscriber list (`subscribers` table: email, locale, confirmedAt, unsubscribedAt, source). Opt-in via a form on the public site with double-confirm email. CMS digest job pulls the last week's published articles and sends a templated email via Resend / Cloudflare Email Routing. Compliance: clear unsubscribe link in every email, audit log of subscribe/unsubscribe events.
+
+**Comments** — Per-article comments with name + email, queued for moderation by default. CMS moderation queue at `/cms/comments`. Akismet-style spam filter is out of scope; rate limit + honeypot is the v2.0 floor. Optional: anchor in `<article>` body.
+
+**Webhooks** — `/cms/webhooks` lets admins register URLs to ping on `article.publish`, `article.unpublish`, `form.submit`, `subscriber.confirm`. Signed with HMAC-SHA256 using a per-webhook secret. Retried with exponential backoff up to 5×.
+
+**Public REST API** — `/api/public/*` read-only endpoints (articles, categories, tags, pages) for headless consumers. API-key auth via a new `api_keys` table; per-key scopes (read articles only, etc.). Rate-limited per key.
+
+### Backlog — bigger ideas, not committed
+
+These are real, but each is large enough to deserve its own design pass. Listed for transparency, not commitment.
+
+- **OAuth providers** (Google, GitHub) for multi-admin sites that don't want to manage passwords.
+- **Block-based editor** — replace the markdown body with a Tiptap or ProseMirror tree of blocks (hero, callout, gallery, embed). Loses the "everything is markdown" simplicity; gains rich layout. Big call.
+- **AI-assisted authoring** — outline generation, alt-text suggestion, SEO-description writing, machine-translation for the EN→TH gap. Requires a model binding choice (Workers AI? OpenAI?).
+- **Multi-site / workspaces** — one Khao Pad instance hosting multiple independent sites. Schema isolation via a `siteId` column on every table.
+- **A/B testing** — per-page hero variants with a randomized 50/50 cookie. Needs the analytics layer (v1.8) as a prerequisite.
+- **Member-only content** — gated articles behind a paid subscription via Stripe. Shifts Khao Pad toward Substack territory; explicit non-goal for now.
