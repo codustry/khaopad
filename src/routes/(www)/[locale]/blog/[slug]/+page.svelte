@@ -3,12 +3,7 @@
 	let { data } = $props();
 </script>
 
-<svelte:head>
-	{#if data.seo}
-		<title>{data.seo.title}</title>
-		<meta name="description" content={data.seo.description} />
-	{/if}
-</svelte:head>
+<!-- SEO is handled by the layout's <Seo /> component (full meta + Article JSON-LD). -->
 
 <article class="container mx-auto px-4 py-12 max-w-3xl">
 	<header class="mb-8">

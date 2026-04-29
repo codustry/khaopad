@@ -221,4 +221,13 @@ export interface ContentProvider {
   // Site Settings
   getSettings(): Promise<SiteSettings>;
   updateSettings(data: Partial<SiteSettings>): Promise<SiteSettings>;
+
+  // Slug redirects (v1.6)
+  /**
+   * Look up the new slug for a previously-renamed article. Returns
+   * the new slug if found, or null if the lookup misses. The public
+   * `/blog/[slug]` route consults this before throwing 404 so old
+   * back-links keep working.
+   */
+  resolveSlugRedirect(oldSlug: string): Promise<string | null>;
 }

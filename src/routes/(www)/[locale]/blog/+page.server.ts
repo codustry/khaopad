@@ -1,4 +1,6 @@
-import { toLocale } from "$lib/i18n";
+import { toLocale, SUPPORTED_LOCALES } from "$lib/i18n";
+import { canonicalUrl, resolveOrigin, type PageSeo } from "$lib/seo";
+import type { Locale } from "$lib/server/content/types";
 import type { PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals, params, url }) => {
@@ -67,6 +69,43 @@ export const load: PageServerLoad = async ({ locals, params, url }) => {
     });
   }
 
+  // SEO: index page. If a search query is present we ask robots not
+  // to index the no-result-friendly variant (?q=…) — only the bare
+  // /blog should be a canonical search target.
+  const settings = await locals.content.getSettings().catch(() => null);
+  const origin = resolveOrigin(url, settings?.cdnBaseUrl);
+  const blogPath = activeCategory
+    ? `/${locale}/blog?category=${activeCategory.slug}`
+    : activeTag
+      ? `/${locale}/blog?tag=${activeTag.slug}`
+      : `/${locale}/blog`;
+  const canonical = canonicalUrl(origin, blogPath);
+  const alternates: Partial<Record<Locale, string>> = {};
+  for (const l of SUPPORTED_LOCALES) {
+    alternates[l] = canonicalUrl(origin, `/${l}/blog`);
+  }
+
+  const filterLabel =
+    activeCategory?.localizations[locale]?.name ??
+    activeCategory?.slug ??
+    activeTag?.localizations[locale]?.name ??
+    activeTag?.slug ??
+    null;
+
+  const seo: PageSeo = {
+    title: filterLabel
+      ? `${filterLabel} — ${settings?.siteName ?? "Khao Pad"}`
+      : `${settings?.siteName ?? "Khao Pad"} — Blog`,
+    description: filterLabel
+      ? `Articles tagged ${filterLabel}.`
+      : "Latest articles.",
+    canonical,
+    locale,
+    alternates,
+    ogType: "website",
+    robots: q ? "noindex,follow" : undefined,
+  };
+
   return {
     locale,
     articles,
@@ -76,5 +115,6 @@ export const load: PageServerLoad = async ({ locals, params, url }) => {
     activeTag,
     q,
     searchHits,
+    seo,
   };
 };

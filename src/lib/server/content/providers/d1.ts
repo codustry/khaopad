@@ -374,6 +374,9 @@ export class D1ContentProvider implements ContentProvider {
   ): Promise<ArticleRecord> {
     const now = new Date().toISOString();
 
+    // Capture pre-update slug so we can write a redirect row if it changes.
+    const before = data.slug !== undefined ? await this.getArticle(id) : null;
+
     const updateFields: Record<string, unknown> = { updatedAt: now };
     if (data.slug !== undefined) {
       const normalized = slugify(data.slug);
@@ -383,6 +386,30 @@ export class D1ContentProvider implements ContentProvider {
         );
       }
       updateFields.slug = normalized;
+      // If the slug actually changed, persist a redirect from the old
+      // value so old URLs keep working with a 301. INSERT-OR-IGNORE on
+      // the unique old_slug index — don't blow up if a chain forms
+      // (a→b→c keeps both a→c and b→c).
+      if (before && before.slug !== normalized) {
+        try {
+          await this.db.insert(schema.slugRedirects).values({
+            id: nanoid(),
+            oldSlug: before.slug,
+            newSlug: normalized,
+            articleId: id,
+          });
+          // Also re-point any redirects that previously targeted this
+          // article's old slug. Without this, after a→b→c, a→b is
+          // stale (b doesn't exist anymore).
+          await this.db
+            .update(schema.slugRedirects)
+            .set({ newSlug: normalized })
+            .where(eq(schema.slugRedirects.newSlug, before.slug));
+        } catch {
+          // best-effort: a duplicate (someone renamed back-and-forth)
+          // is fine; the unique index just prevents double-write.
+        }
+      }
     }
     if (data.coverMediaId !== undefined)
       updateFields.coverMediaId = data.coverMediaId;
@@ -797,5 +824,15 @@ export class D1ContentProvider implements ContentProvider {
     }
 
     return this.getSettings();
+  }
+
+  // ─── Slug redirects (v1.6) ─────────────────────────────
+  async resolveSlugRedirect(oldSlug: string): Promise<string | null> {
+    const row = await this.db
+      .select({ newSlug: schema.slugRedirects.newSlug })
+      .from(schema.slugRedirects)
+      .where(eq(schema.slugRedirects.oldSlug, oldSlug))
+      .get();
+    return row?.newSlug ?? null;
   }
 }

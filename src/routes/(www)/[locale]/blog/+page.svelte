@@ -21,9 +21,7 @@
 	const tagsById = $derived(new Map(data.tags.map((t) => [t.id, t])));
 </script>
 
-<svelte:head>
-	<title>{m.blog_title()} — {m.site_name()}</title>
-</svelte:head>
+<!-- SEO is handled by the layout's <Seo /> component. -->
 
 <section class="container mx-auto px-4 py-12">
 	<h1 class="text-3xl font-bold mb-4">{m.blog_title()}</h1>

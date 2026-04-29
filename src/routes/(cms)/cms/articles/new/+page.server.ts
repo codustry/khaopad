@@ -20,9 +20,13 @@ export const actions: Actions = {
     const titleEn = String(form.get("title_en") ?? "").trim();
     const excerptEn = String(form.get("excerpt_en") ?? "").trim();
     const bodyEn = String(form.get("body_en") ?? "");
+    const seoTitleEn = String(form.get("seo_title_en") ?? "").trim();
+    const seoDescriptionEn = String(form.get("seo_description_en") ?? "").trim();
     const titleTh = String(form.get("title_th") ?? "").trim();
     const excerptTh = String(form.get("excerpt_th") ?? "").trim();
     const bodyTh = String(form.get("body_th") ?? "");
+    const seoTitleTh = String(form.get("seo_title_th") ?? "").trim();
+    const seoDescriptionTh = String(form.get("seo_description_th") ?? "").trim();
     const slugInput = String(form.get("slug") ?? "").trim();
     const coverMediaId = String(form.get("cover_media_id") ?? "").trim();
     const categoryId = String(form.get("category_id") ?? "").trim();
@@ -45,9 +49,13 @@ export const actions: Actions = {
           titleEn,
           excerptEn,
           bodyEn,
+          seoTitleEn,
+          seoDescriptionEn,
           titleTh,
           excerptTh,
           bodyTh,
+          seoTitleTh,
+          seoDescriptionTh,
           slugInput,
           status,
           coverMediaId,
@@ -68,9 +76,13 @@ export const actions: Actions = {
           titleEn,
           excerptEn,
           bodyEn,
+          seoTitleEn,
+          seoDescriptionEn,
           titleTh,
           excerptTh,
           bodyTh,
+          seoTitleTh,
+          seoDescriptionTh,
           slugInput,
           status,
           coverMediaId,
@@ -100,9 +112,23 @@ export const actions: Actions = {
         tagIds: tagIds.length ? tagIds : undefined,
         publishedAt,
         localizations: {
-          en: { title: titleEn, excerpt: excerptEn, body: bodyEn },
+          en: {
+            title: titleEn,
+            excerpt: excerptEn,
+            body: bodyEn,
+            seoTitle: seoTitleEn || undefined,
+            seoDescription: seoDescriptionEn || undefined,
+          },
           ...(titleTh && bodyTh
-            ? { th: { title: titleTh, excerpt: excerptTh, body: bodyTh } }
+            ? {
+                th: {
+                  title: titleTh,
+                  excerpt: excerptTh,
+                  body: bodyTh,
+                  seoTitle: seoTitleTh || undefined,
+                  seoDescription: seoDescriptionTh || undefined,
+                },
+              }
             : {}),
         },
       });
@@ -124,9 +150,13 @@ export const actions: Actions = {
           titleEn,
           excerptEn,
           bodyEn,
+          seoTitleEn,
+          seoDescriptionEn,
           titleTh,
           excerptTh,
           bodyTh,
+          seoTitleTh,
+          seoDescriptionTh,
           slugInput,
           status,
           coverMediaId,

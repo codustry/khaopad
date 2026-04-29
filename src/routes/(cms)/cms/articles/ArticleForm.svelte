@@ -9,9 +9,13 @@
 		titleEn: string;
 		excerptEn: string;
 		bodyEn: string;
+		seoTitleEn: string;
+		seoDescriptionEn: string;
 		titleTh: string;
 		excerptTh: string;
 		bodyTh: string;
+		seoTitleTh: string;
+		seoDescriptionTh: string;
 		slugInput: string;
 		status: ArticleRecord['status'];
 		coverMediaId: string;
@@ -43,9 +47,15 @@
 		titleEn: formState?.values?.titleEn ?? existing?.localizations.en?.title ?? '',
 		excerptEn: formState?.values?.excerptEn ?? existing?.localizations.en?.excerpt ?? '',
 		bodyEn: formState?.values?.bodyEn ?? existing?.localizations.en?.body ?? '',
+		seoTitleEn: formState?.values?.seoTitleEn ?? existing?.localizations.en?.seoTitle ?? '',
+		seoDescriptionEn:
+			formState?.values?.seoDescriptionEn ?? existing?.localizations.en?.seoDescription ?? '',
 		titleTh: formState?.values?.titleTh ?? existing?.localizations.th?.title ?? '',
 		excerptTh: formState?.values?.excerptTh ?? existing?.localizations.th?.excerpt ?? '',
 		bodyTh: formState?.values?.bodyTh ?? existing?.localizations.th?.body ?? '',
+		seoTitleTh: formState?.values?.seoTitleTh ?? existing?.localizations.th?.seoTitle ?? '',
+		seoDescriptionTh:
+			formState?.values?.seoDescriptionTh ?? existing?.localizations.th?.seoDescription ?? '',
 		slugInput: formState?.values?.slugInput ?? existing?.slug ?? '',
 		status: formState?.values?.status ?? existing?.status ?? 'draft',
 		coverMediaId: formState?.values?.coverMediaId ?? existing?.coverMediaId ?? '',
@@ -75,9 +85,13 @@
 	let titleEn = $state(seed.titleEn);
 	let excerptEn = $state(seed.excerptEn);
 	let bodyEn = $state(seed.bodyEn);
+	let seoTitleEn = $state(seed.seoTitleEn);
+	let seoDescriptionEn = $state(seed.seoDescriptionEn);
 	let titleTh = $state(seed.titleTh);
 	let excerptTh = $state(seed.excerptTh);
 	let bodyTh = $state(seed.bodyTh);
+	let seoTitleTh = $state(seed.seoTitleTh);
+	let seoDescriptionTh = $state(seed.seoDescriptionTh);
 	let slugInput = $state(seed.slugInput);
 	let status = $state<ArticleRecord['status']>(seed.status);
 	let coverMediaId = $state(seed.coverMediaId);
@@ -103,6 +117,42 @@
 	function onSlugInput(e: Event) {
 		slugTouched = true;
 		slugInput = (e.target as HTMLInputElement).value;
+	}
+
+	/**
+	 * Soft SEO scoring per locale. Advisory only — never blocks save.
+	 * Title sweet spot: 30–60 chars (Google truncates around 60).
+	 * Description sweet spot: 70–160 chars.
+	 * Returns one of "good" | "warn" | "empty" so the UI can color-code.
+	 */
+	type SeoVerdict = { tone: 'good' | 'warn' | 'empty'; message: string };
+	function scoreTitle(value: string, fallback: string): SeoVerdict {
+		const v = value || fallback;
+		if (!v) return { tone: 'empty', message: m.cms_seo_title_empty() };
+		const len = v.length;
+		if (len < 30) return { tone: 'warn', message: m.cms_seo_title_short({ len: String(len) }) };
+		if (len > 60) return { tone: 'warn', message: m.cms_seo_title_long({ len: String(len) }) };
+		return { tone: 'good', message: m.cms_seo_title_good({ len: String(len) }) };
+	}
+	function scoreDescription(value: string, fallback: string): SeoVerdict {
+		const v = value || fallback;
+		if (!v) return { tone: 'empty', message: m.cms_seo_description_empty() };
+		const len = v.length;
+		if (len < 70)
+			return { tone: 'warn', message: m.cms_seo_description_short({ len: String(len) }) };
+		if (len > 160)
+			return { tone: 'warn', message: m.cms_seo_description_long({ len: String(len) }) };
+		return { tone: 'good', message: m.cms_seo_description_good({ len: String(len) }) };
+	}
+	const seoTitleEnScore = $derived(scoreTitle(seoTitleEn, titleEn));
+	const seoDescEnScore = $derived(scoreDescription(seoDescriptionEn, excerptEn));
+	const seoTitleThScore = $derived(scoreTitle(seoTitleTh, titleTh));
+	const seoDescThScore = $derived(scoreDescription(seoDescriptionTh, excerptTh));
+
+	function verdictClass(v: SeoVerdict): string {
+		if (v.tone === 'good') return 'text-emerald-700';
+		if (v.tone === 'warn') return 'text-amber-700';
+		return 'text-muted-foreground';
 	}
 
 	// Autosave draft keys — scope per article ("new" for unsaved, id for existing).
@@ -175,6 +225,35 @@
 				/>
 			</div>
 		</div>
+
+		<details class="rounded-md border border-border bg-muted/20" open>
+			<summary class="cursor-pointer px-3 py-2 text-sm font-medium">
+				{m.cms_seo_section()}
+			</summary>
+			<div class="space-y-3 p-3 pt-2">
+				<label class="block">
+					<span class="text-xs font-medium">{m.cms_seo_title_label()}</span>
+					<input
+						name="seo_title_en"
+						bind:value={seoTitleEn}
+						placeholder={titleEn}
+						class="mt-1 w-full px-3 py-2 border border-input rounded-md bg-background text-sm"
+					/>
+					<span class="text-xs {verdictClass(seoTitleEnScore)}">{seoTitleEnScore.message}</span>
+				</label>
+				<label class="block">
+					<span class="text-xs font-medium">{m.cms_seo_description_label()}</span>
+					<textarea
+						name="seo_description_en"
+						bind:value={seoDescriptionEn}
+						rows="2"
+						placeholder={excerptEn}
+						class="mt-1 w-full px-3 py-2 border border-input rounded-md bg-background text-sm"
+					></textarea>
+					<span class="text-xs {verdictClass(seoDescEnScore)}">{seoDescEnScore.message}</span>
+				</label>
+			</div>
+		</details>
 	</section>
 
 	<section class="border border-border rounded-lg p-4 space-y-4">
@@ -213,6 +292,35 @@
 				/>
 			</div>
 		</div>
+
+		<details class="rounded-md border border-border bg-muted/20">
+			<summary class="cursor-pointer px-3 py-2 text-sm font-medium">
+				{m.cms_seo_section()}
+			</summary>
+			<div class="space-y-3 p-3 pt-2">
+				<label class="block">
+					<span class="text-xs font-medium">{m.cms_seo_title_label()}</span>
+					<input
+						name="seo_title_th"
+						bind:value={seoTitleTh}
+						placeholder={titleTh}
+						class="mt-1 w-full px-3 py-2 border border-input rounded-md bg-background text-sm"
+					/>
+					<span class="text-xs {verdictClass(seoTitleThScore)}">{seoTitleThScore.message}</span>
+				</label>
+				<label class="block">
+					<span class="text-xs font-medium">{m.cms_seo_description_label()}</span>
+					<textarea
+						name="seo_description_th"
+						bind:value={seoDescriptionTh}
+						rows="2"
+						placeholder={excerptTh}
+						class="mt-1 w-full px-3 py-2 border border-input rounded-md bg-background text-sm"
+					></textarea>
+					<span class="text-xs {verdictClass(seoDescThScore)}">{seoDescThScore.message}</span>
+				</label>
+			</div>
+		</details>
 	</section>
 
 	<section class="border border-border rounded-lg p-4 space-y-4">

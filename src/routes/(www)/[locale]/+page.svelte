@@ -5,10 +5,7 @@
 	const locale = $derived.by(() => toLocale(data.locale));
 </script>
 
-<svelte:head>
-	<title>{m.site_name()} — {m.site_description()}</title>
-	<meta name="description" content="{m.site_name()} — {m.site_description()}" />
-</svelte:head>
+<!-- SEO is handled by the layout's <Seo /> component (see (www)/+layout.svelte). -->
 
 <section class="container mx-auto px-4 py-16 text-center">
 	<h1 class="text-4xl font-bold mb-4">{m.site_name()}</h1>
