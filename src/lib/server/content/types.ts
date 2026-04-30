@@ -256,6 +256,53 @@ export interface ContentProvider {
   ): Promise<ContentBlockRecord>;
   deleteContentBlock(id: string): Promise<void>;
 
+  // Forms (v2.0a)
+  listForms(): Promise<FormRecord[]>;
+  getForm(id: string): Promise<FormRecord | null>;
+  getFormByKey(key: string): Promise<FormRecord | null>;
+  createForm(data: {
+    key: string;
+    label: string;
+    fields: FormField[];
+    enabled?: boolean;
+    successMessages?: Partial<Record<Locale, string>>;
+    createdBy?: string;
+  }): Promise<FormRecord>;
+  updateForm(
+    id: string,
+    data: Partial<{
+      key: string;
+      label: string;
+      fields: FormField[];
+      enabled: boolean;
+      successMessages: Partial<Record<Locale, string>>;
+    }>,
+  ): Promise<FormRecord>;
+  deleteForm(id: string): Promise<void>;
+
+  // Form submissions (v2.0a)
+  listFormSubmissions(formId: string, opts?: {
+    status?: FormSubmissionStatus;
+    limit?: number;
+  }): Promise<FormSubmissionRecord[]>;
+  getFormSubmission(id: string): Promise<FormSubmissionRecord | null>;
+  createFormSubmission(data: {
+    formId: string;
+    data: Record<string, string>;
+    ipHash?: string;
+  }): Promise<FormSubmissionRecord>;
+  updateFormSubmission(
+    id: string,
+    data: Partial<{ status: FormSubmissionStatus; note: string | null }>,
+  ): Promise<FormSubmissionRecord>;
+  deleteFormSubmission(id: string): Promise<void>;
+  /** Count submissions in the last N seconds matching this ipHash + form. */
+  countRecentSubmissions(
+    formId: string,
+    ipHash: string,
+    sinceSeconds: number,
+  ): Promise<number>;
+
   // Pages (v1.7b)
   getPage(id: string): Promise<PageRecord | null>;
   getPageBySlug(slug: string): Promise<PageRecord | null>;
@@ -301,6 +348,42 @@ export interface ContentBlockRecord {
   createdAt: string;
   updatedAt: string;
   localizations: Partial<Record<Locale, { body: string }>>;
+}
+
+// ─── Forms (v2.0a) ───────────────────────────────────────
+
+/** A single field in a form definition. */
+export type FormField =
+  | { name: string; kind: "text"; label: string; required?: boolean; placeholder?: string; maxLength?: number }
+  | { name: string; kind: "email"; label: string; required?: boolean; placeholder?: string }
+  | { name: string; kind: "textarea"; label: string; required?: boolean; placeholder?: string; rows?: number; maxLength?: number }
+  | { name: string; kind: "checkbox"; label: string; required?: boolean };
+
+export type FormSubmissionStatus = "new" | "read" | "spam" | "archived";
+
+export interface FormRecord {
+  id: string;
+  /** ASCII-only key. Used in the public endpoint URL. */
+  key: string;
+  label: string;
+  fields: FormField[];
+  enabled: boolean;
+  /** Optional per-locale success message override. */
+  successMessages: Partial<Record<Locale, string>>;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FormSubmissionRecord {
+  id: string;
+  formId: string;
+  /** Field name → submitted value (always strings; checkboxes "on" / ""). */
+  data: Record<string, string>;
+  submittedAt: string;
+  ipHash: string | null;
+  status: FormSubmissionStatus;
+  note: string | null;
 }
 
 // ─── Pages (v1.7b) ───────────────────────────────────────

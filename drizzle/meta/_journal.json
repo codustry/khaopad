@@ -50,6 +50,13 @@
       "when": 1777510795750,
       "tag": "0006_adorable_microchip",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1777538401439,
+      "tag": "0007_violet_dreadnoughts",
+      "breakpoints": true
     }
   ]
 }
