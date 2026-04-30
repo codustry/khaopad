@@ -283,7 +283,7 @@ Khao Pad started as a CMS. Through v1.5 it became a complete content layer (writ
 | **v1.6** | SEO foundations             | ✅ Shipped    | Per-page meta, sitemap, robots, JSON-LD, RSS/Atom, slug redirects, SEO scoring hint                 |
 | **v1.7** | Pages, navigation, IA       | ✅ Shipped    | Media folders, reusable blocks, cookie consent, static pages, navigation manager, seed:legal |
 | **v1.8** | Analytics & insight         | ✅ Shipped    | Privacy-friendly D1 page-views, top articles, search-term insights, per-article sparkline, optional CWA |
-| **v1.9** | Performance & trust         | 🚧 Pending   | Cloudflare Images responsive `srcset`, cache headers, custom 404/500, cookie consent, health check |
+| **v1.9** | Performance & trust         | ✅ Shipped    | Responsive `srcset` via /cdn-cgi/image, edge cache-control hook, branded 404/500, /api/health endpoint |
 | **v2.0** | Engagement & growth         | 🚧 Pending   | Forms, newsletter, comments, webhooks, public read-only API                                         |
 
 **Backlog** (not committed): OAuth providers, block-based editor, AI-assisted authoring, multi-site / workspaces, A/B testing, member-only / paid content.

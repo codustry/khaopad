@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { formatDate } from '$lib/utils';
+	import ResponsiveImage from '$lib/components/media/ResponsiveImage.svelte';
 	let { data } = $props();
 </script>
 
@@ -8,10 +9,11 @@
 <article class="container mx-auto px-4 py-12 max-w-3xl">
 	<header class="mb-8">
 		{#if data.coverMediaId}
-			<img
+			<ResponsiveImage
 				src={`/api/media/${data.coverMediaId}`}
 				alt=""
-				class="w-full h-auto mb-6 rounded-lg object-cover aspect-[16/9]"
+				class="w-full h-auto mb-6 rounded-lg object-cover"
+				aspect="aspect-[16/9]"
 			/>
 		{/if}
 		<h1 class="text-4xl font-bold mb-4">{data.title}</h1>

@@ -226,17 +226,19 @@ Privacy-friendly editor analytics. Closes the "what's working?" gap left after v
 
 **i18n** — 9 new keys (EN + TH).
 
-### v1.9 — Performance and trust (pending)
+### v1.9 — Performance and trust
 
-**Responsive images** — Cloudflare Images binding. The R2-stored original is the source; the `<img>` tag emits a `<picture>` block with `srcset` for `320w`, `640w`, `1024w`, `1920w` widths and `sizes` defaults. Falls back to the raw R2 URL if the binding isn't configured.
+(Cookie consent already shipped in v1.7a — that bullet moved to where it actually belongs.)
 
-**Cache control** — Explicit `Cache-Control` on each public route: `public, max-age=60, s-maxage=300, stale-while-revalidate=86400` for the blog list; longer for individual articles; `no-store` for `/cms/*`. Documented in `docs/PLATFORM-NOTES.md`.
+**Responsive images** — `<ResponsiveImage>` component at `$lib/components/media/ResponsiveImage.svelte` emits an `<img>` with a 3-width `srcset` (`640w`, `1024w`, `1920w`) using Cloudflare's URL-based image transform format `/cdn-cgi/image/width=W,format=auto,quality=85<source>`. When the zone has Cloudflare Images enabled, requests are intercepted at the edge and the right size is served (WebP/AVIF when supported). When the zone doesn't have it enabled, Cloudflare passes the URL through unchanged → the raw R2 URL serves. Same component, both deployments. The article cover image swaps over from the bare `<img>` tag; future sites that paste the component into pages get responsive images for free.
 
-**Custom 404 / 500** — Branded error pages with: a search box (uses v1.4 FTS), the most-recent 5 articles, and a link home. Lives in `(www)/+error.svelte`.
+**Cache control** — New `cacheHook` in `src/hooks.server.ts` (last in the sequence). Pure pass-through: it inspects the response, and if no `cache-control` is already set, applies a sensible default by path. `/cms/*` and `/api/auth/*` and `/api/consent` get `no-store`. `/api/media/*` gets `public, max-age=86400, swr=604800` (R2 blobs are immutable per id). `/api/*` defaults to `no-store`. Article slug pages get `public, max-age=120, s-maxage=600, swr=86400`. Everything else gets `public, max-age=60, s-maxage=300, swr=86400`. Per-route handlers that already set their own header (`/sitemap.xml`, `/robots.txt`, `/feed-{locale}.xml`, `/api/health`) keep their explicit values.
 
-**Cookie consent** — Minimal banner (Accept / Decline) that gates analytics / OG-image hotlinking; stored in a first-party cookie. Required if any v1.8 analytics get turned on for a public site.
+**Custom 404 / 500** — `(www)/+error.svelte` with the same paypers visual language as the rest of the public surface. Big 404/500 number in display font, friendly title + subtitle from i18n, search box (404 only — posts to `/blog?q=` so it flows through v1.4 FTS), back-home + browse-blog buttons. `<meta name="robots" content="noindex,nofollow">` so error pages never get indexed.
 
-**Health endpoint** — `/api/health` returns 200 with a JSON body listing D1 reachability, R2 reachability, KV reachability, last successful migration. Used by the smoke-test job in `deploy.yml`.
+**Health endpoint** — `/api/health` (no auth required). Returns `{ ok, timestamp, bindings: { d1, r2, kv }, environment? }` with a per-binding `{ ok, latencyMs }` plus `error` string on failure. Always 200 even when a binding is broken — uptime monitors watching for HTTP 200 still see the JSON-level failure. Returns 503 only when the platform shim itself is missing (local dev without wrangler). Cache-Control is explicitly `no-store`.
+
+**i18n** — 7 new `error_*` keys (EN + TH).
 
 ### v2.0 — Engagement and growth (pending)
 
