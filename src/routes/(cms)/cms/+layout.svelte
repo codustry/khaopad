@@ -44,8 +44,17 @@
 	{@render children()}
 {:else}
 	<div class="flex min-h-screen bg-background">
-		<!-- Desktop sidebar (lg+) -->
-		<div class="hidden shrink-0 lg:block">
+		<!--
+			Desktop sidebar (lg+).
+
+			Sticky to the viewport so long pages (settings, audit log,
+			navigation manager, history timeline, etc.) scroll their
+			content while the nav stays visible. `h-screen` clamps to
+			the viewport; `lg:sticky lg:top-0` keeps it pinned. The
+			inner <aside> is already `h-full` so it fills exactly that
+			height.
+		-->
+		<div class="hidden shrink-0 lg:block lg:sticky lg:top-0 lg:h-screen">
 			<Sidebar user={data.user} onLogout={logout} />
 		</div>
 
