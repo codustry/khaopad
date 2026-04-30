@@ -249,6 +249,41 @@ export interface ContentProvider {
     }>,
   ): Promise<ContentBlockRecord>;
   deleteContentBlock(id: string): Promise<void>;
+
+  // Pages (v1.7b)
+  getPage(id: string): Promise<PageRecord | null>;
+  getPageBySlug(slug: string): Promise<PageRecord | null>;
+  listPages(filter?: PageFilter): Promise<PageRecord[]>;
+  createPage(data: PageCreateInput): Promise<PageRecord>;
+  updatePage(id: string, data: PageUpdateInput): Promise<PageRecord>;
+  deletePage(id: string): Promise<void>;
+
+  // Navigation (v1.7b)
+  listMenus(): Promise<NavigationMenuRecord[]>;
+  getMenuByKey(key: string): Promise<NavigationMenuRecord | null>;
+  createMenu(data: { key: string; label: string }): Promise<NavigationMenuRecord>;
+  deleteMenu(id: string): Promise<void>;
+  createNavigationItem(
+    data: NavigationItemCreateInput,
+  ): Promise<NavigationItemRecord>;
+  updateNavigationItem(
+    id: string,
+    data: NavigationItemUpdateInput,
+  ): Promise<NavigationItemRecord>;
+  deleteNavigationItem(id: string): Promise<void>;
+  /**
+   * Reorder items within a menu in one shot. Each tuple is
+   * `(itemId, position, parentId)` so a single drag-drop save can
+   * move things around without cascading round-trips.
+   */
+  reorderNavigationItems(
+    menuId: string,
+    updates: Array<{
+      id: string;
+      position: number;
+      parentId: string | null;
+    }>,
+  ): Promise<void>;
 }
 
 /** A reusable content snippet (v1.7). Per-locale body. */
@@ -260,4 +295,117 @@ export interface ContentBlockRecord {
   createdAt: string;
   updatedAt: string;
   localizations: Partial<Record<Locale, { body: string }>>;
+}
+
+// ─── Pages (v1.7b) ───────────────────────────────────────
+// Static pages distinct from articles: About, Contact, Privacy, etc.
+// Routed at (www)/[locale]/[...slug] catch-all so nested slugs work.
+
+export type PageTemplate = "default" | "landing" | "legal";
+export type PageStatus = "draft" | "published";
+
+export interface PageLocalizedContent {
+  title: string;
+  body: string;
+  seoTitle?: string;
+  seoDescription?: string;
+}
+
+export interface PageRecord {
+  id: string;
+  /** ASCII slug; may include /-separated segments for nesting. */
+  slug: string;
+  /** Self-reference for tree views (id of another page) or null. */
+  parentId: string | null;
+  template: PageTemplate;
+  status: PageStatus;
+  publishedAt: string | null;
+  authorId: string;
+  createdAt: string;
+  updatedAt: string;
+  /** Per-locale content. EN is required at create time (slug source). */
+  localizations: Partial<Record<Locale, PageLocalizedContent>>;
+}
+
+export interface PageCreateInput {
+  slug?: string;
+  parentId?: string | null;
+  template?: PageTemplate;
+  status?: PageStatus;
+  publishedAt?: string | null;
+  authorId: string;
+  localizations: { en: PageLocalizedContent } & Partial<
+    Record<Locale, PageLocalizedContent>
+  >;
+}
+
+export interface PageUpdateInput {
+  slug?: string;
+  parentId?: string | null;
+  template?: PageTemplate;
+  status?: PageStatus;
+  publishedAt?: string | null;
+  localizations?: Partial<Record<Locale, PageLocalizedContent>>;
+}
+
+export interface PageFilter {
+  status?: PageStatus;
+  /** Hide future-dated published pages (public reads opt in). */
+  onlyPublished?: boolean;
+}
+
+// ─── Navigation (v1.7b) ──────────────────────────────────
+// Site-wide menu manager. Two stock menus by default (`primary`,
+// `footer`); admins can add more. Each menu is an ordered tree of
+// items pointing at internal entities or custom URLs.
+
+export type NavigationItemKind =
+  | "article"
+  | "category"
+  | "tag"
+  | "page"
+  | "custom";
+
+export interface NavigationItemRecord {
+  id: string;
+  menuId: string;
+  parentId: string | null;
+  position: number;
+  /** Per-locale labels: `{ en: "About", th: "เกี่ยวกับ" }`. */
+  labels: Partial<Record<Locale, string>>;
+  kind: NavigationItemKind;
+  /** Set when kind != 'custom'. The targeted entity's id. */
+  targetId: string | null;
+  /** Set when kind == 'custom'. The literal URL. */
+  customUrl: string | null;
+  createdAt: string;
+}
+
+export interface NavigationMenuRecord {
+  id: string;
+  /** Stable lookup key: 'primary', 'footer', etc. */
+  key: string;
+  label: string;
+  createdAt: string;
+  /** Pre-fetched + ordered tree of items. */
+  items: NavigationItemRecord[];
+}
+
+export interface NavigationItemCreateInput {
+  menuId: string;
+  parentId?: string | null;
+  position?: number;
+  labels: Partial<Record<Locale, string>>;
+  kind: NavigationItemKind;
+  targetId?: string | null;
+  customUrl?: string | null;
+}
+
+export interface NavigationItemUpdateInput {
+  parentId?: string | null;
+  position?: number;
+  labels?: Partial<Record<Locale, string>>;
+  kind?: NavigationItemKind;
+  targetId?: string | null;
+  customUrl?: string | null;
 }

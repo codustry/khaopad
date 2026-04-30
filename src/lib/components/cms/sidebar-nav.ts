@@ -2,8 +2,10 @@ import type { ComponentType } from "svelte";
 import {
   LayoutDashboard,
   FileText,
+  FilePlus,
   Image as ImageIcon,
   Folder,
+  Menu as MenuIcon,
   Tag,
   Users,
   Settings,
@@ -36,7 +38,19 @@ export const navGroups: ReadonlyArray<NavGroup> = [
     items: [
       { href: "/cms/dashboard", label: m.cms_dashboard, icon: LayoutDashboard },
       { href: "/cms/articles", label: m.cms_articles, icon: FileText },
+      {
+        href: "/cms/pages",
+        label: m.cms_pages,
+        icon: FilePlus,
+        roles: ["super_admin", "admin", "editor"],
+      },
       { href: "/cms/media", label: m.cms_media, icon: ImageIcon },
+      {
+        href: "/cms/navigation",
+        label: m.cms_navigation,
+        icon: MenuIcon,
+        roles: ["super_admin", "admin", "editor"],
+      },
     ],
   },
   {

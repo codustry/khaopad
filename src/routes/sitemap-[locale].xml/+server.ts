@@ -21,16 +21,19 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
   const settings = await locals.content.getSettings().catch(() => null);
   const origin = resolveOrigin(url, settings?.cdnBaseUrl);
 
-  // Pull every published article visible to the public. We page in
-  // chunks of 500 — overkill for typical CMS scale but keeps the
-  // memory footprint bounded if a site ever grows large.
-  const articles = await locals.content.listArticles({
-    status: "published",
-    onlyPublished: true,
-    locale,
-    page: 1,
-    limit: 500,
-  });
+  // Pull every published article + page visible to the public. Pages
+  // are tiny by count; articles capped at 500 (overkill for typical
+  // CMS scale, bounded memory if a site ever grows).
+  const [articles, pages] = await Promise.all([
+    locals.content.listArticles({
+      status: "published",
+      onlyPublished: true,
+      locale,
+      page: 1,
+      limit: 500,
+    }),
+    locals.content.listPages({ status: "published", onlyPublished: true }),
+  ]);
 
   const staticUrls = [
     { path: `/${locale}`, lastmod: new Date().toISOString() },
@@ -45,6 +48,18 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
       (l) => ({ locale: l, path: `/${l}/blog/${a.slug}` }),
     ),
   }));
+
+  // Include pages that have a localization in this locale (or fall back
+  // to EN). Hreflang siblings only for locales with real content.
+  const pageUrls = pages
+    .filter((p) => p.localizations[locale] || p.localizations.en)
+    .map((p) => ({
+      path: `/${locale}/${p.slug}`,
+      lastmod: p.updatedAt,
+      alternates: SUPPORTED_LOCALES.filter((l) => p.localizations[l]).map(
+        (l) => ({ locale: l, path: `/${l}/${p.slug}` }),
+      ),
+    }));
 
   const renderEntry = (e: {
     path: string;
@@ -68,7 +83,7 @@ ${alts}
 <urlset
   xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
   xmlns:xhtml="http://www.w3.org/1999/xhtml">
-${[...staticUrls, ...articleUrls].map(renderEntry).join("\n")}
+${[...staticUrls, ...pageUrls, ...articleUrls].map(renderEntry).join("\n")}
 </urlset>
 `;
 

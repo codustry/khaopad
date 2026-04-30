@@ -28,6 +28,15 @@ import type {
   SiteSettings,
   Locale,
   ContentBlockRecord,
+  PageRecord,
+  PageCreateInput,
+  PageUpdateInput,
+  PageFilter,
+  PageLocalizedContent,
+  NavigationMenuRecord,
+  NavigationItemRecord,
+  NavigationItemCreateInput,
+  NavigationItemUpdateInput,
 } from "../types";
 
 export class D1ContentProvider implements ContentProvider {
@@ -966,6 +975,344 @@ export class D1ContentProvider implements ContentProvider {
       createdAt: block.createdAt,
       updatedAt: block.updatedAt,
       localizations,
+    };
+  }
+
+  // ─── Pages (v1.7b) ──────────────────────────────────────
+
+  async getPage(id: string): Promise<PageRecord | null> {
+    const row = await this.db
+      .select()
+      .from(schema.pages)
+      .where(eq(schema.pages.id, id))
+      .get();
+    if (!row) return null;
+    return this.hydratePage(row);
+  }
+
+  async getPageBySlug(slug: string): Promise<PageRecord | null> {
+    const row = await this.db
+      .select()
+      .from(schema.pages)
+      .where(eq(schema.pages.slug, slug))
+      .get();
+    if (!row) return null;
+    return this.hydratePage(row);
+  }
+
+  async listPages(filter?: PageFilter): Promise<PageRecord[]> {
+    const conditions = [];
+    if (filter?.status) {
+      conditions.push(eq(schema.pages.status, filter.status));
+    }
+    if (filter?.onlyPublished) {
+      const nowIso = new Date().toISOString();
+      conditions.push(
+        or(isNull(schema.pages.publishedAt), lte(schema.pages.publishedAt, nowIso)),
+      );
+    }
+    const rows = conditions.length
+      ? await this.db
+          .select()
+          .from(schema.pages)
+          .where(and(...conditions))
+          .orderBy(desc(schema.pages.updatedAt))
+          .all()
+      : await this.db
+          .select()
+          .from(schema.pages)
+          .orderBy(desc(schema.pages.updatedAt))
+          .all();
+    return Promise.all(rows.map((r) => this.hydratePage(r)));
+  }
+
+  async createPage(data: PageCreateInput): Promise<PageRecord> {
+    const id = nanoid();
+    const slug = data.slug
+      ? slugify(data.slug)
+      : generateSlugFromTitle(data.localizations.en.title);
+    if (!slug) {
+      throw new Error("Slug must be derivable from EN title or supplied.");
+    }
+    const now = new Date().toISOString();
+    await this.db.insert(schema.pages).values({
+      id,
+      slug,
+      parentId: data.parentId ?? null,
+      template: data.template ?? "default",
+      status: data.status ?? "draft",
+      publishedAt: data.publishedAt ?? null,
+      authorId: data.authorId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    for (const [locale, content] of Object.entries(data.localizations)) {
+      if (!content) continue;
+      await this.db.insert(schema.pageLocalizations).values({
+        id: nanoid(),
+        pageId: id,
+        locale: locale as Locale,
+        title: content.title,
+        body: content.body,
+        seoTitle: content.seoTitle ?? null,
+        seoDescription: content.seoDescription ?? null,
+      });
+    }
+    return (await this.getPage(id))!;
+  }
+
+  async updatePage(id: string, data: PageUpdateInput): Promise<PageRecord> {
+    const updateFields: Record<string, unknown> = {
+      updatedAt: new Date().toISOString(),
+    };
+    if (data.slug !== undefined) {
+      const normalized = slugify(data.slug);
+      if (!normalized) throw new Error("Empty slug");
+      updateFields.slug = normalized;
+    }
+    if (data.parentId !== undefined) updateFields.parentId = data.parentId;
+    if (data.template !== undefined) updateFields.template = data.template;
+    if (data.status !== undefined) updateFields.status = data.status;
+    if (data.publishedAt !== undefined)
+      updateFields.publishedAt = data.publishedAt;
+    await this.db
+      .update(schema.pages)
+      .set(updateFields)
+      .where(eq(schema.pages.id, id));
+
+    if (data.localizations) {
+      for (const [locale, content] of Object.entries(data.localizations)) {
+        if (!content) continue;
+        const existing = await this.db
+          .select()
+          .from(schema.pageLocalizations)
+          .where(
+            and(
+              eq(schema.pageLocalizations.pageId, id),
+              eq(schema.pageLocalizations.locale, locale as Locale),
+            ),
+          )
+          .get();
+        if (existing) {
+          await this.db
+            .update(schema.pageLocalizations)
+            .set({
+              title: content.title,
+              body: content.body,
+              seoTitle: content.seoTitle ?? null,
+              seoDescription: content.seoDescription ?? null,
+            })
+            .where(eq(schema.pageLocalizations.id, existing.id));
+        } else {
+          await this.db.insert(schema.pageLocalizations).values({
+            id: nanoid(),
+            pageId: id,
+            locale: locale as Locale,
+            title: content.title,
+            body: content.body,
+            seoTitle: content.seoTitle ?? null,
+            seoDescription: content.seoDescription ?? null,
+          });
+        }
+      }
+    }
+    return (await this.getPage(id))!;
+  }
+
+  async deletePage(id: string): Promise<void> {
+    await this.db.delete(schema.pages).where(eq(schema.pages.id, id));
+  }
+
+  private async hydratePage(
+    page: typeof schema.pages.$inferSelect,
+  ): Promise<PageRecord> {
+    const locs = await this.db
+      .select()
+      .from(schema.pageLocalizations)
+      .where(eq(schema.pageLocalizations.pageId, page.id))
+      .all();
+    const localizations: PageRecord["localizations"] = {};
+    for (const loc of locs) {
+      const c: PageLocalizedContent = {
+        title: loc.title,
+        body: loc.body,
+      };
+      if (loc.seoTitle) c.seoTitle = loc.seoTitle;
+      if (loc.seoDescription) c.seoDescription = loc.seoDescription;
+      localizations[loc.locale as Locale] = c;
+    }
+    return {
+      id: page.id,
+      slug: page.slug,
+      parentId: page.parentId,
+      template: page.template as PageRecord["template"],
+      status: page.status as PageRecord["status"],
+      publishedAt: page.publishedAt,
+      authorId: page.authorId,
+      createdAt: page.createdAt,
+      updatedAt: page.updatedAt,
+      localizations,
+    };
+  }
+
+  // ─── Navigation (v1.7b) ─────────────────────────────────
+
+  async listMenus(): Promise<NavigationMenuRecord[]> {
+    const menuRows = await this.db.select().from(schema.navigationMenus).all();
+    return Promise.all(menuRows.map((m) => this.hydrateMenu(m)));
+  }
+
+  async getMenuByKey(key: string): Promise<NavigationMenuRecord | null> {
+    const m = await this.db
+      .select()
+      .from(schema.navigationMenus)
+      .where(eq(schema.navigationMenus.key, key))
+      .get();
+    if (!m) return null;
+    return this.hydrateMenu(m);
+  }
+
+  async createMenu(data: {
+    key: string;
+    label: string;
+  }): Promise<NavigationMenuRecord> {
+    const id = nanoid();
+    await this.db.insert(schema.navigationMenus).values({
+      id,
+      key: data.key,
+      label: data.label,
+    });
+    const m = await this.db
+      .select()
+      .from(schema.navigationMenus)
+      .where(eq(schema.navigationMenus.id, id))
+      .get();
+    return this.hydrateMenu(m!);
+  }
+
+  async deleteMenu(id: string): Promise<void> {
+    await this.db
+      .delete(schema.navigationMenus)
+      .where(eq(schema.navigationMenus.id, id));
+  }
+
+  async createNavigationItem(
+    data: NavigationItemCreateInput,
+  ): Promise<NavigationItemRecord> {
+    const id = nanoid();
+    await this.db.insert(schema.navigationItems).values({
+      id,
+      menuId: data.menuId,
+      parentId: data.parentId ?? null,
+      position: data.position ?? 0,
+      labels: JSON.stringify(data.labels),
+      kind: data.kind,
+      targetId: data.targetId ?? null,
+      customUrl: data.customUrl ?? null,
+    });
+    const row = await this.db
+      .select()
+      .from(schema.navigationItems)
+      .where(eq(schema.navigationItems.id, id))
+      .get();
+    return this.toNavItem(row!);
+  }
+
+  async updateNavigationItem(
+    id: string,
+    data: NavigationItemUpdateInput,
+  ): Promise<NavigationItemRecord> {
+    const updateFields: Record<string, unknown> = {};
+    if (data.parentId !== undefined) updateFields.parentId = data.parentId;
+    if (data.position !== undefined) updateFields.position = data.position;
+    if (data.labels !== undefined)
+      updateFields.labels = JSON.stringify(data.labels);
+    if (data.kind !== undefined) updateFields.kind = data.kind;
+    if (data.targetId !== undefined) updateFields.targetId = data.targetId;
+    if (data.customUrl !== undefined) updateFields.customUrl = data.customUrl;
+    await this.db
+      .update(schema.navigationItems)
+      .set(updateFields)
+      .where(eq(schema.navigationItems.id, id));
+    const row = await this.db
+      .select()
+      .from(schema.navigationItems)
+      .where(eq(schema.navigationItems.id, id))
+      .get();
+    if (!row) throw new Error("Navigation item not found");
+    return this.toNavItem(row);
+  }
+
+  async deleteNavigationItem(id: string): Promise<void> {
+    await this.db
+      .delete(schema.navigationItems)
+      .where(eq(schema.navigationItems.id, id));
+  }
+
+  async reorderNavigationItems(
+    menuId: string,
+    updates: Array<{ id: string; position: number; parentId: string | null }>,
+  ): Promise<void> {
+    // Apply in sequence — D1 doesn't have a real bulk update path.
+    // Bounds the work at O(N) for the menu's items.
+    for (const u of updates) {
+      await this.db
+        .update(schema.navigationItems)
+        .set({ position: u.position, parentId: u.parentId })
+        .where(
+          and(
+            eq(schema.navigationItems.id, u.id),
+            eq(schema.navigationItems.menuId, menuId),
+          ),
+        );
+    }
+  }
+
+  private async hydrateMenu(
+    menu: typeof schema.navigationMenus.$inferSelect,
+  ): Promise<NavigationMenuRecord> {
+    const itemRows = await this.db
+      .select()
+      .from(schema.navigationItems)
+      .where(eq(schema.navigationItems.menuId, menu.id))
+      .all();
+    // Sort by parentId-then-position so consumers get a stable order.
+    const items = itemRows.map((r) => this.toNavItem(r));
+    items.sort((a, b) => {
+      const pa = a.parentId ?? "";
+      const pb = b.parentId ?? "";
+      if (pa !== pb) return pa.localeCompare(pb);
+      return a.position - b.position;
+    });
+    return {
+      id: menu.id,
+      key: menu.key,
+      label: menu.label,
+      createdAt: menu.createdAt,
+      items,
+    };
+  }
+
+  private toNavItem(
+    row: typeof schema.navigationItems.$inferSelect,
+  ): NavigationItemRecord {
+    let labels: NavigationItemRecord["labels"] = {};
+    try {
+      const parsed = JSON.parse(row.labels);
+      if (parsed && typeof parsed === "object") labels = parsed;
+    } catch {
+      // tolerate malformed json — fall back to empty so renders don't 500
+    }
+    return {
+      id: row.id,
+      menuId: row.menuId,
+      parentId: row.parentId,
+      position: row.position,
+      labels,
+      kind: row.kind as NavigationItemRecord["kind"],
+      targetId: row.targetId,
+      customUrl: row.customUrl,
+      createdAt: row.createdAt,
     };
   }
 }
