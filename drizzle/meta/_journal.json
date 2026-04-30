@@ -43,6 +43,13 @@
       "when": 1777468227038,
       "tag": "0005_simple_post",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1777510795750,
+      "tag": "0006_adorable_microchip",
+      "breakpoints": true
     }
   ]
 }

@@ -1,9 +1,17 @@
 import { toLocale, SUPPORTED_LOCALES } from "$lib/i18n";
 import { canonicalUrl, resolveOrigin, type PageSeo } from "$lib/seo";
+import { trackView, logSearch } from "$lib/server/analytics";
+import { CONSENT_COOKIE, parseConsent } from "$lib/consent";
 import type { Locale } from "$lib/server/content/types";
 import type { PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = async ({ locals, params, url }) => {
+export const load: PageServerLoad = async ({
+  locals,
+  params,
+  url,
+  cookies,
+  platform,
+}) => {
   const locale = toLocale(params.locale);
 
   const categorySlug = url.searchParams.get("category")?.trim() || null;
@@ -105,6 +113,21 @@ export const load: PageServerLoad = async ({ locals, params, url }) => {
     ogType: "website",
     robots: q ? "noindex,follow" : undefined,
   };
+
+  // v1.8: track the blog index view + log the search term (when set).
+  // Search is itself functional, so the term gets logged regardless of
+  // analytics consent — but only the page-view counter is consent-gated.
+  if (platform?.env?.DB) {
+    const consent = parseConsent(cookies.get(CONSENT_COOKIE));
+    void trackView(
+      platform.env.DB,
+      { path: url.pathname, kind: "blog_index" },
+      consent,
+    );
+    if (q) {
+      void logSearch(platform.env.DB, q, articles.items.length === 0);
+    }
+  }
 
   return {
     locale,

@@ -5,11 +5,13 @@ import {
   canPublish,
 } from "$lib/server/auth/permissions";
 import { logAudit, type AuditAction } from "$lib/server/audit";
+import { AnalyticsService } from "$lib/server/analytics";
 import { slugify } from "$lib/utils";
+import { SUPPORTED_LOCALES } from "$lib/i18n";
 import type { ArticleUpdateInput } from "$lib/server/content/types";
 import type { Actions, PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = async ({ locals, params }) => {
+export const load: PageServerLoad = async ({ locals, params, platform }) => {
   if (!locals.user) throw redirect(302, "/cms/login");
   const article = await locals.content.getArticle(params.id);
   if (!article) throw error(404, "Article not found");
@@ -20,7 +22,37 @@ export const load: PageServerLoad = async ({ locals, params }) => {
     locals.content.listCategories(),
     locals.content.listTags(),
   ]);
-  return { article, categories, tags };
+
+  // v1.8: 30-day sparkline of public views for this article. Sums
+  // across every locale path (/{locale}/blog/{slug}) so the editor
+  // sees one number per day, not two.
+  let sparkline: Array<{ date: string; count: number }> = [];
+  let totalViews = 0;
+  if (platform?.env?.DB) {
+    try {
+      const analytics = new AnalyticsService(platform.env.DB);
+      const series = await Promise.all(
+        SUPPORTED_LOCALES.map((l) =>
+          analytics.sparkline(`/${l}/blog/${article.slug}`, 30),
+        ),
+      );
+      // Merge: same date keys across locales, sum counts.
+      const merged = new Map<string, number>();
+      for (const s of series) {
+        for (const p of s) {
+          merged.set(p.date, (merged.get(p.date) ?? 0) + p.count);
+        }
+      }
+      sparkline = [...merged.entries()]
+        .map(([date, count]) => ({ date, count }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+      totalViews = sparkline.reduce((s, p) => s + p.count, 0);
+    } catch {
+      // best-effort
+    }
+  }
+
+  return { article, categories, tags, sparkline, totalViews };
 };
 
 function requireAuthor(locals: App.Locals) {

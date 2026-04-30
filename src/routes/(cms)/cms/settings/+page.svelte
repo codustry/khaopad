@@ -13,6 +13,7 @@
 		(data.settings.supportedLocales ?? []).join(','),
 	);
 	let cdnBaseUrl = $state(data.settings.cdnBaseUrl ?? '');
+	let cfaToken = $state((data.settings.cfaToken as string | undefined) ?? '');
 	let saving = $state(false);
 </script>
 
@@ -96,6 +97,18 @@
 						placeholder="https://cdn.example.com"
 					/>
 					<p class="text-xs text-muted-foreground">{m.cms_settings_cdn_base_url_help()}</p>
+				</div>
+
+				<div class="space-y-1.5">
+					<Label for="cfa_token">{m.cms_settings_cfa_token()}</Label>
+					<Input
+						id="cfa_token"
+						name="cfa_token"
+						bind:value={cfaToken}
+						placeholder="abc123…"
+						class="font-mono"
+					/>
+					<p class="text-xs text-muted-foreground">{m.cms_settings_cfa_token_help()}</p>
 				</div>
 			</CardContent>
 		</Card>

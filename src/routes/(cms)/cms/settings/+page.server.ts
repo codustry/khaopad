@@ -42,6 +42,10 @@ export const actions: Actions = {
       form.get("supported_locales") ?? "",
     ).trim();
     const cdnBaseUrl = String(form.get("cdn_base_url") ?? "").trim();
+    // v1.8: optional Cloudflare Web Analytics token. Empty string =
+    // off; presence injects the official beacon snippet on every
+    // public page. Stored in site_settings (no env var needed).
+    const cfaToken = String(form.get("cfa_token") ?? "").trim();
 
     if (!siteName) return fail(400, { error: "Site name is required." });
     const supported = parseLocales(supportedLocalesRaw);
@@ -62,6 +66,7 @@ export const actions: Actions = {
         defaultLocale: defaultLocale as "en" | "th",
         supportedLocales: supported as Array<"en" | "th">,
         cdnBaseUrl: cdnBaseUrl || undefined,
+        cfaToken: cfaToken || undefined,
       });
     } catch (err) {
       return fail(500, {
