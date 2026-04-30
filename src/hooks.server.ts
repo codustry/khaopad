@@ -262,10 +262,57 @@ function isCmsPath(path: string): boolean {
   return path === "/cms" || path.startsWith("/cms/");
 }
 
+/**
+ * v1.9 cache-control hook.
+ *
+ * Sets sensible defaults at the edge so Cloudflare's cache fronts the
+ * worker for stable public reads, and never caches authenticated CMS
+ * surfaces. Only sets the header when the response doesn't already
+ * have one (so per-route overrides — e.g. /sitemap.xml, /robots.txt,
+ * /api/health — keep their explicit values).
+ *
+ * - /cms/*           → no-store (authenticated, must always be fresh)
+ * - /api/auth/*      → no-store (auth state)
+ * - /api/media/*     → public, max-age=86400, stale-while-revalidate=604800
+ *                      (R2 blobs are immutable per id+key, very cacheable)
+ * - /api/*           → no-store (default API endpoints)
+ * - /blog/[slug]     → public, max-age=120, s-maxage=600, swr=86400
+ *                      (read-heavy, edits rare; SWR keeps things snappy)
+ * - everything else  → public, max-age=60, s-maxage=300, swr=86400
+ *
+ * Edge caches honor `s-maxage`; browsers honor `max-age`. SWR lets us
+ * serve a slightly stale version while a single revalidation hits the
+ * worker — visitor sees a fast response, content stays fresh on the
+ * order of minutes.
+ */
+const cacheHook: Handle = async ({ event, resolve }) => {
+  const response = await resolve(event);
+  if (response.headers.has("cache-control")) return response;
+
+  const path = event.url.pathname;
+  let value: string;
+  if (path === "/cms" || path.startsWith("/cms/")) {
+    value = "no-store";
+  } else if (path.startsWith("/api/auth/") || path === "/api/consent") {
+    value = "no-store";
+  } else if (path.startsWith("/api/media/")) {
+    value = "public, max-age=86400, stale-while-revalidate=604800";
+  } else if (path.startsWith("/api/")) {
+    value = "no-store";
+  } else if (path.match(/\/blog\/[^/]+$/)) {
+    value = "public, max-age=120, s-maxage=600, stale-while-revalidate=86400";
+  } else {
+    value = "public, max-age=60, s-maxage=300, stale-while-revalidate=86400";
+  }
+  response.headers.set("cache-control", value);
+  return response;
+};
+
 export const handle = sequence(
   surfaceHook,
   bindingsHook,
   configurationGuardHook,
   paraglideLocaleHook,
   authHook,
+  cacheHook,
 );
