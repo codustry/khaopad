@@ -3,6 +3,7 @@ import {
   and,
   desc,
   eq,
+  gte,
   inArray,
   isNull,
   like,
@@ -28,6 +29,10 @@ import type {
   SiteSettings,
   Locale,
   ContentBlockRecord,
+  FormRecord,
+  FormField,
+  FormSubmissionRecord,
+  FormSubmissionStatus,
   PageRecord,
   PageCreateInput,
   PageUpdateInput,
@@ -1313,6 +1318,228 @@ export class D1ContentProvider implements ContentProvider {
       targetId: row.targetId,
       customUrl: row.customUrl,
       createdAt: row.createdAt,
+    };
+  }
+
+  // ─── Forms (v2.0a) ──────────────────────────────────────
+
+  async listForms(): Promise<FormRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(schema.forms)
+      .orderBy(desc(schema.forms.updatedAt))
+      .all();
+    return rows.map((r) => this.toForm(r));
+  }
+
+  async getForm(id: string): Promise<FormRecord | null> {
+    const row = await this.db
+      .select()
+      .from(schema.forms)
+      .where(eq(schema.forms.id, id))
+      .get();
+    return row ? this.toForm(row) : null;
+  }
+
+  async getFormByKey(key: string): Promise<FormRecord | null> {
+    const row = await this.db
+      .select()
+      .from(schema.forms)
+      .where(eq(schema.forms.key, key))
+      .get();
+    return row ? this.toForm(row) : null;
+  }
+
+  async createForm(data: {
+    key: string;
+    label: string;
+    fields: FormField[];
+    enabled?: boolean;
+    successMessages?: FormRecord["successMessages"];
+    createdBy?: string;
+  }): Promise<FormRecord> {
+    const id = nanoid();
+    const now = new Date().toISOString();
+    await this.db.insert(schema.forms).values({
+      id,
+      key: data.key,
+      label: data.label,
+      fields: JSON.stringify(data.fields),
+      enabled: data.enabled ?? true,
+      successMessages: data.successMessages
+        ? JSON.stringify(data.successMessages)
+        : null,
+      createdBy: data.createdBy ?? null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return (await this.getForm(id))!;
+  }
+
+  async updateForm(
+    id: string,
+    data: Partial<{
+      key: string;
+      label: string;
+      fields: FormField[];
+      enabled: boolean;
+      successMessages: FormRecord["successMessages"];
+    }>,
+  ): Promise<FormRecord> {
+    const updateFields: Record<string, unknown> = {
+      updatedAt: new Date().toISOString(),
+    };
+    if (data.key !== undefined) updateFields.key = data.key;
+    if (data.label !== undefined) updateFields.label = data.label;
+    if (data.fields !== undefined)
+      updateFields.fields = JSON.stringify(data.fields);
+    if (data.enabled !== undefined) updateFields.enabled = data.enabled;
+    if (data.successMessages !== undefined)
+      updateFields.successMessages = data.successMessages
+        ? JSON.stringify(data.successMessages)
+        : null;
+    await this.db
+      .update(schema.forms)
+      .set(updateFields)
+      .where(eq(schema.forms.id, id));
+    return (await this.getForm(id))!;
+  }
+
+  async deleteForm(id: string): Promise<void> {
+    await this.db.delete(schema.forms).where(eq(schema.forms.id, id));
+  }
+
+  async listFormSubmissions(
+    formId: string,
+    opts?: { status?: FormSubmissionStatus; limit?: number },
+  ): Promise<FormSubmissionRecord[]> {
+    const conditions = [eq(schema.formSubmissions.formId, formId)];
+    if (opts?.status) {
+      conditions.push(eq(schema.formSubmissions.status, opts.status));
+    }
+    const rows = await this.db
+      .select()
+      .from(schema.formSubmissions)
+      .where(and(...conditions))
+      .orderBy(desc(schema.formSubmissions.submittedAt))
+      .limit(opts?.limit ?? 100)
+      .all();
+    return rows.map((r) => this.toFormSubmission(r));
+  }
+
+  async getFormSubmission(id: string): Promise<FormSubmissionRecord | null> {
+    const row = await this.db
+      .select()
+      .from(schema.formSubmissions)
+      .where(eq(schema.formSubmissions.id, id))
+      .get();
+    return row ? this.toFormSubmission(row) : null;
+  }
+
+  async createFormSubmission(data: {
+    formId: string;
+    data: Record<string, string>;
+    ipHash?: string;
+  }): Promise<FormSubmissionRecord> {
+    const id = nanoid();
+    await this.db.insert(schema.formSubmissions).values({
+      id,
+      formId: data.formId,
+      data: JSON.stringify(data.data),
+      ipHash: data.ipHash ?? null,
+      status: "new",
+    });
+    return (await this.getFormSubmission(id))!;
+  }
+
+  async updateFormSubmission(
+    id: string,
+    data: Partial<{ status: FormSubmissionStatus; note: string | null }>,
+  ): Promise<FormSubmissionRecord> {
+    const updateFields: Record<string, unknown> = {};
+    if (data.status !== undefined) updateFields.status = data.status;
+    if (data.note !== undefined) updateFields.note = data.note;
+    await this.db
+      .update(schema.formSubmissions)
+      .set(updateFields)
+      .where(eq(schema.formSubmissions.id, id));
+    return (await this.getFormSubmission(id))!;
+  }
+
+  async deleteFormSubmission(id: string): Promise<void> {
+    await this.db
+      .delete(schema.formSubmissions)
+      .where(eq(schema.formSubmissions.id, id));
+  }
+
+  async countRecentSubmissions(
+    formId: string,
+    ipHash: string,
+    sinceSeconds: number,
+  ): Promise<number> {
+    const cutoff = new Date(Date.now() - sinceSeconds * 1000).toISOString();
+    const rows = await this.db
+      .select({ id: schema.formSubmissions.id })
+      .from(schema.formSubmissions)
+      .where(
+        and(
+          eq(schema.formSubmissions.formId, formId),
+          eq(schema.formSubmissions.ipHash, ipHash),
+          gte(schema.formSubmissions.submittedAt, cutoff),
+        ),
+      )
+      .all();
+    return rows.length;
+  }
+
+  private toForm(row: typeof schema.forms.$inferSelect): FormRecord {
+    let fields: FormField[] = [];
+    try {
+      const parsed = JSON.parse(row.fields);
+      if (Array.isArray(parsed)) fields = parsed;
+    } catch {
+      // tolerate malformed JSON; render an empty form rather than 500
+    }
+    let successMessages: FormRecord["successMessages"] = {};
+    if (row.successMessages) {
+      try {
+        const parsed = JSON.parse(row.successMessages);
+        if (parsed && typeof parsed === "object") successMessages = parsed;
+      } catch {
+        // ignore
+      }
+    }
+    return {
+      id: row.id,
+      key: row.key,
+      label: row.label,
+      fields,
+      enabled: Boolean(row.enabled),
+      successMessages,
+      createdBy: row.createdBy,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  private toFormSubmission(
+    row: typeof schema.formSubmissions.$inferSelect,
+  ): FormSubmissionRecord {
+    let data: Record<string, string> = {};
+    try {
+      const parsed = JSON.parse(row.data);
+      if (parsed && typeof parsed === "object") data = parsed;
+    } catch {
+      // ignore
+    }
+    return {
+      id: row.id,
+      formId: row.formId,
+      data,
+      submittedAt: row.submittedAt,
+      ipHash: row.ipHash,
+      status: row.status as FormSubmissionStatus,
+      note: row.note,
     };
   }
 }

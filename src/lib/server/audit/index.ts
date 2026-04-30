@@ -28,7 +28,8 @@ export type AuditAction =
   | `media.${"delete"}`
   | `user.${"role_change" | "delete"}`
   | `invitation.${"create" | "accept" | "revoke"}`
-  | `settings.${"update"}`;
+  | `settings.${"update"}`
+  | `form.${"create" | "update" | "delete" | "submit"}`;
 
 /** Entity type derived from the action prefix. */
 function entityTypeOf(action: AuditAction): string {

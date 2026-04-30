@@ -468,3 +468,60 @@ export const searchLog = sqliteTable("search_log", {
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
 });
+
+// ─── Forms (v2.0a) ───────────────────────────────────────
+// Editor builds a small form (contact, lead capture, RSVP, etc.) by
+// declaring a list of fields as JSON. Public visitors submit; rows
+// land in `form_submissions` for moderation. Honeypot + per-IP rate
+// limit at the endpoint, no captcha by default.
+
+export const forms = sqliteTable("forms", {
+  id: text("id").primaryKey(),
+  /** ASCII-only key referenced from public URLs and webhooks. */
+  key: text("key").notNull().unique(),
+  label: text("label").notNull(),
+  /**
+   * JSON array of FormField records. Authored in the CMS UI; rendered
+   * verbatim on the public endpoint. Schema-less here so adding new
+   * field kinds doesn't require a migration — see FormField in types.
+   */
+  fields: text("fields").notNull(),
+  /** When false, the public endpoint returns 410 Gone. */
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  /** Optional success-message override per locale (JSON {en:"…",th:"…"}). */
+  successMessages: text("success_messages"),
+  createdBy: text("created_by").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+export const formSubmissions = sqliteTable("form_submissions", {
+  id: text("id").primaryKey(),
+  formId: text("form_id")
+    .notNull()
+    .references(() => forms.id, { onDelete: "cascade" }),
+  /** JSON map of field name → submitted value. Always strings. */
+  data: text("data").notNull(),
+  /** ISO timestamp when the submission landed. */
+  submittedAt: text("submitted_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  /**
+   * Single-byte hash of the requester's IP (truncated SHA-256).
+   * Used for rate-limit + spam clustering. Never stored as the full
+   * IP — privacy-by-default like the v1.8 page-views path.
+   */
+  ipHash: text("ip_hash"),
+  /** Editor sets this in the CMS once they've reviewed the submission. */
+  status: text("status", { enum: ["new", "read", "spam", "archived"] })
+    .notNull()
+    .default("new"),
+  /** Optional one-liner the moderator adds. */
+  note: text("note"),
+});
