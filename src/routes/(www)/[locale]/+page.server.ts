@@ -8,8 +8,16 @@ import {
   websiteJsonLd,
   type PageSeo,
 } from "$lib/seo";
+import { trackView } from "$lib/server/analytics";
+import { CONSENT_COOKIE, parseConsent } from "$lib/consent";
 
-export const load: PageServerLoad = async ({ params, url, locals }) => {
+export const load: PageServerLoad = async ({
+  params,
+  url,
+  locals,
+  cookies,
+  platform,
+}) => {
   if (!SUPPORTED_LOCALES.includes(params.locale as Locale)) {
     error(404, "Not found");
   }
@@ -37,6 +45,15 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
       }),
     ],
   };
+
+  if (platform?.env?.DB) {
+    const consent = parseConsent(cookies.get(CONSENT_COOKIE));
+    void trackView(
+      platform.env.DB,
+      { path: url.pathname, kind: "home" },
+      consent,
+    );
+  }
 
   return {
     locale,

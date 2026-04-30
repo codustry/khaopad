@@ -269,6 +269,94 @@
 		</Card>
 	{/if}
 
+	<!-- Performance: top articles + search insights (v1.8) -->
+	<div class="grid gap-4 lg:grid-cols-2">
+		<Card>
+			<CardHeader>
+				<CardTitle class="text-sm">{m.cms_dashboard_top_articles()}</CardTitle>
+			</CardHeader>
+			<CardContent class="p-0">
+				{#if data.topArticles.length === 0}
+					<div class="p-4 text-sm text-muted-foreground">
+						{m.cms_dashboard_analytics_empty()}
+					</div>
+				{:else}
+					<ul class="divide-y divide-border">
+						{#each data.topArticles as r, i (r.path)}
+							<li class="flex items-center gap-3 px-4 py-2.5">
+								<span class="text-xs text-muted-foreground tabular-nums w-5">#{i + 1}</span>
+								<div class="flex-1 min-w-0">
+									{#if r.articleId}
+										<a href={`/cms/articles/${r.articleId}`} class="text-sm font-medium hover:underline truncate block">
+											{r.title}
+										</a>
+									{:else}
+										<span class="text-sm font-medium truncate block">{r.title}</span>
+									{/if}
+									<span class="text-xs text-muted-foreground font-mono truncate block">{r.path}</span>
+								</div>
+								<span class="text-sm tabular-nums text-muted-foreground">{r.total}</span>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			</CardContent>
+		</Card>
+
+		<Card>
+			<CardHeader>
+				<CardTitle class="text-sm">{m.cms_dashboard_search_insights()}</CardTitle>
+			</CardHeader>
+			<CardContent class="p-4 space-y-4">
+				<div>
+					<p class="text-xs font-medium text-muted-foreground mb-2">
+						{m.cms_dashboard_top_search_terms()}
+					</p>
+					{#if data.topSearchTerms.length === 0}
+						<p class="text-xs text-muted-foreground">{m.cms_dashboard_analytics_empty()}</p>
+					{:else}
+						<ul class="space-y-1">
+							{#each data.topSearchTerms as t (t.term)}
+								<li class="flex items-center justify-between text-sm">
+									<a
+										href={`/blog?q=${encodeURIComponent(t.term)}`}
+										class="font-medium truncate hover:underline"
+									>
+										{t.term}
+									</a>
+									<span class="text-xs tabular-nums text-muted-foreground shrink-0 ml-2">
+										{t.hits}
+									</span>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</div>
+				<div>
+					<p class="text-xs font-medium text-muted-foreground mb-2">
+						{m.cms_dashboard_no_result_terms()}
+					</p>
+					{#if data.noResultTerms.length === 0}
+						<p class="text-xs text-muted-foreground">
+							{m.cms_dashboard_no_result_empty()}
+						</p>
+					{:else}
+						<ul class="space-y-1">
+							{#each data.noResultTerms as t (t.term)}
+								<li class="flex items-center justify-between text-sm">
+									<span class="font-medium truncate">{t.term}</span>
+									<span class="text-xs tabular-nums text-muted-foreground shrink-0 ml-2">
+										{t.hits}
+									</span>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</div>
+			</CardContent>
+		</Card>
+	</div>
+
 	<!-- Activity -->
 	{#if data.showActivity}
 		<Card>

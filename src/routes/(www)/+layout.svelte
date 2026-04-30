@@ -64,6 +64,20 @@
 	</footer>
 </div>
 
+<!--
+	Cloudflare Web Analytics beacon (v1.8). Only loaded when:
+	- the operator set a token in /cms/settings, AND
+	- the visitor opted in to analytics via the cookie banner.
+	The first-party D1 page-view counter runs regardless.
+-->
+{#if data.siteSettings?.cfaToken && data.consent?.analytics}
+	<script
+		defer
+		src="https://static.cloudflareinsights.com/beacon.min.js"
+		data-cf-beacon={`{"token": "${data.siteSettings.cfaToken}"}`}
+	></script>
+{/if}
+
 <CookieBanner
 	consent={data.consent}
 	privacyHref={localePath(toLocale(data.locale), '/privacy-policy')}

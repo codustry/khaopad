@@ -135,6 +135,12 @@ export interface SiteSettings {
   defaultLocale: Locale;
   supportedLocales: Locale[];
   cdnBaseUrl?: string;
+  /**
+   * v1.8: optional Cloudflare Web Analytics beacon token. Empty/
+   * undefined disables the third-party beacon entirely. The
+   * first-party D1 page-view counter runs regardless.
+   */
+  cfaToken?: string;
   [key: string]: unknown;
 }
 

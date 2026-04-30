@@ -2,13 +2,20 @@
 	import { enhance } from '$app/forms';
 	import * as m from '$lib/paraglide/messages';
 	import ArticleForm from '../ArticleForm.svelte';
+	import Sparkline from '$lib/components/analytics/Sparkline.svelte';
 	import type { ArticleRecord, CategoryRecord, TagRecord } from '$lib/server/content/types';
 
 	let {
 		data,
 		form,
 	}: {
-		data: { article: ArticleRecord; categories: CategoryRecord[]; tags: TagRecord[] };
+		data: {
+			article: ArticleRecord;
+			categories: CategoryRecord[];
+			tags: TagRecord[];
+			sparkline: Array<{ date: string; count: number }>;
+			totalViews: number;
+		};
 		form: { ok?: boolean; error?: string; status?: ArticleRecord['status'] } | null;
 	} = $props();
 
@@ -59,6 +66,20 @@
 			</form>
 		</div>
 	</div>
+
+	{#if data.sparkline.length > 0 && data.totalViews > 0}
+		<div class="mb-6 flex items-center justify-between gap-4 rounded-lg border border-border p-4 bg-card">
+			<div>
+				<div class="text-xs font-medium text-muted-foreground">
+					{m.cms_article_views_30d()}
+				</div>
+				<div class="text-2xl font-semibold tabular-nums mt-0.5">{data.totalViews}</div>
+			</div>
+			<div class="text-primary">
+				<Sparkline points={data.sparkline} />
+			</div>
+		</div>
+	{/if}
 
 	<ArticleForm
 		existing={data.article}

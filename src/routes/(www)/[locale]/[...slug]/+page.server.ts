@@ -3,6 +3,8 @@ import { marked } from "marked";
 import { toLocale, SUPPORTED_LOCALES } from "$lib/i18n";
 import { canonicalUrl, resolveOrigin, type PageSeo } from "$lib/seo";
 import { expandBlocks } from "$lib/server/content/blocks";
+import { trackView } from "$lib/server/analytics";
+import { CONSENT_COOKIE, parseConsent } from "$lib/consent";
 import type { Locale } from "$lib/server/content/types";
 import type { PageServerLoad } from "./$types";
 
@@ -17,7 +19,13 @@ import type { PageServerLoad } from "./$types";
  * Honors the same publish/scheduled gates as articles: draft pages
  * 404; published pages with a future `publishedAt` 404.
  */
-export const load: PageServerLoad = async ({ locals, params, url }) => {
+export const load: PageServerLoad = async ({
+  locals,
+  params,
+  url,
+  cookies,
+  platform,
+}) => {
   const locale = toLocale(params.locale);
   const slug = params.slug; // already without leading /
 
@@ -74,6 +82,15 @@ export const load: PageServerLoad = async ({ locals, params, url }) => {
   // Redirect a request to a draft we've already started — only matters
   // when an editor previews from the CMS; harmless otherwise.
   void redirect;
+
+  if (platform?.env?.DB) {
+    const consent = parseConsent(cookies.get(CONSENT_COOKIE));
+    void trackView(
+      platform.env.DB,
+      { path: url.pathname, kind: "page", refId: page.id },
+      consent,
+    );
+  }
 
   return {
     locale,

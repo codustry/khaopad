@@ -208,15 +208,23 @@ A blog isn't a website. A website needs static pages (About, Contact, Privacy), 
 
 **i18n** — 18 keys in v1.7a + 23 keys in v1.7b (EN + TH).
 
-### v1.8 — Analytics and insight (pending)
+### v1.8 — Analytics and insight
 
-**Page-view counter** — Edge-side, privacy-respecting. New `analytics_events` table on D1 with a `Cloudflare Worker` middleware that increments a counter per `(path, day)` on every public page request, no IP/UA stored. Aggregates via the queue worker so the request path stays sub-millisecond. Optional integration with Cloudflare Web Analytics for the deeper view (referrers, devices, countries) — opt-in via a setting.
+Privacy-friendly editor analytics. Closes the "what's working?" gap left after v1.7. Every counter is gated on the v1.7a cookie consent — visitors who opt out write nothing. Aggregated by `(date, path)` so a busy site stays bounded. **No IP, no user agent, no fingerprint stored.**
 
-**Editor analytics on the dashboard** — Top 10 articles by views (last 30 days), top search terms (last 30 days, from `searchArticles` calls), draft-to-publish median time, articles updated this week. Sourced from `analytics_events` + `audit_log`. Adds a "Performance" card to the dashboard.
+**Schema** — Drizzle migration 0006: `page_views` (composite PK on `(date, path)`, kind enum, optional `refId`, integer `count`) and `search_log` (anonymized `term` + `noResults` flag + `date`).
 
-**Per-article analytics** — On each article edit page, a sparkline of the last 30 days of views, pulled from `analytics_events`.
+**Tracker** — `$lib/server/analytics/index.ts` exposes `trackView(db, opts, consent)` and `logSearch(db, term, noResults)`. View tracking does an UPSERT on the composite key — `INSERT … ON CONFLICT DO UPDATE SET count = count + 1` — so one row per day per path, atomic increments. Both functions are best-effort: a write failure never breaks the public page render. Tracking is instrumented on the home, blog index, blog slug, and the v1.7b page catch-all routes; the search log fires from `/blog?q=` whether or not analytics consent is given (search itself is functional, not analytics).
 
-**Search-term insights** — Log every public-facing `searchArticles` query (anonymized, just the term + date) into a new `search_log` table. Dashboard tile: "Search terms with no results" — the high-signal list of content gaps to fill.
+**`AnalyticsService`** — Read surface used by the dashboard + article edit page. Methods: `topPaths` / `topArticles` / `topSearchTerms` / `topNoResultTerms` / `sparkline(path, days)` / `totalViews(path, days)`. All scoped to the last `days` (default 30) so the queries stay fast. The sparkline densifies the result so empty days return `count = 0` and the chart line stays continuous.
+
+**Dashboard tiles** — Two new cards (admin / editor / author all see them — the data is non-sensitive aggregate). "Top articles (30 days)" resolves `refId → article` once at load time so the list shows real titles, not raw paths. "Search insights" splits into two stacks: most-searched terms (with click-through to `/blog?q=…`) and searches with no results (the content-gap list). Both surface a "no data yet" empty state that explains how to seed counters.
+
+**Per-article sparkline** — Article edit page (`/cms/articles/[id]`) loads a 30-day series for the article's slug across every supported locale, merges them by date, and renders a tiny SVG sparkline above the form alongside a 30-day total. Runs lazily — the component returns nothing if there are no views yet, so a fresh article doesn't get a flat-line chart. All best-effort: the form still loads if analytics is unavailable.
+
+**Cloudflare Web Analytics opt-in** — New `cfaToken` field in `/cms/settings`. When set AND the visitor consented to analytics, the (www) layout injects the official `https://static.cloudflareinsights.com/beacon.min.js` script with the operator's site token. Off by default; the first-party D1 counter runs regardless of this setting. No tracking code unless both conditions are met.
+
+**i18n** — 9 new keys (EN + TH).
 
 ### v1.9 — Performance and trust (pending)
 

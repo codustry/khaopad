@@ -8,10 +8,12 @@ import {
   type PageSeo,
 } from "$lib/seo";
 import { expandBlocks } from "$lib/server/content/blocks";
+import { trackView } from "$lib/server/analytics";
+import { CONSENT_COOKIE, parseConsent } from "$lib/consent";
 import type { Locale } from "$lib/server/content/types";
 import type { PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = async ({ locals, params, url }) => {
+export const load: PageServerLoad = async ({ locals, params, url, cookies, platform }) => {
   const locale = toLocale(params.locale);
   const article = await locals.content.getArticleBySlug(params.slug);
 
@@ -98,6 +100,18 @@ export const load: PageServerLoad = async ({ locals, params, url }) => {
       }),
     ],
   };
+
+  // v1.8: bump the per-day counter for this article path. Best-effort
+  // (no-op if consent.analytics is false). Don't await — we don't
+  // want a slow D1 to delay the response.
+  if (platform?.env?.DB) {
+    const consent = parseConsent(cookies.get(CONSENT_COOKIE));
+    void trackView(
+      platform.env.DB,
+      { path: url.pathname, kind: "article", refId: article.id },
+      consent,
+    );
+  }
 
   return {
     locale,

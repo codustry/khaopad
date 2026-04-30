@@ -423,3 +423,48 @@ export const contentBlockLocalizations = sqliteTable(
     body: text("body").notNull(),
   },
 );
+
+// ─── Analytics (v1.8) ────────────────────────────────────
+// Privacy-friendly counters: aggregated per (date, path) so a busy
+// site stays bounded. No IP, no UA, no fingerprint — just one bump
+// per request to a counter that already exists or gets inserted.
+//
+// `kind` tags the counter so the dashboard can join into articles /
+// pages without parsing paths back. Empty string = "other" (e.g.
+// `/`, `/blog` index).
+
+export const pageViews = sqliteTable(
+  "page_views",
+  {
+    /** UTC date in YYYY-MM-DD form (cheap to bucket on, sortable). */
+    date: text("date").notNull(),
+    /** Pathname including locale prefix; trailing slash stripped. */
+    path: text("path").notNull(),
+    kind: text("kind", {
+      enum: ["article", "page", "blog_index", "home", "other"],
+    }).notNull(),
+    /** Article id, page id, or null when not entity-bound. */
+    refId: text("ref_id"),
+    count: integer("count").notNull().$defaultFn(() => 0),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.date, table.path] }),
+  }),
+);
+
+// Anonymized search log (v1.8). Only the search term + date — no IP,
+// no consent context (the search box is functional, not analytics-
+// gated). Used to surface "what users wanted but didn't find" so
+// editors can fill content gaps.
+
+export const searchLog = sqliteTable("search_log", {
+  id: text("id").primaryKey(),
+  /** Lowercased trimmed query. */
+  term: text("term").notNull(),
+  /** True when searchArticles returned zero results. */
+  noResults: integer("no_results", { mode: "boolean" }).notNull(),
+  date: text("date").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});

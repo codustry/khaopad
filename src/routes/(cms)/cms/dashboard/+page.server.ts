@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { desc, eq, and, gte } from "drizzle-orm";
 import * as schema from "$lib/server/content/schema";
 import { canManageUsers } from "$lib/server/auth/permissions";
+import { AnalyticsService } from "$lib/server/analytics";
 import type { PageServerLoad } from "./$types";
 
 const ACTIVITY_LIMIT = 8;
@@ -121,6 +122,51 @@ export const load: PageServerLoad = async ({ locals, platform }) => {
   const enCount = publishedItems.filter((a) => a.localizations.en).length;
   const thCount = publishedItems.filter((a) => a.localizations.th).length;
 
+  // v1.8: top articles + search insights from the analytics tables.
+  // Best-effort — empty arrays if the queries fail (fresh install,
+  // no data yet, etc.).
+  const analytics = new AnalyticsService(platform.env.DB);
+  const [topArticles, topSearchTerms, noResultTerms] = await Promise.all([
+    analytics.topArticles(30, 5).catch(() => []),
+    analytics.topSearchTerms(30, 5).catch(() => []),
+    analytics.topNoResultTerms(30, 5).catch(() => []),
+  ]);
+
+  // Resolve refIds → article titles + slugs in one pass so the tile
+  // can show "Article title" instead of /en/blog/some-slug.
+  const articleIdsForResolve = topArticles
+    .map((r) => r.refId)
+    .filter((x): x is string => Boolean(x));
+  const articleById = new Map<
+    string,
+    { title: string; slug: string; id: string }
+  >();
+  if (articleIdsForResolve.length > 0) {
+    const fetched = await Promise.all(
+      articleIdsForResolve.map((id) => locals.content.getArticle(id)),
+    );
+    for (const a of fetched) {
+      if (!a) continue;
+      articleById.set(a.id, {
+        id: a.id,
+        slug: a.slug,
+        title:
+          a.localizations.en?.title ??
+          a.localizations.th?.title ??
+          "(untitled)",
+      });
+    }
+  }
+  const topArticlesResolved = topArticles.map((r) => {
+    const meta = r.refId ? articleById.get(r.refId) : null;
+    return {
+      path: r.path,
+      total: r.total,
+      title: meta?.title ?? r.path,
+      articleId: meta?.id ?? null,
+    };
+  });
+
   return {
     stats: {
       total: allTotal,
@@ -155,6 +201,9 @@ export const load: PageServerLoad = async ({ locals, platform }) => {
       metadata: r.metadata ? safeParse(r.metadata) : null,
     })),
     showActivity,
+    topArticles: topArticlesResolved,
+    topSearchTerms,
+    noResultTerms,
   };
 };
 
