@@ -230,4 +230,34 @@ export interface ContentProvider {
    * back-links keep working.
    */
   resolveSlugRedirect(oldSlug: string): Promise<string | null>;
+
+  // Reusable content blocks (v1.7)
+  listContentBlocks(): Promise<ContentBlockRecord[]>;
+  getContentBlock(id: string): Promise<ContentBlockRecord | null>;
+  getContentBlockByKey(key: string): Promise<ContentBlockRecord | null>;
+  createContentBlock(data: {
+    key: string;
+    label: string;
+    localizations: Partial<Record<Locale, { body: string }>>;
+  }): Promise<ContentBlockRecord>;
+  updateContentBlock(
+    id: string,
+    data: Partial<{
+      key: string;
+      label: string;
+      localizations: Partial<Record<Locale, { body: string }>>;
+    }>,
+  ): Promise<ContentBlockRecord>;
+  deleteContentBlock(id: string): Promise<void>;
+}
+
+/** A reusable content snippet (v1.7). Per-locale body. */
+export interface ContentBlockRecord {
+  id: string;
+  /** ASCII-only key referenced in shortcodes: `{{block:my-key}}`. */
+  key: string;
+  label: string;
+  createdAt: string;
+  updatedAt: string;
+  localizations: Partial<Record<Locale, { body: string }>>;
 }

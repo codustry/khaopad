@@ -7,6 +7,7 @@ import {
   resolveOrigin,
   type PageSeo,
 } from "$lib/seo";
+import { expandBlocks } from "$lib/server/content/blocks";
 import type { Locale } from "$lib/server/content/types";
 import type { PageServerLoad } from "./$types";
 
@@ -41,7 +42,14 @@ export const load: PageServerLoad = async ({ locals, params, url }) => {
     throw error(404, "Article not available");
   }
 
-  const htmlContent = await marked(localization.body);
+  // Expand v1.7 reusable-block shortcodes before passing to `marked`.
+  // Cheap no-op when the body has no `{{block:` substring.
+  const expanded = await expandBlocks(
+    localization.body,
+    locals.content,
+    locale,
+  );
+  const htmlContent = await marked(expanded);
 
   // SEO surface for the public article page.
   const settings = await locals.content.getSettings().catch(() => null);
