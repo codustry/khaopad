@@ -29,6 +29,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const form = await request.formData();
   const file = form.get("file");
   const altText = String(form.get("altText") ?? "").trim() || undefined;
+  const folderRaw = String(form.get("folderId") ?? "").trim();
+  /** Empty folder field = root. v1.7 media folders. */
+  const folderId = folderRaw === "" ? null : folderRaw;
 
   if (!(file instanceof File)) {
     throw error(400, "Missing `file` field");
@@ -53,6 +56,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     mimeType: mime,
     data,
     altText,
+    folderId,
     uploadedBy: locals.user.id,
   });
 

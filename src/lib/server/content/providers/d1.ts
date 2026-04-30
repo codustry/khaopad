@@ -27,6 +27,7 @@ import type {
   SearchOptions,
   SiteSettings,
   Locale,
+  ContentBlockRecord,
 } from "../types";
 
 export class D1ContentProvider implements ContentProvider {
@@ -834,5 +835,137 @@ export class D1ContentProvider implements ContentProvider {
       .where(eq(schema.slugRedirects.oldSlug, oldSlug))
       .get();
     return row?.newSlug ?? null;
+  }
+
+  // ─── Content blocks (v1.7) ─────────────────────────────
+
+  async listContentBlocks(): Promise<ContentBlockRecord[]> {
+    const rows = await this.db.select().from(schema.contentBlocks).all();
+    return Promise.all(rows.map((r) => this.hydrateContentBlock(r)));
+  }
+
+  async getContentBlock(id: string): Promise<ContentBlockRecord | null> {
+    const row = await this.db
+      .select()
+      .from(schema.contentBlocks)
+      .where(eq(schema.contentBlocks.id, id))
+      .get();
+    if (!row) return null;
+    return this.hydrateContentBlock(row);
+  }
+
+  async getContentBlockByKey(
+    key: string,
+  ): Promise<ContentBlockRecord | null> {
+    const row = await this.db
+      .select()
+      .from(schema.contentBlocks)
+      .where(eq(schema.contentBlocks.key, key))
+      .get();
+    if (!row) return null;
+    return this.hydrateContentBlock(row);
+  }
+
+  async createContentBlock(data: {
+    key: string;
+    label: string;
+    localizations: ContentBlockRecord["localizations"];
+  }): Promise<ContentBlockRecord> {
+    const id = nanoid();
+    const now = new Date().toISOString();
+    await this.db.insert(schema.contentBlocks).values({
+      id,
+      key: data.key,
+      label: data.label,
+      createdAt: now,
+      updatedAt: now,
+    });
+    for (const [locale, body] of Object.entries(data.localizations)) {
+      if (!body) continue;
+      await this.db.insert(schema.contentBlockLocalizations).values({
+        id: nanoid(),
+        blockId: id,
+        locale: locale as Locale,
+        body: body.body,
+      });
+    }
+    return (await this.getContentBlock(id))!;
+  }
+
+  async updateContentBlock(
+    id: string,
+    data: Partial<{
+      key: string;
+      label: string;
+      localizations: ContentBlockRecord["localizations"];
+    }>,
+  ): Promise<ContentBlockRecord> {
+    const updateFields: Record<string, unknown> = {
+      updatedAt: new Date().toISOString(),
+    };
+    if (data.key !== undefined) updateFields.key = data.key;
+    if (data.label !== undefined) updateFields.label = data.label;
+    await this.db
+      .update(schema.contentBlocks)
+      .set(updateFields)
+      .where(eq(schema.contentBlocks.id, id));
+
+    if (data.localizations) {
+      for (const [locale, body] of Object.entries(data.localizations)) {
+        if (!body) continue;
+        const existing = await this.db
+          .select()
+          .from(schema.contentBlockLocalizations)
+          .where(
+            and(
+              eq(schema.contentBlockLocalizations.blockId, id),
+              eq(schema.contentBlockLocalizations.locale, locale as Locale),
+            ),
+          )
+          .get();
+        if (existing) {
+          await this.db
+            .update(schema.contentBlockLocalizations)
+            .set({ body: body.body })
+            .where(eq(schema.contentBlockLocalizations.id, existing.id));
+        } else {
+          await this.db.insert(schema.contentBlockLocalizations).values({
+            id: nanoid(),
+            blockId: id,
+            locale: locale as Locale,
+            body: body.body,
+          });
+        }
+      }
+    }
+    return (await this.getContentBlock(id))!;
+  }
+
+  async deleteContentBlock(id: string): Promise<void> {
+    await this.db
+      .delete(schema.contentBlocks)
+      .where(eq(schema.contentBlocks.id, id));
+  }
+
+  private async hydrateContentBlock(
+    block: typeof schema.contentBlocks.$inferSelect,
+  ): Promise<ContentBlockRecord> {
+    const locs = await this.db
+      .select()
+      .from(schema.contentBlockLocalizations)
+      .where(eq(schema.contentBlockLocalizations.blockId, block.id))
+      .all();
+    const localizations: ContentBlockRecord["localizations"] = {};
+    for (const loc of locs) {
+      localizations[loc.locale as Locale] = { body: loc.body };
+    }
+    return {
+      id: block.id,
+      key: block.key,
+      label: block.label,
+      createdAt: block.createdAt,
+      updatedAt: block.updatedAt,
+      localizations,
+    };
   }
 }

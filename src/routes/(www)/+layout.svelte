@@ -4,6 +4,7 @@
 	import { localePath, toLocale, getAlternateLocale } from '$lib/i18n';
 	import { page } from '$app/state';
 	import Seo from '$lib/components/seo/Seo.svelte';
+	import CookieBanner from '$lib/components/consent/CookieBanner.svelte';
 	import type { PageSeo } from '$lib/seo';
 	import type { Snippet } from 'svelte';
 	import type { LayoutData } from './$types';
@@ -50,3 +51,8 @@
 		<p>{m.footer_copyright({ year: new Date().getFullYear().toString() })}</p>
 	</footer>
 </div>
+
+<CookieBanner
+	consent={data.consent}
+	privacyHref={localePath(toLocale(data.locale), '/privacy-policy')}
+/>

@@ -178,7 +178,27 @@ export const media = sqliteTable("media", {
   width: integer("width"),
   height: integer("height"),
   altText: text("alt_text"),
+  /**
+   * Parent folder (v1.7). Null = root. ON DELETE SET NULL so deleting
+   * a folder doesn't take its assets with it — they fall back to the
+   * root and the editor can reorganize from there.
+   */
+  folderId: text("folder_id"),
   uploadedBy: text("uploaded_by").references(() => users.id),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+// ─── Media folders (v1.7) ────────────────────────────────
+// Self-referential tree of folders. Backwards-compatible: existing
+// rows on `media` keep folderId = null and live at the root. The
+// CMS /cms/media page renders a left tree with folder CRUD.
+
+export const mediaFolders = sqliteTable("media_folders", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  parentId: text("parent_id"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -283,3 +303,123 @@ export const invitations = sqliteTable("invitations", {
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
 });
+
+// ─── Pages (v1.7) ────────────────────────────────────────
+// Static pages distinct from articles: about, contact, privacy, etc.
+// Routed at (www)/[locale]/[...slug] catch-all so nested slugs like
+// /about/team work. Reuses the markdown editor + per-locale content
+// model. SEO fields piggyback the v1.6 <Seo> machinery.
+
+export const pages = sqliteTable("pages", {
+  id: text("id").primaryKey(),
+  /** ASCII-only, may include nested segments (a-z0-9- separated by /). */
+  slug: text("slug").notNull().unique(),
+  /** Self-reference for tree views in the CMS. Null = top-level. */
+  parentId: text("parent_id"),
+  /** Soft layout hint (default | landing | legal). The public route
+   *  uses this to pick a wrapper component. */
+  template: text("template", { enum: ["default", "landing", "legal"] })
+    .notNull()
+    .$defaultFn(() => "default"),
+  status: text("status", { enum: ["draft", "published"] })
+    .notNull()
+    .$defaultFn(() => "draft"),
+  /** When set + status='published' + in the future, the page is
+   *  scheduled — see scheduled-publishing pattern from v1.3. */
+  publishedAt: text("published_at"),
+  authorId: text("author_id")
+    .notNull()
+    .references(() => users.id),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+export const pageLocalizations = sqliteTable("page_localizations", {
+  id: text("id").primaryKey(),
+  pageId: text("page_id")
+    .notNull()
+    .references(() => pages.id, { onDelete: "cascade" }),
+  locale: text("locale", { enum: ["th", "en"] }).notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  seoTitle: text("seo_title"),
+  seoDescription: text("seo_description"),
+});
+
+// ─── Navigation (v1.7) ───────────────────────────────────
+// Site-wide menu manager. Two stock menus by default (`primary`,
+// `footer`); admins can add more. Each menu is an ordered tree of
+// items pointing at internal entities or custom URLs.
+
+export const navigationMenus = sqliteTable("navigation_menus", {
+  id: text("id").primaryKey(),
+  /** Stable lookup key: 'primary', 'footer', etc. Used by the layout
+   *  hook to fetch the right menu. */
+  key: text("key").notNull().unique(),
+  label: text("label").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+export const navigationItems = sqliteTable("navigation_items", {
+  id: text("id").primaryKey(),
+  menuId: text("menu_id")
+    .notNull()
+    .references(() => navigationMenus.id, { onDelete: "cascade" }),
+  /** Self-reference for nested menus. Null = top-level. */
+  parentId: text("parent_id"),
+  /** Position in the parent's children — lower comes first. */
+  position: integer("position").notNull().$defaultFn(() => 0),
+  /** Per-locale label JSON (`{"en":"About","th":"เกี่ยวกับ"}`). */
+  labels: text("labels").notNull(),
+  /** Either an internal target (`article:<id>`, `category:<id>`,
+   *  `tag:<id>`, `page:<id>`) or 'custom'. The CMS UI splits the form
+   *  by kind. */
+  kind: text("kind", {
+    enum: ["article", "category", "tag", "page", "custom"],
+  }).notNull(),
+  /** When kind != 'custom', the entity id. Otherwise null. */
+  targetId: text("target_id"),
+  /** When kind = 'custom', the literal URL. Otherwise null. */
+  customUrl: text("custom_url"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+// ─── Content blocks (v1.7) ───────────────────────────────
+// Reusable snippets injected into article/page bodies via a
+// `{{block:my-key}}` shortcode. Per-locale body so a CTA block can be
+// translated. Authored as markdown; the renderer expands the
+// shortcode server-side before passing to `marked`.
+
+export const contentBlocks = sqliteTable("content_blocks", {
+  id: text("id").primaryKey(),
+  /** Lookup key. ASCII-only (a-z0-9-). Referenced from the shortcode. */
+  key: text("key").notNull().unique(),
+  /** Human label so editors can find blocks in the picker. */
+  label: text("label").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+export const contentBlockLocalizations = sqliteTable(
+  "content_block_localizations",
+  {
+    id: text("id").primaryKey(),
+    blockId: text("block_id")
+      .notNull()
+      .references(() => contentBlocks.id, { onDelete: "cascade" }),
+    locale: text("locale", { enum: ["th", "en"] }).notNull(),
+    body: text("body").notNull(),
+  },
+);
