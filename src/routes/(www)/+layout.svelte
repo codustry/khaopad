@@ -29,6 +29,9 @@
 		<div class="container mx-auto px-4 py-4 flex items-center justify-between">
 			<a href="/" class="text-xl font-bold">{m.site_name()}</a>
 			<nav class="flex items-center gap-4 text-sm">
+				{#each data.nav.primary as item (item.id)}
+					<a href={item.href} class="hover:text-primary">{item.label}</a>
+				{/each}
 				<a href={localePath(toLocale(data.locale), '/blog')} class="hover:text-primary">
 					{m.nav_blog()}
 				</a>
@@ -47,8 +50,17 @@
 		{@render children()}
 	</main>
 
-	<footer class="border-t border-border py-8 text-center text-sm text-muted-foreground">
-		<p>{m.footer_copyright({ year: new Date().getFullYear().toString() })}</p>
+	<footer class="border-t border-border py-8 text-sm text-muted-foreground">
+		<div class="container mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+			<p>{m.footer_copyright({ year: new Date().getFullYear().toString() })}</p>
+			{#if data.nav.footer.length > 0}
+				<nav class="flex flex-wrap gap-4">
+					{#each data.nav.footer as item (item.id)}
+						<a href={item.href} class="hover:text-foreground">{item.label}</a>
+					{/each}
+				</nav>
+			{/if}
+		</div>
 	</footer>
 </div>
 
