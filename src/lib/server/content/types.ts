@@ -280,6 +280,25 @@ export interface ContentProvider {
   ): Promise<FormRecord>;
   deleteForm(id: string): Promise<void>;
 
+  // Newsletter subscribers (v2.0b)
+  listSubscribers(filter?: SubscriberFilter): Promise<SubscriberRecord[]>;
+  countSubscribers(filter?: SubscriberFilter): Promise<number>;
+  getSubscriberByEmail(email: string): Promise<SubscriberRecord | null>;
+  getSubscriberByToken(token: string): Promise<SubscriberRecord | null>;
+  createSubscriber(data: {
+    email: string;
+    locale: Locale;
+    /** Pre-confirm when the operator hasn't configured an email
+     *  provider — single-opt-in mode (clearly documented in CMS). */
+    autoConfirm?: boolean;
+    source?: SubscriberSource;
+  }): Promise<SubscriberRecord>;
+  /** Stamp confirmedAt = now. Idempotent (re-confirming is a no-op). */
+  confirmSubscriber(token: string): Promise<SubscriberRecord | null>;
+  /** Stamp unsubscribedAt = now. Idempotent. */
+  unsubscribeByToken(token: string): Promise<SubscriberRecord | null>;
+  deleteSubscriber(id: string): Promise<void>;
+
   // Form submissions (v2.0a)
   listFormSubmissions(formId: string, opts?: {
     status?: FormSubmissionStatus;
@@ -497,4 +516,30 @@ export interface NavigationItemUpdateInput {
   kind?: NavigationItemKind;
   targetId?: string | null;
   customUrl?: string | null;
+}
+
+// ─── Newsletter (v2.0b) ──────────────────────────────────
+
+export type SubscriberSource = string; // 'form' | 'import' | etc.
+
+export interface SubscriberRecord {
+  id: string;
+  email: string;
+  locale: Locale;
+  /** URL-safe random token used for confirm + unsubscribe links. */
+  token: string;
+  /** Null = pending confirmation (double-opt-in not yet completed). */
+  confirmedAt: string | null;
+  unsubscribedAt: string | null;
+  source: SubscriberSource;
+  createdAt: string;
+}
+
+export interface SubscriberFilter {
+  /** When set: only return rows with confirmedAt non-null AND
+   *  unsubscribedAt null (the "active" set). */
+  onlyActive?: boolean;
+  /** When set: restrict to one locale (used by the digest sender). */
+  locale?: Locale;
+  limit?: number;
 }

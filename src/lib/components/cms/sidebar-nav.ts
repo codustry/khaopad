@@ -12,6 +12,7 @@ import {
   ScrollText,
   Puzzle,
   Inbox,
+  Mail,
 } from "lucide-svelte";
 import * as m from "$lib/paraglide/messages";
 
@@ -88,6 +89,12 @@ export const navGroups: ReadonlyArray<NavGroup> = [
         href: "/cms/audit",
         label: m.cms_audit,
         icon: ScrollText,
+        roles: ["super_admin", "admin"],
+      },
+      {
+        href: "/cms/subscribers",
+        label: m.cms_subscribers,
+        icon: Mail,
         roles: ["super_admin", "admin"],
       },
       {

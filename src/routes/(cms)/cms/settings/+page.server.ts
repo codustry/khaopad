@@ -46,6 +46,18 @@ export const actions: Actions = {
     // off; presence injects the official beacon snippet on every
     // public page. Stored in site_settings (no env var needed).
     const cfaToken = String(form.get("cfa_token") ?? "").trim();
+    // v2.0b: optional newsletter config. All three fields are
+    // independently optional — the public subscribe form falls back
+    // to single-opt-in when no provider is set, so editors can start
+    // collecting emails before wiring up Resend.
+    const newsletterResendKey = String(
+      form.get("newsletter_resend_key") ?? "",
+    ).trim();
+    const newsletterSenderAddress = String(
+      form.get("newsletter_sender") ?? "",
+    ).trim();
+    const newsletterAllowSingleOptIn =
+      form.get("newsletter_allow_single_opt_in") === "on";
 
     if (!siteName) return fail(400, { error: "Site name is required." });
     const supported = parseLocales(supportedLocalesRaw);
@@ -67,6 +79,12 @@ export const actions: Actions = {
         supportedLocales: supported as Array<"en" | "th">,
         cdnBaseUrl: cdnBaseUrl || undefined,
         cfaToken: cfaToken || undefined,
+        // Newsletter (v2.0b). Stored under namespaced keys so they
+        // group together visually in any future settings export and
+        // don't collide with shorter top-level keys.
+        "newsletter.resendKey": newsletterResendKey || undefined,
+        "newsletter.senderAddress": newsletterSenderAddress || undefined,
+        "newsletter.allowSingleOptIn": newsletterAllowSingleOptIn,
       });
     } catch (err) {
       return fail(500, {

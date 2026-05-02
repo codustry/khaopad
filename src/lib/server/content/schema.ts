@@ -525,3 +525,29 @@ export const formSubmissions = sqliteTable("form_submissions", {
   /** Optional one-liner the moderator adds. */
   note: text("note"),
 });
+
+// ─── Newsletter subscribers (v2.0b) ──────────────────────
+// Visitors opt in via a public form. Double-opt-in: a confirm email
+// goes out (when an email provider is configured) and the subscriber
+// is "confirmed" only after they click the link. When no provider is
+// configured, the row is created with confirmedAt=now (single-opt-in
+// mode — clearly documented in /cms/settings).
+
+export const subscribers = sqliteTable("subscribers", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  /** Preferred locale at signup. Used to pick the right digest body. */
+  locale: text("locale", { enum: ["th", "en"] }).notNull(),
+  /** Random URL-safe token for the confirm + unsubscribe links. */
+  token: text("token").notNull().unique(),
+  /** ISO timestamp once the subscriber clicked the confirm link.
+   *  Null = pending confirmation. */
+  confirmedAt: text("confirmed_at"),
+  /** ISO timestamp once the subscriber unsubscribed. */
+  unsubscribedAt: text("unsubscribed_at"),
+  /** Where the subscriber came from: 'form' (default), 'import', etc. */
+  source: text("source").notNull().$defaultFn(() => "form"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
