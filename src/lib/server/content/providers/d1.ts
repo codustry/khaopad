@@ -28,6 +28,10 @@ import type {
   SearchOptions,
   SiteSettings,
   Locale,
+  CommentRecord,
+  CommentCreateInput,
+  CommentFilter,
+  CommentStatus,
   ContentBlockRecord,
   FormRecord,
   FormField,
@@ -345,6 +349,7 @@ export class D1ContentProvider implements ContentProvider {
       authorId: data.authorId,
       status: data.status ?? "draft",
       publishedAt: data.publishedAt ?? null,
+      commentsMode: data.commentsMode ?? "inherit",
       createdAt: now,
       updatedAt: now,
     });
@@ -436,6 +441,8 @@ export class D1ContentProvider implements ContentProvider {
     if (data.status !== undefined) updateFields.status = data.status;
     if (data.publishedAt !== undefined)
       updateFields.publishedAt = data.publishedAt;
+    if (data.commentsMode !== undefined)
+      updateFields.commentsMode = data.commentsMode;
 
     await this.db
       .update(schema.articles)
@@ -551,6 +558,7 @@ export class D1ContentProvider implements ContentProvider {
       status: article.status as ArticleRecord["status"],
       authorId: article.authorId,
       publishedAt: article.publishedAt,
+      commentsMode: article.commentsMode as ArticleRecord["commentsMode"],
       createdAt: article.createdAt,
       updatedAt: article.updatedAt,
       tagIds: tagRows.map((r) => r.tagId),
@@ -1681,6 +1689,120 @@ export class D1ContentProvider implements ContentProvider {
       unsubscribedAt: row.unsubscribedAt,
       source: row.source,
       createdAt: row.createdAt,
+    };
+  }
+
+  // ─── Comments (v2.0c) ───────────────────────────────────
+
+  async listComments(filter?: CommentFilter): Promise<CommentRecord[]> {
+    const conditions = [];
+    if (filter?.articleId) {
+      conditions.push(eq(schema.comments.articleId, filter.articleId));
+    }
+    if (filter?.status) {
+      conditions.push(eq(schema.comments.status, filter.status));
+    }
+    const limit = filter?.limit ?? 50;
+    const offset = filter?.page ? Math.max(0, (filter.page - 1) * limit) : 0;
+    const query = this.db.select().from(schema.comments);
+    const rows = await (conditions.length
+      ? query.where(and(...conditions))
+      : query
+    )
+      .orderBy(desc(schema.comments.submittedAt))
+      .limit(limit)
+      .offset(offset)
+      .all();
+    return rows.map((r) => this.toComment(r));
+  }
+
+  async getComment(id: string): Promise<CommentRecord | null> {
+    const row = await this.db
+      .select()
+      .from(schema.comments)
+      .where(eq(schema.comments.id, id))
+      .get();
+    return row ? this.toComment(row) : null;
+  }
+
+  async createComment(data: CommentCreateInput): Promise<CommentRecord> {
+    const id = nanoid();
+    await this.db.insert(schema.comments).values({
+      id,
+      articleId: data.articleId,
+      parentId: data.parentId ?? null,
+      authorName: data.authorName,
+      authorEmail: data.authorEmail,
+      body: data.body,
+      ipHash: data.ipHash ?? null,
+      // status defaults to 'pending' via schema default
+    });
+    return (await this.getComment(id))!;
+  }
+
+  async updateComment(
+    id: string,
+    data: { status: CommentStatus; moderatedBy: string },
+  ): Promise<CommentRecord> {
+    await this.db
+      .update(schema.comments)
+      .set({
+        status: data.status,
+        moderatedBy: data.moderatedBy,
+        moderatedAt: new Date().toISOString(),
+      })
+      .where(eq(schema.comments.id, id));
+    return (await this.getComment(id))!;
+  }
+
+  async deleteComment(id: string): Promise<void> {
+    await this.db.delete(schema.comments).where(eq(schema.comments.id, id));
+  }
+
+  async countPendingComments(): Promise<number> {
+    const rows = await this.db
+      .select({ id: schema.comments.id })
+      .from(schema.comments)
+      .where(eq(schema.comments.status, "pending"))
+      .all();
+    return rows.length;
+  }
+
+  async countRecentComments(
+    articleId: string,
+    ipHash: string,
+    sinceSeconds: number,
+  ): Promise<number> {
+    const cutoff = new Date(Date.now() - sinceSeconds * 1000).toISOString();
+    const rows = await this.db
+      .select({ id: schema.comments.id })
+      .from(schema.comments)
+      .where(
+        and(
+          eq(schema.comments.articleId, articleId),
+          eq(schema.comments.ipHash, ipHash),
+          gte(schema.comments.submittedAt, cutoff),
+        ),
+      )
+      .all();
+    return rows.length;
+  }
+
+  private toComment(
+    row: typeof schema.comments.$inferSelect,
+  ): CommentRecord {
+    return {
+      id: row.id,
+      articleId: row.articleId,
+      parentId: row.parentId,
+      authorName: row.authorName,
+      authorEmail: row.authorEmail,
+      body: row.body,
+      status: row.status as CommentStatus,
+      ipHash: row.ipHash,
+      submittedAt: row.submittedAt,
+      moderatedBy: row.moderatedBy,
+      moderatedAt: row.moderatedAt,
     };
   }
 }

@@ -30,7 +30,8 @@ export type AuditAction =
   | `invitation.${"create" | "accept" | "revoke"}`
   | `settings.${"update"}`
   | `form.${"create" | "update" | "delete" | "submit"}`
-  | `newsletter.${"subscribe" | "confirm" | "unsubscribe" | "delete" | "digest_sent"}`;
+  | `newsletter.${"subscribe" | "confirm" | "unsubscribe" | "delete" | "digest_sent"}`
+  | `comment.${"create" | "approve" | "spam" | "archive" | "delete"}`;
 
 /** Entity type derived from the action prefix. */
 function entityTypeOf(action: AuditAction): string {

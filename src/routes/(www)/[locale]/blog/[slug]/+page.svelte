@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { formatDate } from '$lib/utils';
 	import ResponsiveImage from '$lib/components/media/ResponsiveImage.svelte';
+	import CommentSection from '$lib/components/comments/CommentSection.svelte';
 	let { data } = $props();
 </script>
 
@@ -26,4 +27,12 @@
 		<!-- eslint-disable-next-line svelte/no-at-html-tags -- trusted: server-rendered markdown from CMS -->
 		{@html data.htmlContent}
 	</div>
+
+	{#if data.commentsOpen || data.comments.length > 0}
+		<CommentSection
+			articleId={data.articleId}
+			comments={data.comments}
+			open={data.commentsOpen}
+		/>
+	{/if}
 </article>

@@ -10,6 +10,7 @@ import {
 import { expandBlocks } from "$lib/server/content/blocks";
 import { trackView } from "$lib/server/analytics";
 import { CONSENT_COOKIE, parseConsent } from "$lib/consent";
+import { commentsAllowedForArticle } from "$lib/server/comments";
 import type { Locale } from "$lib/server/content/types";
 import type { PageServerLoad } from "./$types";
 
@@ -113,6 +114,19 @@ export const load: PageServerLoad = async ({ locals, params, url, cookies, platf
     );
   }
 
+  // v2.0c — comments. Render approved comments below the article when
+  // the dual-toggle says they're allowed. Always pass a `commentsOpen`
+  // flag separately so the template can decide whether to show the
+  // submission form.
+  const commentsOpen = commentsAllowedForArticle(article, settings);
+  const approvedComments = commentsOpen
+    ? await locals.content.listComments({
+        articleId: article.id,
+        status: "approved",
+        limit: 200,
+      })
+    : [];
+
   return {
     locale,
     title: localization.title,
@@ -121,7 +135,15 @@ export const load: PageServerLoad = async ({ locals, params, url, cookies, platf
     publishedAt: article.publishedAt,
     createdAt: article.createdAt,
     slug: article.slug,
+    articleId: article.id,
     coverMediaId: article.coverMediaId,
     seo,
+    commentsOpen,
+    comments: approvedComments.map((c) => ({
+      id: c.id,
+      authorName: c.authorName,
+      body: c.body,
+      submittedAt: c.submittedAt,
+    })),
   };
 };

@@ -13,6 +13,9 @@ export interface LocalizedContent {
   seoDescription?: string;
 }
 
+/** v2.0c per-article comment policy. */
+export type CommentsMode = "inherit" | "on" | "off";
+
 // ─── Articles ────────────────────────────────────────────
 export interface ArticleRecord {
   id: string;
@@ -28,6 +31,8 @@ export interface ArticleRecord {
   authorId: string;
   status: "draft" | "published" | "archived";
   publishedAt: string | null;
+  /** v2.0c per-article comment policy; defaults to `inherit`. */
+  commentsMode: CommentsMode;
   createdAt: string;
   updatedAt: string;
   /**
@@ -49,6 +54,8 @@ export interface ArticleCreateInput {
   authorId: string;
   status?: ArticleRecord["status"];
   publishedAt?: string;
+  /** v2.0c per-article comment policy. Defaults to `inherit`. */
+  commentsMode?: CommentsMode;
   /** Must include `en` so the slug can be derived from the English title. */
   localizations: { en: LocalizedContent } & Partial<
     Record<Locale, LocalizedContent>
@@ -72,6 +79,8 @@ export interface ArticleUpdateInput {
   tagIds?: string[];
   status?: ArticleRecord["status"];
   publishedAt?: string | null;
+  /** v2.0c per-article comment policy. */
+  commentsMode?: CommentsMode;
   localizations?: Partial<Record<Locale, LocalizedContent>>;
   /** See `ArticleCreateInput.actorId`. */
   actorId?: string;
@@ -141,6 +150,13 @@ export interface SiteSettings {
    * first-party D1 page-view counter runs regardless.
    */
   cfaToken?: string;
+  /**
+   * v2.0c: site-wide comments kill switch. Defaults to `false` so a
+   * fresh deploy never accidentally exposes a comment form. Per-
+   * article overrides via `articles.commentsMode` ("on" / "off")
+   * still apply regardless.
+   */
+  commentsEnabled?: boolean;
   [key: string]: unknown;
 }
 
@@ -356,6 +372,64 @@ export interface ContentProvider {
       parentId: string | null;
     }>,
   ): Promise<void>;
+
+  // Comments (v2.0c)
+  listComments(filter?: CommentFilter): Promise<CommentRecord[]>;
+  getComment(id: string): Promise<CommentRecord | null>;
+  createComment(data: CommentCreateInput): Promise<CommentRecord>;
+  updateComment(
+    id: string,
+    data: { status: CommentStatus; moderatedBy: string },
+  ): Promise<CommentRecord>;
+  deleteComment(id: string): Promise<void>;
+  /** Count pending comments site-wide for the sidebar badge. */
+  countPendingComments(): Promise<number>;
+  /**
+   * Count comments from this ipHash for this article in the last
+   * `sinceSeconds`. Mirrors `countRecentSubmissions` from v2.0a forms;
+   * used by the public POST endpoint for rate limiting.
+   */
+  countRecentComments(
+    articleId: string,
+    ipHash: string,
+    sinceSeconds: number,
+  ): Promise<number>;
+}
+
+// ─── Comments (v2.0c) ────────────────────────────────────
+
+export type CommentStatus = "pending" | "approved" | "spam" | "archived";
+
+export interface CommentRecord {
+  id: string;
+  articleId: string;
+  parentId: string | null;
+  authorName: string;
+  /** Always collected, never displayed publicly. */
+  authorEmail: string;
+  /** Plain text — never markdown. */
+  body: string;
+  status: CommentStatus;
+  ipHash: string | null;
+  submittedAt: string;
+  moderatedBy: string | null;
+  moderatedAt: string | null;
+}
+
+export interface CommentCreateInput {
+  articleId: string;
+  parentId?: string | null;
+  authorName: string;
+  authorEmail: string;
+  body: string;
+  ipHash?: string;
+}
+
+export interface CommentFilter {
+  articleId?: string;
+  status?: CommentStatus;
+  page?: number;
+  limit?: number;
 }
 
 /** A reusable content snippet (v1.7). Per-locale body. */
