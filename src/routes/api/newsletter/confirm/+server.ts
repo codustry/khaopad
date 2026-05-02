@@ -1,5 +1,6 @@
 import { error, redirect } from "@sveltejs/kit";
 import { logAudit } from "$lib/server/audit";
+import { dispatchEvent } from "$lib/server/webhooks";
 import { localePath, DEFAULT_LOCALE } from "$lib/i18n";
 import type { Locale } from "$lib/server/content/types";
 import type { RequestHandler } from "./$types";
@@ -34,6 +35,19 @@ export const GET: RequestHandler = async ({ url, locals, platform }) => {
       { email: subscriber.email },
     );
   }
+
+  // v2.0d webhook fan-out. Receivers can mirror to a CRM or trigger
+  // a welcome flow. Email is included so receivers can route by
+  // identity without a follow-up lookup.
+  void dispatchEvent(locals.content, {
+    event: "subscriber.confirm",
+    payload: {
+      subscriberId: subscriber.id,
+      email: subscriber.email,
+      locale: subscriber.locale,
+      source: subscriber.source,
+    },
+  });
 
   // Redirect back to the locale home with a flash. Locale comes from
   // the subscriber record so we land them in their language.

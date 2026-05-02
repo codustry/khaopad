@@ -7,6 +7,7 @@ import {
   validateSubmission,
 } from "$lib/server/forms";
 import { logAudit } from "$lib/server/audit";
+import { dispatchEvent } from "$lib/server/webhooks";
 import type { RequestHandler } from "./$types";
 
 /**
@@ -95,6 +96,19 @@ export const POST: RequestHandler = async ({
       { formKey: form.key, formLabel: form.label },
     );
   }
+
+  // v2.0d: fan out the form.submit event. Receivers get the
+  // submission id + form key + the data payload so they can route
+  // (e.g. CRM ingest, Slack notification, etc.).
+  void dispatchEvent(locals.content, {
+    event: "form.submit",
+    payload: {
+      submissionId: submission.id,
+      formKey: form.key,
+      formLabel: form.label,
+      data: validation.data,
+    },
+  });
 
   return json(
     {

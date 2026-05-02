@@ -1,6 +1,7 @@
 import { error, fail, redirect } from "@sveltejs/kit";
 import { canManageTaxonomy } from "$lib/server/auth/permissions";
 import { logAudit, type AuditAction } from "$lib/server/audit";
+import { dispatchEvent } from "$lib/server/webhooks";
 import type { CommentStatus } from "$lib/server/content/types";
 import type { Actions, PageServerLoad } from "./$types";
 
@@ -106,6 +107,19 @@ export const actions: Actions = {
       await logAudit(platform.env.DB, locals.user.id, action, id, {
         from: before.status,
         to: next,
+      });
+    }
+    // v2.0d: only fire the webhook on approve. Spam/archive are
+    // moderation states most receivers don't care about.
+    if (next === "approved") {
+      void dispatchEvent(locals.content, {
+        event: "comment.approve",
+        payload: {
+          commentId: id,
+          articleId: before.articleId,
+          authorName: before.authorName,
+          body: before.body,
+        },
       });
     }
     return { ok: true };

@@ -14,6 +14,8 @@ import {
   Inbox,
   Mail,
   MessageSquare,
+  Webhook,
+  KeyRound,
 } from "lucide-svelte";
 import * as m from "$lib/paraglide/messages";
 
@@ -102,6 +104,18 @@ export const navGroups: ReadonlyArray<NavGroup> = [
         href: "/cms/subscribers",
         label: m.cms_subscribers,
         icon: Mail,
+        roles: ["super_admin", "admin"],
+      },
+      {
+        href: "/cms/webhooks",
+        label: m.cms_webhooks,
+        icon: Webhook,
+        roles: ["super_admin", "admin"],
+      },
+      {
+        href: "/cms/api-keys",
+        label: m.cms_api_keys,
+        icon: KeyRound,
         roles: ["super_admin", "admin"],
       },
       {

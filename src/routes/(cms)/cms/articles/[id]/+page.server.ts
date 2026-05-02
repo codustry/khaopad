@@ -6,6 +6,7 @@ import {
 } from "$lib/server/auth/permissions";
 import { logAudit, type AuditAction } from "$lib/server/audit";
 import { AnalyticsService } from "$lib/server/analytics";
+import { dispatchEvent } from "$lib/server/webhooks";
 import { slugify } from "$lib/utils";
 import { SUPPORTED_LOCALES } from "$lib/i18n";
 import type { ArticleUpdateInput } from "$lib/server/content/types";
@@ -228,6 +229,23 @@ export const actions: Actions = {
         });
       }
     }
+
+    // v2.0d webhook fan-out. Fire-and-forget so the editor's save
+    // returns immediately. The dispatcher writes a webhook_deliveries
+    // row for every attempt, success or fail.
+    if (existing.status !== nextStatus) {
+      if (nextStatus === "published") {
+        void dispatchEvent(locals.content, {
+          event: "article.publish",
+          payload: { id: params.id, slug: existing.slug },
+        });
+      } else if (existing.status === "published") {
+        void dispatchEvent(locals.content, {
+          event: "article.unpublish",
+          payload: { id: params.id, slug: existing.slug },
+        });
+      }
+    }
     return { ok: true };
   },
 
@@ -259,6 +277,10 @@ export const actions: Actions = {
         { slug: existing.slug },
       );
     }
+    void dispatchEvent(locals.content, {
+      event: next === "published" ? "article.publish" : "article.unpublish",
+      payload: { id: params.id, slug: existing.slug },
+    });
     return { ok: true, status: next };
   },
 
@@ -277,6 +299,10 @@ export const actions: Actions = {
         slug: existing.slug,
       });
     }
+    void dispatchEvent(locals.content, {
+      event: "article.delete",
+      payload: { id: params.id, slug: existing.slug },
+    });
     throw redirect(303, "/cms/articles");
   },
 };

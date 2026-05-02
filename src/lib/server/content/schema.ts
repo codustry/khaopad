@@ -606,3 +606,98 @@ export const comments = sqliteTable(
     moderatedAt: text("moderated_at"),
   },
 );
+
+// ─── Webhooks (v2.0d) ────────────────────────────────────
+// Editor-registered URLs that get pinged on platform events.
+// The `secret` column holds an HMAC key generated server-side; the
+// dispatcher signs every delivery with HMAC-SHA256 so receivers can
+// verify the payload originated from this site. Best-effort delivery
+// with retry — see webhook_deliveries below.
+
+export const webhooks = sqliteTable("webhooks", {
+  id: text("id").primaryKey(),
+  /** Operator-facing label for the CMS list view. */
+  label: text("label").notNull(),
+  url: text("url").notNull(),
+  /** HMAC-SHA256 signing key. Generated on create; shown to the
+   *  operator only at create time. */
+  secret: text("secret").notNull(),
+  /** JSON array of event names this webhook subscribes to. */
+  events: text("events").notNull(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  createdBy: text("created_by").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+// Each delivery attempt — successful or failed. Bounded retention by
+// the operator (delete old rows manually for now; a future v2.x cron
+// can prune). The CMS delivery log reads from here.
+
+export const webhookDeliveries = sqliteTable("webhook_deliveries", {
+  id: text("id").primaryKey(),
+  webhookId: text("webhook_id")
+    .notNull()
+    .references(() => webhooks.id, { onDelete: "cascade" }),
+  event: text("event").notNull(),
+  /** JSON payload that was sent (or attempted). */
+  payload: text("payload").notNull(),
+  /** HTTP status returned by the receiver, or null if the fetch
+   *  itself threw (DNS, TLS, timeout). */
+  responseStatus: integer("response_status"),
+  /** First 256 chars of the receiver's response body for debugging. */
+  responseExcerpt: text("response_excerpt"),
+  /** Wall-clock ms taken by the fetch. */
+  durationMs: integer("duration_ms"),
+  /** 1-based attempt counter; first try is 1. */
+  attempt: integer("attempt").notNull().default(1),
+  /** When `attempt < max_attempts` and `ok=false`, this is the next
+   *  retry time; the dispatcher polls due rows on a cron tick. Null
+   *  when delivered or exhausted. */
+  nextAttemptAt: text("next_attempt_at"),
+  ok: integer("ok", { mode: "boolean" }).notNull().default(false),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+// ─── API keys (v2.0d) ────────────────────────────────────
+// Bearer credentials for the public read-only REST API. The raw key
+// is shown to the operator once at create time; we store only a
+// SHA-256 hash so a leaked database row can't be used to authenticate.
+//
+// `scopes` is a JSON array of permission strings (e.g. ["articles:read"]).
+// The default scope set is the read-everything bundle; future v2.x
+// can grow finer-grained scopes without a migration.
+
+export const apiKeys = sqliteTable("api_keys", {
+  id: text("id").primaryKey(),
+  label: text("label").notNull(),
+  /** SHA-256 hex of the raw key. The raw key is shown ONCE at create
+   *  time and never reconstructable from the database. */
+  keyHash: text("key_hash").notNull().unique(),
+  /** First 8 chars of the raw key, kept for the CMS list view so
+   *  operators can match a key against a screenshot or password
+   *  manager entry. The full key cannot be reconstructed from this. */
+  prefix: text("prefix").notNull(),
+  /** JSON array of scope strings. */
+  scopes: text("scopes").notNull(),
+  /** When set, the dispatcher rejects this key after the timestamp. */
+  expiresAt: text("expires_at"),
+  /** When set, the key is hard-revoked and rejected immediately. */
+  revokedAt: text("revoked_at"),
+  /** Last successful request (for the CMS list view). Best-effort. */
+  lastUsedAt: text("last_used_at"),
+  createdBy: text("created_by").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});

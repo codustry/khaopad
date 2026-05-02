@@ -28,6 +28,10 @@ import type {
   SearchOptions,
   SiteSettings,
   Locale,
+  ApiKeyRecord,
+  ApiKeyCreateInput,
+  ApiKeyCreateResult,
+  ApiKeyScope,
   CommentRecord,
   CommentCreateInput,
   CommentFilter,
@@ -49,6 +53,11 @@ import type {
   NavigationItemRecord,
   NavigationItemCreateInput,
   NavigationItemUpdateInput,
+  WebhookRecord,
+  WebhookCreateInput,
+  WebhookUpdateInput,
+  WebhookEvent,
+  WebhookDeliveryRecord,
 } from "../types";
 
 export class D1ContentProvider implements ContentProvider {
@@ -1805,4 +1814,279 @@ export class D1ContentProvider implements ContentProvider {
       moderatedAt: row.moderatedAt,
     };
   }
+
+  // ─── Webhooks (v2.0d) ──────────────────────────────────
+
+  async listWebhooks(): Promise<WebhookRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(schema.webhooks)
+      .orderBy(desc(schema.webhooks.createdAt))
+      .all();
+    return rows.map((r) => this.toWebhook(r));
+  }
+
+  async getWebhook(id: string): Promise<WebhookRecord | null> {
+    const row = await this.db
+      .select()
+      .from(schema.webhooks)
+      .where(eq(schema.webhooks.id, id))
+      .get();
+    return row ? this.toWebhook(row) : null;
+  }
+
+  async listWebhooksByEvent(event: WebhookEvent): Promise<WebhookRecord[]> {
+    // SQLite has no native JSON-array filter; the events list per row
+    // is small (≤ 6 today), so we filter in-memory after pulling the
+    // enabled set. Cheap up to a few hundred webhooks total.
+    const rows = await this.db
+      .select()
+      .from(schema.webhooks)
+      .where(eq(schema.webhooks.enabled, true))
+      .all();
+    return rows
+      .map((r) => this.toWebhook(r))
+      .filter((w) => w.events.includes(event));
+  }
+
+  async createWebhook(data: WebhookCreateInput): Promise<WebhookRecord> {
+    const id = nanoid();
+    // 32 bytes = 256 bits of entropy. Shown to the operator at create
+    // time; HMAC key for every delivery from this webhook.
+    const secret = nanoid(48);
+    await this.db.insert(schema.webhooks).values({
+      id,
+      label: data.label,
+      url: data.url,
+      secret,
+      events: JSON.stringify(data.events),
+      enabled: data.enabled ?? true,
+      createdBy: data.createdBy ?? null,
+    });
+    return (await this.getWebhook(id))!;
+  }
+
+  async updateWebhook(
+    id: string,
+    data: WebhookUpdateInput,
+  ): Promise<WebhookRecord> {
+    const updateFields: Record<string, unknown> = {
+      updatedAt: new Date().toISOString(),
+    };
+    if (data.label !== undefined) updateFields.label = data.label;
+    if (data.url !== undefined) updateFields.url = data.url;
+    if (data.events !== undefined)
+      updateFields.events = JSON.stringify(data.events);
+    if (data.enabled !== undefined) updateFields.enabled = data.enabled;
+    await this.db
+      .update(schema.webhooks)
+      .set(updateFields)
+      .where(eq(schema.webhooks.id, id));
+    return (await this.getWebhook(id))!;
+  }
+
+  async deleteWebhook(id: string): Promise<void> {
+    await this.db.delete(schema.webhooks).where(eq(schema.webhooks.id, id));
+  }
+
+  async rotateWebhookSecret(id: string): Promise<WebhookRecord> {
+    await this.db
+      .update(schema.webhooks)
+      .set({
+        secret: nanoid(48),
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(schema.webhooks.id, id));
+    return (await this.getWebhook(id))!;
+  }
+
+  async recordWebhookDelivery(data: {
+    webhookId: string;
+    event: WebhookEvent;
+    payload: string;
+    responseStatus: number | null;
+    responseExcerpt: string | null;
+    durationMs: number | null;
+    attempt: number;
+    nextAttemptAt: string | null;
+    ok: boolean;
+  }): Promise<WebhookDeliveryRecord> {
+    const id = nanoid();
+    await this.db.insert(schema.webhookDeliveries).values({
+      id,
+      webhookId: data.webhookId,
+      event: data.event,
+      payload: data.payload,
+      responseStatus: data.responseStatus,
+      responseExcerpt: data.responseExcerpt,
+      durationMs: data.durationMs,
+      attempt: data.attempt,
+      nextAttemptAt: data.nextAttemptAt,
+      ok: data.ok,
+    });
+    const row = await this.db
+      .select()
+      .from(schema.webhookDeliveries)
+      .where(eq(schema.webhookDeliveries.id, id))
+      .get();
+    return this.toWebhookDelivery(row!);
+  }
+
+  async listWebhookDeliveries(
+    webhookId: string,
+    limit = 50,
+  ): Promise<WebhookDeliveryRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(schema.webhookDeliveries)
+      .where(eq(schema.webhookDeliveries.webhookId, webhookId))
+      .orderBy(desc(schema.webhookDeliveries.createdAt))
+      .limit(limit)
+      .all();
+    return rows.map((r) => this.toWebhookDelivery(r));
+  }
+
+  private toWebhook(
+    row: typeof schema.webhooks.$inferSelect,
+  ): WebhookRecord {
+    let events: WebhookEvent[] = [];
+    try {
+      const parsed = JSON.parse(row.events);
+      if (Array.isArray(parsed)) events = parsed;
+    } catch {
+      // tolerate malformed JSON
+    }
+    return {
+      id: row.id,
+      label: row.label,
+      url: row.url,
+      secret: row.secret,
+      events,
+      enabled: Boolean(row.enabled),
+      createdBy: row.createdBy,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  private toWebhookDelivery(
+    row: typeof schema.webhookDeliveries.$inferSelect,
+  ): WebhookDeliveryRecord {
+    return {
+      id: row.id,
+      webhookId: row.webhookId,
+      event: row.event as WebhookEvent,
+      payload: row.payload,
+      responseStatus: row.responseStatus,
+      responseExcerpt: row.responseExcerpt,
+      durationMs: row.durationMs,
+      attempt: row.attempt,
+      nextAttemptAt: row.nextAttemptAt,
+      ok: Boolean(row.ok),
+      createdAt: row.createdAt,
+    };
+  }
+
+  // ─── API keys (v2.0d) ──────────────────────────────────
+
+  async listApiKeys(): Promise<ApiKeyRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(schema.apiKeys)
+      .orderBy(desc(schema.apiKeys.createdAt))
+      .all();
+    return rows.map((r) => this.toApiKey(r));
+  }
+
+  async getApiKey(id: string): Promise<ApiKeyRecord | null> {
+    const row = await this.db
+      .select()
+      .from(schema.apiKeys)
+      .where(eq(schema.apiKeys.id, id))
+      .get();
+    return row ? this.toApiKey(row) : null;
+  }
+
+  async authenticateApiKey(rawKey: string): Promise<ApiKeyRecord | null> {
+    if (!rawKey) return null;
+    const hash = await sha256Hex(rawKey);
+    const row = await this.db
+      .select()
+      .from(schema.apiKeys)
+      .where(eq(schema.apiKeys.keyHash, hash))
+      .get();
+    if (!row) return null;
+    if (row.revokedAt) return null;
+    if (row.expiresAt && row.expiresAt < new Date().toISOString()) return null;
+    // Best-effort lastUsedAt bump. Don't await — the API request
+    // shouldn't pay the write latency.
+    void this.db
+      .update(schema.apiKeys)
+      .set({ lastUsedAt: new Date().toISOString() })
+      .where(eq(schema.apiKeys.id, row.id));
+    return this.toApiKey(row);
+  }
+
+  async createApiKey(
+    data: ApiKeyCreateInput,
+  ): Promise<ApiKeyCreateResult> {
+    // 48-char URL-safe random key. Prefix by `kp_live_` so a leaked
+    // string is recognizable to scanners (GitHub secret scanning,
+    // etc.) and operators can spot it in logs.
+    const id = nanoid();
+    const rawKey = `kp_live_${nanoid(48)}`;
+    const keyHash = await sha256Hex(rawKey);
+    const prefix = rawKey.slice(0, 12);
+    await this.db.insert(schema.apiKeys).values({
+      id,
+      label: data.label,
+      keyHash,
+      prefix,
+      scopes: JSON.stringify(data.scopes),
+      expiresAt: data.expiresAt ?? null,
+      createdBy: data.createdBy ?? null,
+    });
+    const record = (await this.getApiKey(id))!;
+    return { record, rawKey };
+  }
+
+  async revokeApiKey(id: string): Promise<void> {
+    await this.db
+      .update(schema.apiKeys)
+      .set({ revokedAt: new Date().toISOString() })
+      .where(eq(schema.apiKeys.id, id));
+  }
+
+  async deleteApiKey(id: string): Promise<void> {
+    await this.db.delete(schema.apiKeys).where(eq(schema.apiKeys.id, id));
+  }
+
+  private toApiKey(row: typeof schema.apiKeys.$inferSelect): ApiKeyRecord {
+    let scopes: ApiKeyScope[] = [];
+    try {
+      const parsed = JSON.parse(row.scopes);
+      if (Array.isArray(parsed)) scopes = parsed;
+    } catch {
+      // tolerate
+    }
+    return {
+      id: row.id,
+      label: row.label,
+      prefix: row.prefix,
+      scopes,
+      expiresAt: row.expiresAt,
+      revokedAt: row.revokedAt,
+      lastUsedAt: row.lastUsedAt,
+      createdBy: row.createdBy,
+      createdAt: row.createdAt,
+    };
+  }
+}
+
+async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const buf = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
