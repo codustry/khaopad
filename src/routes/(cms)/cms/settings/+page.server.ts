@@ -58,6 +58,11 @@ export const actions: Actions = {
     ).trim();
     const newsletterAllowSingleOptIn =
       form.get("newsletter_allow_single_opt_in") === "on";
+    // v2.0c: site-wide comments kill switch. Defaults to off so a
+    // fresh deploy never accidentally exposes a comment form. Per-
+    // article overrides via `articles.commentsMode` ("on" / "off")
+    // still apply regardless.
+    const commentsEnabled = form.get("comments_enabled") === "on";
 
     if (!siteName) return fail(400, { error: "Site name is required." });
     const supported = parseLocales(supportedLocalesRaw);
@@ -85,6 +90,8 @@ export const actions: Actions = {
         "newsletter.resendKey": newsletterResendKey || undefined,
         "newsletter.senderAddress": newsletterSenderAddress || undefined,
         "newsletter.allowSingleOptIn": newsletterAllowSingleOptIn,
+        // Comments (v2.0c) — site-wide kill switch.
+        commentsEnabled,
       });
     } catch (err) {
       return fail(500, {

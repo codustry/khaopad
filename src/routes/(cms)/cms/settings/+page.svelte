@@ -24,6 +24,10 @@
 	let newsletterAllowSingle = $state(
 		(data.settings['newsletter.allowSingleOptIn'] as boolean | undefined) ?? true,
 	);
+	// v2.0c — site-wide comments kill switch. Defaults to false.
+	let commentsEnabled = $state(
+		(data.settings.commentsEnabled as boolean | undefined) ?? false,
+	);
 	let saving = $state(false);
 </script>
 
@@ -166,6 +170,30 @@
 						{m.cms_settings_newsletter_allow_single()}
 						<span class="block text-xs text-muted-foreground mt-0.5">
 							{m.cms_settings_newsletter_allow_single_help()}
+						</span>
+					</span>
+				</label>
+			</CardContent>
+		</Card>
+
+		<Card class="mt-6">
+			<CardHeader>
+				<CardTitle>{m.cms_settings_comments()}</CardTitle>
+			</CardHeader>
+			<CardContent class="space-y-4">
+				<p class="text-xs text-muted-foreground">{m.cms_settings_comments_help()}</p>
+				<label class="flex items-start gap-2 text-sm cursor-pointer">
+					<input
+						type="checkbox"
+						id="comments_enabled"
+						name="comments_enabled"
+						bind:checked={commentsEnabled}
+						class="mt-0.5 h-4 w-4"
+					/>
+					<span>
+						{m.cms_settings_comments_enabled()}
+						<span class="block text-xs text-muted-foreground mt-0.5">
+							{m.cms_settings_comments_enabled_help()}
 						</span>
 					</span>
 				</label>

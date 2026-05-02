@@ -2,10 +2,17 @@
  * Helpers for form submission validation + rate limiting (v2.0a).
  */
 import type { FormField, FormRecord } from "$lib/server/content/types";
+import {
+  HONEYPOT_FIELD,
+  RATE_LIMIT_MAX_PER_WINDOW,
+  RATE_LIMIT_WINDOW_SECONDS,
+} from "$lib/forms/constants";
 
-export const HONEYPOT_FIELD = "_hp" as const;
-export const RATE_LIMIT_WINDOW_SECONDS = 60;
-export const RATE_LIMIT_MAX_PER_WINDOW = 3;
+// Re-exported for compatibility with existing server-side imports.
+// The constants themselves live in `$lib/forms/constants` so client
+// components (e.g. v2.0c CommentSection) can use the honeypot name
+// without pulling a server-only module into the client bundle.
+export { HONEYPOT_FIELD, RATE_LIMIT_MAX_PER_WINDOW, RATE_LIMIT_WINDOW_SECONDS };
 
 /**
  * Hash an IP address with SHA-256 + truncate to 16 hex chars. We never

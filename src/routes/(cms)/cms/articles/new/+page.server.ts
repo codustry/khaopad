@@ -41,6 +41,12 @@ export const actions: Actions = {
     const publishedAtLocal = String(
       form.get("published_at_local") ?? "",
     ).trim();
+    const commentsModeRaw = String(form.get("comments_mode") ?? "inherit");
+    const commentsMode = (
+      ["inherit", "on", "off"].includes(commentsModeRaw)
+        ? commentsModeRaw
+        : "inherit"
+    ) as "inherit" | "on" | "off";
 
     if (!titleEn || !bodyEn) {
       return fail(400, {
@@ -111,6 +117,7 @@ export const actions: Actions = {
         categoryId: categoryId || undefined,
         tagIds: tagIds.length ? tagIds : undefined,
         publishedAt,
+        commentsMode,
         localizations: {
           en: {
             title: titleEn,

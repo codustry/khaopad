@@ -2,7 +2,12 @@
 	import { enhance } from '$app/forms';
 	import * as m from '$lib/paraglide/messages';
 	import { slugify } from '$lib/utils';
-	import type { ArticleRecord, CategoryRecord, TagRecord } from '$lib/server/content/types';
+	import type {
+		ArticleRecord,
+		CategoryRecord,
+		CommentsMode,
+		TagRecord,
+	} from '$lib/server/content/types';
 	import MarkdownEditor from '$lib/components/editor/MarkdownEditor.svelte';
 
 	type Values = {
@@ -23,6 +28,8 @@
 		tagIds: string[];
 		/** "yyyy-MM-ddThh:mm" for the local datetime input; "" means publish immediately */
 		publishedAtLocal: string;
+		/** v2.0c per-article comment policy. */
+		commentsMode: CommentsMode;
 	};
 
 	let {
@@ -63,6 +70,8 @@
 		tagIds: formState?.values?.tagIds ?? existing?.tagIds ?? [],
 		publishedAtLocal:
 			formState?.values?.publishedAtLocal ?? isoToLocalInput(existing?.publishedAt) ?? '',
+		commentsMode:
+			formState?.values?.commentsMode ?? existing?.commentsMode ?? 'inherit',
 	});
 
 	/**
@@ -98,6 +107,7 @@
 	let categoryId = $state(seed.categoryId);
 	let tagIds = $state<string[]>(seed.tagIds);
 	let publishedAtLocal = $state(seed.publishedAtLocal);
+	let commentsMode = $state<CommentsMode>(seed.commentsMode);
 	let loading = $state(false);
 
 	// "Scheduled" means: status is published AND publishedAt is in the future.
@@ -366,6 +376,30 @@
 				</span>
 			{/if}
 		</label>
+
+		<!-- v2.0c — per-article comments policy. Inherit defers to the
+			site-wide setting in /cms/settings (defaults off). -->
+		<fieldset class="block">
+			<legend class="text-sm font-medium">{m.cms_article_comments_mode()}</legend>
+			<div class="mt-1 flex flex-wrap gap-3 text-sm">
+				{#each ['inherit', 'on', 'off'] as mode (mode)}
+					<label class="inline-flex items-center gap-1.5">
+						<input
+							type="radio"
+							name="comments_mode"
+							value={mode}
+							checked={commentsMode === mode}
+							onchange={() => (commentsMode = mode as CommentsMode)}
+							class="h-3.5 w-3.5"
+						/>
+						<span class="capitalize">{mode}</span>
+					</label>
+				{/each}
+			</div>
+			<span class="text-xs text-muted-foreground mt-1 block">
+				{m.cms_article_comments_mode_help()}
+			</span>
+		</fieldset>
 
 		<div class="block">
 			<span class="text-sm font-medium">{m.cms_cover_media()}</span>

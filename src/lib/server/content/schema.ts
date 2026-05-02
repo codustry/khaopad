@@ -131,6 +131,17 @@ export const articles = sqliteTable("articles", {
     .notNull()
     .default("draft"),
   publishedAt: text("published_at"),
+  /**
+   * v2.0c: per-article comment policy.
+   *   `inherit` → use the site-wide `commentsEnabled` setting (default).
+   *   `on`      → force comments on for this article.
+   *   `off`     → force comments off for this article.
+   * Site default (off) means a fresh deploy never accidentally exposes
+   * a comment form before the operator chooses.
+   */
+  commentsMode: text("comments_mode", { enum: ["inherit", "on", "off"] })
+    .notNull()
+    .default("inherit"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -551,3 +562,47 @@ export const subscribers = sqliteTable("subscribers", {
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
 });
+
+// ─── Comments (v2.0c) ────────────────────────────────────
+// Per-article comments with name + email + plain-text body. Default
+// status `pending` so nothing goes public until the editor approves.
+// Same honeypot + ip-hash + rate-limit pattern as the v2.0a forms
+// machinery; the same helpers in $lib/server/forms get reused.
+//
+// `parentId` ships in the schema as forward-compat for threaded
+// replies; the v2.0c UI is single-level only.
+
+export const comments = sqliteTable(
+  "comments",
+  {
+    id: text("id").primaryKey(),
+    articleId: text("article_id")
+      .notNull()
+      .references(() => articles.id, { onDelete: "cascade" }),
+    parentId: text("parent_id"),
+    authorName: text("author_name").notNull(),
+    /**
+     * Always collected, never displayed publicly. Useful for reply-via
+     * -email and future gravatar lookup.
+     */
+    authorEmail: text("author_email").notNull(),
+    /** Plain text — never markdown. Renderer escapes on output. */
+    body: text("body").notNull(),
+    status: text("status", {
+      enum: ["pending", "approved", "spam", "archived"],
+    })
+      .notNull()
+      .default("pending"),
+    /** 16-char SHA-256 truncate; never the raw IP. Cluster key for rate
+     *  limit + spam clustering, never an identifier. */
+    ipHash: text("ip_hash"),
+    submittedAt: text("submitted_at")
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+    /** Editor who flipped status. Null for un-moderated. */
+    moderatedBy: text("moderated_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    moderatedAt: text("moderated_at"),
+  },
+);
