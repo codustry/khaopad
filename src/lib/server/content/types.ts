@@ -394,6 +394,48 @@ export interface ContentProvider {
     ipHash: string,
     sinceSeconds: number,
   ): Promise<number>;
+
+  // Webhooks (v2.0d)
+  listWebhooks(): Promise<WebhookRecord[]>;
+  getWebhook(id: string): Promise<WebhookRecord | null>;
+  /** Returns webhooks with `enabled=true` AND subscribed to `event`. */
+  listWebhooksByEvent(event: WebhookEvent): Promise<WebhookRecord[]>;
+  createWebhook(data: WebhookCreateInput): Promise<WebhookRecord>;
+  updateWebhook(
+    id: string,
+    data: WebhookUpdateInput,
+  ): Promise<WebhookRecord>;
+  deleteWebhook(id: string): Promise<void>;
+  rotateWebhookSecret(id: string): Promise<WebhookRecord>;
+  recordWebhookDelivery(data: {
+    webhookId: string;
+    event: WebhookEvent;
+    payload: string;
+    responseStatus: number | null;
+    responseExcerpt: string | null;
+    durationMs: number | null;
+    attempt: number;
+    nextAttemptAt: string | null;
+    ok: boolean;
+  }): Promise<WebhookDeliveryRecord>;
+  listWebhookDeliveries(
+    webhookId: string,
+    limit?: number,
+  ): Promise<WebhookDeliveryRecord[]>;
+
+  // API keys (v2.0d)
+  listApiKeys(): Promise<ApiKeyRecord[]>;
+  getApiKey(id: string): Promise<ApiKeyRecord | null>;
+  /**
+   * Look up an API key by its raw bearer token. Hashes the input
+   * with SHA-256 and matches against `key_hash`. Returns null when
+   * no match (or when expired / revoked) — caller treats null as
+   * 401. Side-effect: bumps `lastUsedAt` on a hit, best-effort.
+   */
+  authenticateApiKey(rawKey: string): Promise<ApiKeyRecord | null>;
+  createApiKey(data: ApiKeyCreateInput): Promise<ApiKeyCreateResult>;
+  revokeApiKey(id: string): Promise<void>;
+  deleteApiKey(id: string): Promise<void>;
 }
 
 // ─── Comments (v2.0c) ────────────────────────────────────
@@ -616,4 +658,114 @@ export interface SubscriberFilter {
   /** When set: restrict to one locale (used by the digest sender). */
   locale?: Locale;
   limit?: number;
+}
+
+// ─── Webhooks (v2.0d) ────────────────────────────────────
+
+/**
+ * Events the dispatcher knows how to fire. Adding a new event here
+ * is the first step to wiring it up — handlers live wherever the
+ * source-of-truth action runs (article publish, form submit, etc.).
+ */
+export type WebhookEvent =
+  | "article.publish"
+  | "article.unpublish"
+  | "article.delete"
+  | "comment.approve"
+  | "form.submit"
+  | "subscriber.confirm";
+
+export const WEBHOOK_EVENTS: WebhookEvent[] = [
+  "article.publish",
+  "article.unpublish",
+  "article.delete",
+  "comment.approve",
+  "form.submit",
+  "subscriber.confirm",
+];
+
+export interface WebhookRecord {
+  id: string;
+  label: string;
+  url: string;
+  /** HMAC-SHA256 signing key. Sent in `X-Khaopad-Signature` header. */
+  secret: string;
+  events: WebhookEvent[];
+  enabled: boolean;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WebhookCreateInput {
+  label: string;
+  url: string;
+  events: WebhookEvent[];
+  enabled?: boolean;
+  createdBy?: string;
+}
+
+export interface WebhookUpdateInput {
+  label?: string;
+  url?: string;
+  events?: WebhookEvent[];
+  enabled?: boolean;
+}
+
+export interface WebhookDeliveryRecord {
+  id: string;
+  webhookId: string;
+  event: WebhookEvent;
+  /** Stored as JSON string. */
+  payload: string;
+  responseStatus: number | null;
+  responseExcerpt: string | null;
+  durationMs: number | null;
+  attempt: number;
+  nextAttemptAt: string | null;
+  ok: boolean;
+  createdAt: string;
+}
+
+// ─── API keys (v2.0d) ────────────────────────────────────
+
+/**
+ * Permission strings for the public REST API. The `*:read` bundle is
+ * the v2.0 default; finer-grained scopes can grow without a schema
+ * change because we store them as JSON.
+ */
+export type ApiKeyScope =
+  | "articles:read"
+  | "categories:read"
+  | "tags:read"
+  | "pages:read"
+  | "*:read";
+
+export interface ApiKeyRecord {
+  id: string;
+  label: string;
+  /** First 8 chars of the raw key, displayable in the CMS list. The
+   *  full key cannot be recovered. */
+  prefix: string;
+  scopes: ApiKeyScope[];
+  expiresAt: string | null;
+  revokedAt: string | null;
+  lastUsedAt: string | null;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+export interface ApiKeyCreateInput {
+  label: string;
+  scopes: ApiKeyScope[];
+  /** Optional expiration. Null = never expires. */
+  expiresAt?: string | null;
+  createdBy?: string;
+}
+
+export interface ApiKeyCreateResult {
+  record: ApiKeyRecord;
+  /** The raw bearer token. Show this to the operator ONCE — we don't
+   *  store it. */
+  rawKey: string;
 }
