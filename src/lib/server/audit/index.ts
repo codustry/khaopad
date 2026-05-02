@@ -29,7 +29,8 @@ export type AuditAction =
   | `user.${"role_change" | "delete"}`
   | `invitation.${"create" | "accept" | "revoke"}`
   | `settings.${"update"}`
-  | `form.${"create" | "update" | "delete" | "submit"}`;
+  | `form.${"create" | "update" | "delete" | "submit"}`
+  | `newsletter.${"subscribe" | "confirm" | "unsubscribe" | "delete" | "digest_sent"}`;
 
 /** Entity type derived from the action prefix. */
 function entityTypeOf(action: AuditAction): string {

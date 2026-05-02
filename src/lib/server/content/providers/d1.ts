@@ -33,6 +33,9 @@ import type {
   FormField,
   FormSubmissionRecord,
   FormSubmissionStatus,
+  SubscriberRecord,
+  SubscriberFilter,
+  SubscriberSource,
   PageRecord,
   PageCreateInput,
   PageUpdateInput,
@@ -1540,6 +1543,144 @@ export class D1ContentProvider implements ContentProvider {
       ipHash: row.ipHash,
       status: row.status as FormSubmissionStatus,
       note: row.note,
+    };
+  }
+
+  // ─── Newsletter subscribers (v2.0b) ────────────────────
+
+  async listSubscribers(filter?: SubscriberFilter): Promise<SubscriberRecord[]> {
+    const conditions = [];
+    if (filter?.locale) {
+      conditions.push(eq(schema.subscribers.locale, filter.locale));
+    }
+    if (filter?.onlyActive) {
+      // active = confirmed AND not unsubscribed
+      conditions.push(isNull(schema.subscribers.unsubscribedAt));
+      // confirmedAt non-null
+      // Drizzle doesn't have a clean "is not null" so use sql template
+      conditions.push(sql`${schema.subscribers.confirmedAt} IS NOT NULL`);
+    }
+    const rows = conditions.length
+      ? await this.db
+          .select()
+          .from(schema.subscribers)
+          .where(and(...conditions))
+          .orderBy(desc(schema.subscribers.createdAt))
+          .limit(filter?.limit ?? 1000)
+          .all()
+      : await this.db
+          .select()
+          .from(schema.subscribers)
+          .orderBy(desc(schema.subscribers.createdAt))
+          .limit(filter?.limit ?? 1000)
+          .all();
+    return rows.map((r) => this.toSubscriber(r));
+  }
+
+  async countSubscribers(filter?: SubscriberFilter): Promise<number> {
+    // Cheap: list ids only.
+    const conditions = [];
+    if (filter?.locale) {
+      conditions.push(eq(schema.subscribers.locale, filter.locale));
+    }
+    if (filter?.onlyActive) {
+      conditions.push(isNull(schema.subscribers.unsubscribedAt));
+      conditions.push(sql`${schema.subscribers.confirmedAt} IS NOT NULL`);
+    }
+    const rows = conditions.length
+      ? await this.db
+          .select({ id: schema.subscribers.id })
+          .from(schema.subscribers)
+          .where(and(...conditions))
+          .all()
+      : await this.db.select({ id: schema.subscribers.id }).from(schema.subscribers).all();
+    return rows.length;
+  }
+
+  async getSubscriberByEmail(email: string): Promise<SubscriberRecord | null> {
+    const row = await this.db
+      .select()
+      .from(schema.subscribers)
+      .where(eq(schema.subscribers.email, email.trim().toLowerCase()))
+      .get();
+    return row ? this.toSubscriber(row) : null;
+  }
+
+  async getSubscriberByToken(token: string): Promise<SubscriberRecord | null> {
+    const row = await this.db
+      .select()
+      .from(schema.subscribers)
+      .where(eq(schema.subscribers.token, token))
+      .get();
+    return row ? this.toSubscriber(row) : null;
+  }
+
+  async createSubscriber(data: {
+    email: string;
+    locale: Locale;
+    autoConfirm?: boolean;
+    source?: SubscriberSource;
+  }): Promise<SubscriberRecord> {
+    const id = nanoid();
+    const token = nanoid(24);
+    const now = new Date().toISOString();
+    await this.db.insert(schema.subscribers).values({
+      id,
+      email: data.email.trim().toLowerCase(),
+      locale: data.locale,
+      token,
+      confirmedAt: data.autoConfirm ? now : null,
+      source: data.source ?? "form",
+    });
+    const row = await this.db
+      .select()
+      .from(schema.subscribers)
+      .where(eq(schema.subscribers.id, id))
+      .get();
+    return this.toSubscriber(row!);
+  }
+
+  async confirmSubscriber(token: string): Promise<SubscriberRecord | null> {
+    const existing = await this.getSubscriberByToken(token);
+    if (!existing) return null;
+    // Idempotent: re-confirming a confirmed subscriber is a no-op.
+    if (existing.confirmedAt) return existing;
+    await this.db
+      .update(schema.subscribers)
+      .set({ confirmedAt: new Date().toISOString() })
+      .where(eq(schema.subscribers.token, token));
+    return this.getSubscriberByToken(token);
+  }
+
+  async unsubscribeByToken(token: string): Promise<SubscriberRecord | null> {
+    const existing = await this.getSubscriberByToken(token);
+    if (!existing) return null;
+    if (existing.unsubscribedAt) return existing;
+    await this.db
+      .update(schema.subscribers)
+      .set({ unsubscribedAt: new Date().toISOString() })
+      .where(eq(schema.subscribers.token, token));
+    return this.getSubscriberByToken(token);
+  }
+
+  async deleteSubscriber(id: string): Promise<void> {
+    await this.db
+      .delete(schema.subscribers)
+      .where(eq(schema.subscribers.id, id));
+  }
+
+  private toSubscriber(
+    row: typeof schema.subscribers.$inferSelect,
+  ): SubscriberRecord {
+    return {
+      id: row.id,
+      email: row.email,
+      locale: row.locale as Locale,
+      token: row.token,
+      confirmedAt: row.confirmedAt,
+      unsubscribedAt: row.unsubscribedAt,
+      source: row.source,
+      createdAt: row.createdAt,
     };
   }
 }

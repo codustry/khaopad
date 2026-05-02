@@ -14,6 +14,16 @@
 	);
 	let cdnBaseUrl = $state(data.settings.cdnBaseUrl ?? '');
 	let cfaToken = $state((data.settings.cfaToken as string | undefined) ?? '');
+	// v2.0b newsletter (all optional)
+	let newsletterResendKey = $state(
+		(data.settings['newsletter.resendKey'] as string | undefined) ?? '',
+	);
+	let newsletterSender = $state(
+		(data.settings['newsletter.senderAddress'] as string | undefined) ?? '',
+	);
+	let newsletterAllowSingle = $state(
+		(data.settings['newsletter.allowSingleOptIn'] as boolean | undefined) ?? true,
+	);
 	let saving = $state(false);
 </script>
 
@@ -110,6 +120,55 @@
 					/>
 					<p class="text-xs text-muted-foreground">{m.cms_settings_cfa_token_help()}</p>
 				</div>
+			</CardContent>
+		</Card>
+
+		<Card class="mt-6">
+			<CardHeader>
+				<CardTitle>{m.cms_settings_newsletter()}</CardTitle>
+			</CardHeader>
+			<CardContent class="space-y-4">
+				<p class="text-xs text-muted-foreground">{m.cms_settings_newsletter_help()}</p>
+				<div class="space-y-1.5">
+					<Label for="newsletter_resend_key">{m.cms_settings_newsletter_resend_key()}</Label>
+					<Input
+						id="newsletter_resend_key"
+						name="newsletter_resend_key"
+						bind:value={newsletterResendKey}
+						placeholder="re_..."
+						class="font-mono"
+					/>
+					<p class="text-xs text-muted-foreground">
+						{m.cms_settings_newsletter_resend_key_help()}
+					</p>
+				</div>
+				<div class="space-y-1.5">
+					<Label for="newsletter_sender">{m.cms_settings_newsletter_sender()}</Label>
+					<Input
+						id="newsletter_sender"
+						name="newsletter_sender"
+						bind:value={newsletterSender}
+						placeholder="Your Site <hello@yoursite.com>"
+					/>
+					<p class="text-xs text-muted-foreground">
+						{m.cms_settings_newsletter_sender_help()}
+					</p>
+				</div>
+				<label class="flex items-start gap-2 text-sm cursor-pointer">
+					<input
+						type="checkbox"
+						id="newsletter_allow_single_opt_in"
+						name="newsletter_allow_single_opt_in"
+						bind:checked={newsletterAllowSingle}
+						class="mt-0.5 h-4 w-4"
+					/>
+					<span>
+						{m.cms_settings_newsletter_allow_single()}
+						<span class="block text-xs text-muted-foreground mt-0.5">
+							{m.cms_settings_newsletter_allow_single_help()}
+						</span>
+					</span>
+				</label>
 			</CardContent>
 		</Card>
 

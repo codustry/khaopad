@@ -284,7 +284,7 @@ Khao Pad started as a CMS. Through v1.5 it became a complete content layer (writ
 | **v1.7** | Pages, navigation, IA       | ✅ Shipped    | Media folders, reusable blocks, cookie consent, static pages, navigation manager, seed:legal |
 | **v1.8** | Analytics & insight         | ✅ Shipped    | Privacy-friendly D1 page-views, top articles, search-term insights, per-article sparkline, optional CWA |
 | **v1.9** | Performance & trust         | ✅ Shipped    | Responsive `srcset` via /cdn-cgi/image, edge cache-control hook, branded 404/500, /api/health endpoint |
-| **v2.0** | Engagement & growth         | 🚧 Pending   | Forms, newsletter, comments, webhooks, public read-only API                                         |
+| **v2.0** | Engagement & growth         | 🚧 In progress | ✅ a Forms · ✅ b Newsletter (optional) · 🚧 c Comments · 🚧 d Webhooks + Public REST API           |
 
 **Backlog** (not committed): OAuth providers, block-based editor, AI-assisted authoring, multi-site / workspaces, A/B testing, member-only / paid content.
 
