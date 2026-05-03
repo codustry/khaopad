@@ -22,6 +22,7 @@
 		<h1 class="text-4xl font-bold mb-2">{data.title}</h1>
 	</header>
 	<div class="prose prose-neutral dark:prose-invert max-w-none">
+		<!-- eslint-disable-next-line svelte/no-at-html-tags -- trusted: server-rendered markdown from CMS -->
 		{@html data.htmlContent}
 	</div>
 </article>

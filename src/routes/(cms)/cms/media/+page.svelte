@@ -34,8 +34,11 @@
 		Boolean(data.user && ['super_admin', 'admin', 'editor'].includes(data.user.role)),
 	);
 
-	// Build a parent → children map for the folder tree.
+	// Build a parent → children map for the folder tree. Local to the
+	// derived; never read reactively (rebuilt every invocation), so a
+	// plain Map is correct — no need for SvelteMap's reactivity overhead.
 	const childrenByParent = $derived.by(() => {
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- local lookup, not reactive state
 		const map = new Map<string | null, MediaFolderRecord[]>();
 		for (const f of data.folders) {
 			const parent = f.parentId ?? null;

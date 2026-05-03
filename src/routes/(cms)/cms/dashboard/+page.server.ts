@@ -1,6 +1,6 @@
 import { redirect, error } from "@sveltejs/kit";
 import { drizzle } from "drizzle-orm/d1";
-import { desc, eq, and, gte } from "drizzle-orm";
+import { desc, eq, gte } from "drizzle-orm";
 import * as schema from "$lib/server/content/schema";
 import { canManageUsers } from "$lib/server/auth/permissions";
 import { AnalyticsService } from "$lib/server/analytics";

@@ -79,7 +79,9 @@ async function deliverOne(
   for (let attempt = 1; attempt <= MAX_INLINE_ATTEMPTS; attempt++) {
     const t0 = Date.now();
     let responseStatus: number | null = null;
-    let responseExcerpt: string | null = null;
+    // Assigned in every code path below; no initializer to satisfy
+    // no-useless-assignment.
+    let responseExcerpt: string | null;
     let ok = false;
     try {
       const ctrl = new AbortController();
