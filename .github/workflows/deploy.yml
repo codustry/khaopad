@@ -6,8 +6,11 @@ name: Deploy to Cloudflare Workers
 #   - Manual run with environment    → deploy to the chosen env
 #
 # Both paths run the same CI gates (check / lint / build) first, then
-# apply pending D1 migrations for that env, then deploy the Worker,
-# then probe the public URL as a smoke test.
+# deploy the Worker, then probe the public URL as a smoke test.
+#
+# Note: D1 migrations are applied out-of-band from a developer machine
+# (see the deploy step's NOTE for the exact command). This avoids
+# requiring D1 — Edit scope on the org-wide CLOUDFLARE_API_TOKEN.
 
 on:
   push:
@@ -116,14 +119,32 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+
+      - name: Compile Paraglide messages
+        run: pnpm exec paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide
+
       - run: pnpm build
 
-      - name: Apply D1 migrations (${{ needs.resolve-env.outputs.environment }})
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: d1 migrations apply khaopad-db --remote --env ${{ needs.resolve-env.outputs.environment }}
+      # NOTE: We deliberately do NOT run `d1 migrations apply` here.
+      # The conventional org-wide `CLOUDFLARE_API_TOKEN` for a Cloudflare
+      # account is created from the "Edit Cloudflare Workers" template,
+      # which only grants `Workers Scripts — Edit`. D1's REST API needs
+      # the separate `D1 — Edit` permission, so a migration step here
+      # returns:
+      #
+      #   The given account is not valid or is not authorized to access
+      #   this service [code: 7403]
+      #
+      # …even though the deploy step against the same account works fine.
+      # Apply migrations out-of-band from a developer machine instead:
+      #
+      #   CLOUDFLARE_ACCOUNT_ID=<account-id> \
+      #     pnpm exec wrangler d1 migrations apply khaopad-db --remote \
+      #       --env ${{ needs.resolve-env.outputs.environment }}
+      #
+      # If you want migrations in CI, create a repo-level
+      # CLOUDFLARE_API_TOKEN that adds D1 — Edit (it overrides the
+      # org-wide token for this repo only) and re-add a step here.
 
       - name: Deploy Worker (${{ needs.resolve-env.outputs.environment }})
         uses: cloudflare/wrangler-action@v3
