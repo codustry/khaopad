@@ -1,30 +1,94 @@
 # Khao Pad (ข้าวผัด)
 
-**A modular CMS for Cloudflare** — lightweight, multilingual, and built for Thai software houses.
+**The open-source website platform for Cloudflare.** Drives a non-ecommerce site end-to-end — content, SEO, analytics, navigation, and engagement — on Cloudflare Workers + D1 + R2 + KV.
 
 > ข้าวผัด = Fried rice. Everyone wants something slightly different, but in the end it's the same core dish — just with different sauces and ingredients.
 
-## Why Khao Pad?
+🌐 **Live demo**: [khaopad-example.codustry.workers.dev](https://khaopad-example.codustry.workers.dev) ([source](https://github.com/codustry/khaopad-example)) · 🌍 **Marketing site**: [khaopad-website.codustry.workers.dev](https://khaopad-website.codustry.workers.dev)
 
-We kept running into the same CMS problem:
+## What it is
 
-| Solution           | Problem                                                                             |
-| ------------------ | ----------------------------------------------------------------------------------- |
-| Supabase           | Great ecosystem, but $25/mo is heavy for small sites when Cloudflare is nearly free |
-| Self-hosted Strapi | Too large, too many resources, needs separate deployment                            |
-| Pages CMS          | Great UI, but doesn't scale to D1/R2 when you need it                               |
+Khao Pad started as "another CMS for Cloudflare." Through v1.5 it became a complete content layer — write, schedule, search, version, audit. v1.6 → v2.0 turned it into the surrounding machinery a real website needs: SEO, analytics, IA, performance, engagement.
 
-Khao Pad fills the gap: **start lightweight, scale when needed, stay on Cloudflare.**
+So: not a CMS. A **website platform** that happens to ship with a strong CMS at the core.
 
-## Features
+## Why?
 
-- **One repo, one host, two surfaces** — public site at `/`, admin CMS at `/cms/*`
-- **Multilingual first** — shared slug and media, separate content per language (TH/EN)
-- **D1 + R2 storage** — articles in D1 (SQLite at the edge), media in R2, KV for caching. Sub-10ms reads from anywhere
-- **Cloudflare-native** — D1 database, R2 media, KV caching, Workers deployment
-- **Better Auth** — email/password auth with role-based access (Super Admin, Admin, Editor, Author)
-- **Paraglide JS** — compile-time i18n with type-safe translations via inlang
-- **SvelteKit + Tailwind + shadcn/ui** — modern, fast, beautiful
+The Cloudflare-native stack (Workers + D1 + R2 + KV) is the cheapest, fastest way to host a content-heavy site in 2026. But there was no off-the-shelf platform that made the most of it:
+
+| Solution           | Problem                                                                                  |
+| ------------------ | ---------------------------------------------------------------------------------------- |
+| Supabase           | Great ecosystem, but $25/mo+ is heavy for small sites; needs a separate compute layer    |
+| Self-hosted Strapi | Big footprint, separate deployment, not Cloudflare-native                                |
+| Pages CMS          | Lovely UI, but git-backed storage doesn't scale to D1/R2 once you need real DB semantics |
+| Ghost / Wagtail    | Mature but heavy, opinionated about hosting, not edge-deployable                         |
+
+Khao Pad fills the gap: **start lightweight, scale when needed, stay on Cloudflare's free / near-free tier as long as you can.**
+
+## What ships
+
+Eleven shipped milestones (v1.0 → v2.0). Five "platform pillars" shaped the v1.6+ work:
+
+### Content (v1.0–v1.5)
+
+- **Articles + Pages** — markdown-first, per-locale (EN + TH out of the box, more locales easy to add), shared English-ASCII slug, cover image
+- **Categories + Tags** — full taxonomy with public blog filtering (`/blog?category=…`, `?tag=…`)
+- **Media library** — R2-backed, drag-upload, alt text, **folders** (v1.7), responsive `srcset` via Cloudflare Images (v1.9)
+- **Markdown editor** — toolbar, split preview, autosave to localStorage, ⌘B / ⌘I / ⌘K shortcuts, image picker
+- **Scheduled publishing** — set a future `publishedAt`, the public site doesn't reveal it until that time
+- **Full-text search** — SQLite FTS5 over per-locale localizations, public `/blog?q=`, in-CMS list filter
+- **Per-article revision history** — line-diff view, one-click restore, attribution
+- **Audit log** — every CMS action recorded; admin viewer at `/cms/audit`
+- **Token-based invitations** — admins create one-shot invite links; recipients claim and join
+
+### Discoverability (v1.6 — SEO foundations)
+
+- Per-page `<title>` + `<meta description>` + canonical + Open Graph + Twitter Card + hreflang
+- `Article` JSON-LD on each post; `WebSite` + `SearchAction` on the home
+- `/sitemap.xml` index → per-locale sitemaps
+- Per-environment `/robots.txt` (production allows all, staging emits `Disallow: /`)
+- `/feed-{locale}.xml` RSS 2.0 with full HTML body (`content:encoded`)
+- **Slug redirects** — rename a slug, the old URL 301s to the new one automatically
+- SEO scoring hint on the article form (advisory: title 30–60 chars, description 70–160)
+
+### Information architecture (v1.7)
+
+- **Static Pages** — separate from articles (About, Contact, Privacy), `(www)/[locale]/[...slug]` catch-all routing, three soft templates (`default` / `landing` / `legal`)
+- **Navigation manager** — `/cms/navigation` builds the primary header + footer menus; items target articles, categories, tags, pages, or custom URLs; per-locale labels
+- **Reusable content blocks** — `{{block:my-key}}` shortcodes, expanded server-side from the per-locale block library
+- **Cookie consent banner** with three categories (functional / analytics / marketing); first-party cookie, GDPR-friendly defaults
+- **Legal templates seeder** — one click creates draft Privacy + Cookie policy pages from embedded templates
+
+### Insight (v1.8 — Analytics)
+
+- **Privacy-friendly D1 page-view counter** — aggregated by `(date, path)`, no IP / UA / fingerprint stored, gated on cookie consent
+- **Search insights** — every `/blog?q=` query logged anonymized; dashboard shows top terms + searches with no results (the content-gap signal)
+- **Top articles + per-article sparkline** — last 30 days, on the dashboard and on each article edit page
+- Optional **Cloudflare Web Analytics** beacon — set a token in `/cms/settings`, beacon loads only when visitor consented
+
+### Performance & trust (v1.9)
+
+- **Responsive images** via `/cdn-cgi/image/` URL transforms — `<picture>` `srcset` with 3 widths; falls back to raw R2 when Cloudflare Images isn't enabled
+- **Edge cache hook** — sets sensible `Cache-Control` per route (`no-store` for `/cms/*`, SWR for blog pages)
+- **Branded 404 + 500 pages** with search box (404 only)
+- `/api/health` endpoint with per-binding reachability + latency
+
+### Engagement & growth (v2.0)
+
+- **Forms** — build a contact / lead-capture / RSVP form in the CMS; `POST /api/forms/[key]` with honeypot + per-IP-hash rate limit; submissions inbox with status + delete
+- **Newsletter** — opt-in subscriber list; works as single-opt-in by default, becomes double-opt-in when a Resend key is set; weekly digest sender; one-click unsubscribe
+- **Comments** — per-article visitor comments with editor moderation; dual-toggle (site-wide + per-article); honeypot + rate limit; status queue at `/cms/comments`
+- **Webhooks** — register HTTPS URLs for `article.publish` / `article.unpublish` / `comment.approve` / `form.submit` / `subscriber.confirm`; HMAC-SHA256 signed; auto-retry; delivery log
+- **Public REST API** — `/api/public/articles` / `/categories` / `/tags` / `/pages` for headless consumers; bearer-token auth via `/cms/api-keys`; per-key scopes; SHA-256 hashed at rest
+
+### Platform fundamentals
+
+- **One repo, one host, two surfaces** — public site at `/`, admin at `/cms/*`, single Worker deployment
+- **Multilingual first** — shared slug and media, separate content per locale; English required (slug source), additional locales optional
+- **Better Auth** — email/password, D1-backed sessions, four roles (super_admin > admin > editor > author)
+- **Pluggable storage** — `ContentProvider` interface in `$lib/server/content/types.ts`; D1 implementation ships, swap for tests
+- **Real staging + production** — push to `main` → staging deploy; tag `v*.*.*` → production deploy; per-environment D1 / R2 / KV bindings
+- **Live D1 sub-10ms reads** anywhere on the planet; R2 + KV similarly distributed
 
 ## Architecture
 
