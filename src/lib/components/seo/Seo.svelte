@@ -88,9 +88,16 @@
 		<meta name="twitter:site" content={defaults.twitter} />
 	{/if}
 
-	<!-- JSON-LD: one <script> per entry for maximum tooling compatibility -->
+	<!-- JSON-LD: one <script> per entry for maximum tooling compatibility.
+		 Using {@html} is required to emit a literal <script> tag (Svelte
+		 strips them in normal markup). The payload is server-built JSON
+		 from our own typed builders ($lib/seo) — never user input — and
+		 we escape any "</script>" sequence before injection so a JSON
+		 value can't break out of the tag. -->
 	{#each jsonLd as ld, i (i)}
-		{@html `<script type="application/ld+json">${JSON.stringify(ld)}<\/script>`}
+		{@const safeJson = JSON.stringify(ld).replace(/<\/script>/gi, '<\\/script>')}
+		<!-- eslint-disable-next-line svelte/no-at-html-tags -- trusted: server-built JSON-LD with </script> escaped -->
+		{@html '<script type="application/ld+json">' + safeJson + '<' + '/script>'}
 	{/each}
 
 	<!-- RSS auto-discovery -->

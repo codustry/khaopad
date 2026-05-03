@@ -46,6 +46,7 @@
 				<p class="font-medium text-foreground mb-1">{m.cookie_banner_title()}</p>
 				<p>
 					{m.cookie_banner_body()}
+					<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- privacy href is operator-supplied (always /[locale]/privacy-policy from layout); not a build-time route -->
 					<a href={privacyHref} class="underline hover:text-foreground">{m.cookie_banner_learn_more()}</a>
 				</p>
 				{#if detailsOpen}
