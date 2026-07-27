@@ -26,7 +26,7 @@ your-app/                         ← repo root, after migration
 │   │   ├── pricing/
 │   │   ├── contact/
 │   │   └── [locale]/blog/…       ← Khao Pad's blog routes stay (or replace yours)
-│   ├── (cms)/                    ← Khao Pad's admin — leave alone unless customising
+│   ├── (admin)/                    ← Khao Pad's admin — leave alone unless customising
 │   │   ├── dashboard/
 │   │   ├── articles/
 │   │   └── media/
@@ -47,7 +47,7 @@ your-app/                         ← repo root, after migration
 └── wrangler.toml                 ← Cloudflare bindings
 ```
 
-The mental model: **Khao Pad is a template that already has `(www)` and `(cms)` route groups wired up.** Your job is to move your routes into `(www)`, keep the `(cms)` group untouched, and reconcile shared things (Tailwind config, components, i18n) in `src/lib`.
+The mental model: **Khao Pad is a template that already has `(www)` and `(admin)` route groups wired up.** Your job is to move your routes into `(www)`, keep the `(admin)` group untouched, and reconcile shared things (Tailwind config, components, i18n) in `src/lib`.
 
 ## Migration steps
 
@@ -86,9 +86,9 @@ git mv src/routes/pricing src/routes/\(www\)/pricing
 - `src/routes/api/` — API endpoints. They're accessible on both subdomains.
 - `src/routes/+error.svelte` — global error page (if you have one).
 
-**What NOT to move into `(cms)`:** your own admin panels, if any. The `(cms)` group has auth guards and subdomain enforcement specific to Khao Pad. If you have your own admin UI, either:
+**What NOT to move into `(admin)`:** your own admin panels, if any. The `(admin)` group has auth guards and subdomain enforcement specific to Khao Pad. If you have your own admin UI, either:
 
-- Fold it into Khao Pad's CMS (add a route under `(cms)/your-feature/`), or
+- Fold it into Khao Pad's CMS (add a route under `(admin)/your-feature/`), or
 - Put it under `(www)/admin/` with your own auth, but it'll be visible on the public subdomain — usually not what you want.
 
 ### 3. Reconcile `+layout.svelte`
@@ -99,7 +99,7 @@ Your existing root `+layout.svelte` probably imports your global CSS, nav bar, f
 
 - Things that should appear on **both** `www` and `cms` (e.g. `<ThemeProvider>`, global `app.css`) go in `src/routes/+layout.svelte`.
 - Things that are **public-site-only** (nav, footer, marketing analytics) go in `src/routes/(www)/+layout.svelte`.
-- Leave `src/routes/(cms)/+layout.svelte` alone unless you have a reason.
+- Leave `src/routes/(admin)/+layout.svelte` alone unless you have a reason.
 
 ### 4. Merge `src/lib/components`
 

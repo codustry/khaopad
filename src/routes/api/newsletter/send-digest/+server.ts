@@ -46,7 +46,7 @@ export const POST: RequestHandler = async ({
   if (!isProviderConfigured(cfg)) {
     throw error(
       503,
-      "No email provider configured. Add a Resend API key + sender address in /cms/settings.",
+      "No email provider configured. Add a Resend API key + sender address in /admin/settings.",
     );
   }
 

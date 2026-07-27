@@ -103,7 +103,7 @@ export const POST: RequestHandler = async ({
       locale,
     });
     // Best-effort. If Resend rejects we still return success — the
-    // operator can resend from /cms/subscribers.
+    // operator can resend from /admin/subscribers.
     await sendEmail(cfg, {
       to: subscriber.email,
       subject: email.subject,

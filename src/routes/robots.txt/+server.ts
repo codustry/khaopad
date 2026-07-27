@@ -22,7 +22,7 @@ export const GET: RequestHandler = async ({ url, platform, locals }) => {
   const body = isProd
     ? `User-agent: *
 Allow: /
-Disallow: /cms/
+Disallow: /admin/
 Disallow: /api/
 
 Sitemap: ${origin}/sitemap.xml

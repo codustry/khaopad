@@ -38,7 +38,7 @@ Eleven shipped milestones (v1.0 → v2.0). Five "platform pillars" shaped the v1
 - **Scheduled publishing** — set a future `publishedAt`, the public site doesn't reveal it until that time
 - **Full-text search** — SQLite FTS5 over per-locale localizations, public `/blog?q=`, in-CMS list filter
 - **Per-article revision history** — line-diff view, one-click restore, attribution
-- **Audit log** — every CMS action recorded; admin viewer at `/cms/audit`
+- **Audit log** — every CMS action recorded; admin viewer at `/admin/audit`
 - **Token-based invitations** — admins create one-shot invite links; recipients claim and join
 
 ### Discoverability (v1.6 — SEO foundations)
@@ -54,7 +54,7 @@ Eleven shipped milestones (v1.0 → v2.0). Five "platform pillars" shaped the v1
 ### Information architecture (v1.7)
 
 - **Static Pages** — separate from articles (About, Contact, Privacy), `(www)/[locale]/[...slug]` catch-all routing, three soft templates (`default` / `landing` / `legal`)
-- **Navigation manager** — `/cms/navigation` builds the primary header + footer menus; items target articles, categories, tags, pages, or custom URLs; per-locale labels
+- **Navigation manager** — `/admin/navigation` builds the primary header + footer menus; items target articles, categories, tags, pages, or custom URLs; per-locale labels
 - **Reusable content blocks** — `{{block:my-key}}` shortcodes, expanded server-side from the per-locale block library
 - **Cookie consent banner** with three categories (functional / analytics / marketing); first-party cookie, GDPR-friendly defaults
 - **Legal templates seeder** — one click creates draft Privacy + Cookie policy pages from embedded templates
@@ -64,12 +64,12 @@ Eleven shipped milestones (v1.0 → v2.0). Five "platform pillars" shaped the v1
 - **Privacy-friendly D1 page-view counter** — aggregated by `(date, path)`, no IP / UA / fingerprint stored, gated on cookie consent
 - **Search insights** — every `/blog?q=` query logged anonymized; dashboard shows top terms + searches with no results (the content-gap signal)
 - **Top articles + per-article sparkline** — last 30 days, on the dashboard and on each article edit page
-- Optional **Cloudflare Web Analytics** beacon — set a token in `/cms/settings`, beacon loads only when visitor consented
+- Optional **Cloudflare Web Analytics** beacon — set a token in `/admin/settings`, beacon loads only when visitor consented
 
 ### Performance & trust (v1.9)
 
 - **Responsive images** via `/cdn-cgi/image/` URL transforms — `<picture>` `srcset` with 3 widths; falls back to raw R2 when Cloudflare Images isn't enabled
-- **Edge cache hook** — sets sensible `Cache-Control` per route (`no-store` for `/cms/*`, SWR for blog pages)
+- **Edge cache hook** — sets sensible `Cache-Control` per route (`no-store` for `/admin/*`, SWR for blog pages)
 - **Branded 404 + 500 pages** with search box (404 only)
 - `/api/health` endpoint with per-binding reachability + latency
 
@@ -77,13 +77,21 @@ Eleven shipped milestones (v1.0 → v2.0). Five "platform pillars" shaped the v1
 
 - **Forms** — build a contact / lead-capture / RSVP form in the CMS; `POST /api/forms/[key]` with honeypot + per-IP-hash rate limit; submissions inbox with status + delete
 - **Newsletter** — opt-in subscriber list; works as single-opt-in by default, becomes double-opt-in when a Resend key is set; weekly digest sender; one-click unsubscribe
-- **Comments** — per-article visitor comments with editor moderation; dual-toggle (site-wide + per-article); honeypot + rate limit; status queue at `/cms/comments`
+- **Comments** — per-article visitor comments with editor moderation; dual-toggle (site-wide + per-article); honeypot + rate limit; status queue at `/admin/comments`
 - **Webhooks** — register HTTPS URLs for `article.publish` / `article.unpublish` / `comment.approve` / `form.submit` / `subscriber.confirm`; HMAC-SHA256 signed; auto-retry; delivery log
-- **Public REST API** — `/api/public/articles` / `/categories` / `/tags` / `/pages` for headless consumers; bearer-token auth via `/cms/api-keys`; per-key scopes; SHA-256 hashed at rest
+- **Public REST API** — `/api/public/articles` / `/categories` / `/tags` / `/pages` for headless consumers; bearer-token auth via `/admin/api-keys`; per-key scopes; SHA-256 hashed at rest
+
+### Plugins (proposed for post-v2.0)
+
+Khao Pad core stays focused on the content + growth surface every non-ecommerce site needs. Anything beyond that ships as an **optional plugin** — self-contained, zero-core-surgery, opt-in per install.
+
+- **`@khaopad/plugin-shop`** — small ecommerce for Thailand-first sites. **BeamCheckout** integration (PromptPay QR + credit card + LINE Pay + TrueMoney), cart / checkout / order flow, discount codes, affiliate referrals, receipt emails via Resend. Products are static TypeScript (`src/lib/products.ts`) — no CMS catalog UI in v0.1, escape hatch to D1-backed catalog via `ProductProvider`. Reference implementation runs today at [bactrack.in.th](https://bactrack.in.th). Full design: [docs/adr/0001-shop-as-optional-plugin.md](docs/adr/0001-shop-as-optional-plugin.md).
+
+The plugin mechanism itself is not yet implemented — the ADR above proposes the contract (route mount + schema concatenation + sidebar merge + audit + webhook + settings + i18n). If you'd use it, open an issue or +1 [the ADR discussion](https://github.com/codustry/khaopad/issues) so we can size the work.
 
 ### Platform fundamentals
 
-- **One repo, one host, two surfaces** — public site at `/`, admin at `/cms/*`, single Worker deployment
+- **One repo, one host, two surfaces** — public site at `/`, admin at `/admin/*`, single Worker deployment
 - **Multilingual first** — shared slug and media, separate content per locale; English required (slug source), additional locales optional
 - **Better Auth** — email/password, D1-backed sessions, four roles (super_admin > admin > editor > author)
 - **Pluggable storage** — `ContentProvider` interface in `$lib/server/content/types.ts`; D1 implementation ships, swap for tests
@@ -99,7 +107,7 @@ Eleven shipped milestones (v1.0 → v2.0). Five "platform pillars" shaped the v1
 │  hooks.server.ts (path-based surface)     │
 │                                           │
 │  /*           → (www)/  public site       │
-│  /cms/*       → (cms)/  admin panel       │
+│  /admin/*       → (admin)/  admin panel       │
 │  /api/auth/*  → Better Auth handler       │
 │                                           │
 │  ContentProvider → D1ContentProvider      │
@@ -181,9 +189,9 @@ pnpm dev
 ```
 
 - Public site: `http://localhost:5173`
-- CMS admin: `http://localhost:5173/cms`
-- First admin signup: `http://localhost:5173/cms/signup` (one-shot, before any user exists)
-- Login: `http://localhost:5173/cms/login`
+- Admin: `http://localhost:5173/admin`
+- First admin signup: `http://localhost:5173/admin/signup` (one-shot, before any user exists)
+- Login: `http://localhost:5173/admin/login`
 
 No `/etc/hosts` editing needed — both surfaces share one host. Locale switches via `/en/blog` ↔ `/th/blog` on the public side; the CMS reads locale from a cookie so admin URLs stay clean.
 
@@ -297,7 +305,7 @@ routes = [
 ]
 ```
 
-A single proxied (orange-cloud) DNS record pointing at the Worker is enough — Cloudflare terminates TLS and the `surfaceHook` in `hooks.server.ts` decides whether each request is the public site (`/`) or the admin CMS (`/cms/*`).
+A single proxied (orange-cloud) DNS record pointing at the Worker is enough — Cloudflare terminates TLS and the `surfaceHook` in `hooks.server.ts` decides whether each request is the public site (`/`) or the admin CMS (`/admin/*`).
 
 ### 6. Local dev
 
@@ -339,8 +347,8 @@ Khao Pad started as a CMS. Through v1.5 it became a complete content layer (writ
 | Version  | Theme                       | Status       | Highlights                                                                                          |
 | -------- | --------------------------- | ------------ | --------------------------------------------------------------------------------------------------- |
 | **v1.0** | MVP                         | ✅ Shipped    | M1–M7: scaffold, D1 migrations, Better Auth, media library, taxonomy, deploy pipeline, MD editor    |
-| **v1.1** | Path-prefix routing         | ✅ Shipped    | `/cms/*` instead of `cms.` subdomain, shadcn admin reskin, D1+Date binding fix, scope tightening    |
-| **v1.2** | Users & settings UIs        | ✅ Shipped    | `/cms/users` (roles, last-super-admin guard), `/cms/settings`, `canManageUser` permission helper    |
+| **v1.1** | Path-prefix routing         | ✅ Shipped    | `/admin/*` instead of `cms.` subdomain, shadcn admin reskin, D1+Date binding fix, scope tightening    |
+| **v1.2** | Users & settings UIs        | ✅ Shipped    | `/admin/users` (roles, last-super-admin guard), `/admin/settings`, `canManageUser` permission helper    |
 | **v1.3** | Workflow trio               | ✅ Shipped    | Token invitations, audit-log viewer, scheduled publishing                                           |
 | **v1.4** | Full-text search            | ✅ Shipped    | SQLite FTS5 over per-locale localizations, public `/blog?q=`, CMS list filter                       |
 | **v1.5** | Content versioning          | ✅ Shipped    | Per-article revision history, line diff, one-click restore, attribution                             |

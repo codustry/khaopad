@@ -9,7 +9,7 @@ assets = { directory = ".svelte-kit/cloudflare", binding = "ASSETS" }
 # ──────────────────────────────────────
 # Single host serves both surfaces:
 #   /            → public site
-#   /cms/*       → admin CMS
+#   /admin/*     → admin (CMS + shop + all future features under one nav shell)
 # routes = [
 #   { pattern = "example.com/*", zone_name = "example.com" },
 # ]
@@ -45,7 +45,7 @@ SUPPORTED_LOCALES = "en,th"
 DEFAULT_LOCALE = "en"
 PUBLIC_SITE_URL = "https://example.com"
 # CMS_SITE_URL is kept for backwards-compat (R2 media URL generation).
-# Since v1.1 the CMS lives at /cms/* on the same host as the public site.
+# Since v1.1 the admin lives at /admin/* on the same host as the public site.
 CMS_SITE_URL = "https://example.com"
 BETTER_AUTH_URL = "https://example.com"
 

@@ -50,25 +50,19 @@ Fix: `@opentelemetry/api` is in `optionalDependencies`. Installed on every `pnpm
 
 **When Better Auth drops this dep:** remove it. Until then, don't be surprised to see it in the lockfile.
 
-## 7. Subdomain routing runs on `Host`, not DNS
+## 7. Surface routing runs on path, not Host
 
-`subdomainHook` in `src/hooks.server.ts` looks at the `Host` header to decide `www` vs `cms`. In prod this just works — Cloudflare preserves the Host header when proxying.
+`surfaceHook` in `src/hooks.server.ts` sets `event.locals.surface = isAdminPath(pathname) ? "admin" : "www"`. One host, two surfaces, distinguished by URL prefix (`/admin/*` vs everything else). No DNS setup or Host-header trickery required — localhost, workers.dev, and prod all behave identically.
 
-**In local dev** you need `/etc/hosts` entries:
-
-```
-127.0.0.1  www.khaopad.local  cms.khaopad.local
-```
-
-And access the site via `http://www.khaopad.local:8787` / `http://cms.khaopad.local:8787`, not `localhost`. Without this, every request looks like `www` (the default fallback) and you can't reach the CMS locally.
+**Pre-v1.1** this used `Host`-based routing with `www.` and `cms.` subdomains. That broke on cookieless single-host deploys and contradicted Paraglide's guidance to key locale off cookies + path, not host. See the doc history for the migration rationale.
 
 ## 8. SvelteKit route groups don't affect URLs
 
-`src/routes/(www)/` and `src/routes/(cms)/` both serve paths starting at `/`. The parentheses are a SvelteKit convention for "share this layout without adding a URL segment."
+`src/routes/(www)/` and `src/routes/(admin)/` both serve paths starting at `/`. The parentheses are a SvelteKit convention for "share this layout without adding a URL segment."
 
-**Consequence:** `/articles` could theoretically be served by either group. We resolve this with the subdomain hook: CMS routes are blocked on `www`, www-only routes are blocked on `cms`. The hook classification lists (`isCmsRoute`, `isWwwOnlyRoute`) must stay in sync with the folder contents.
+**Consequence:** admin routes live under `src/routes/(admin)/admin/*` so their URLs are all `/admin/...`. The `(admin)` route group only adds the layout (sidebar, auth guard); the `/admin/` path segment is what makes URLs distinguishable from `(www)` routes.
 
-**When you add a new CMS route folder:** remember to add the path prefix to `isCmsRoute`. There's no automatic detection.
+**When you add a new admin route folder:** put it under `src/routes/(admin)/admin/<something>/`. The `isAdminPath()` helper in `hooks.server.ts` classifies anything starting with `/admin/` as the admin surface — no separate registration needed.
 
 ## 9. D1 integer 0/1 vs boolean
 

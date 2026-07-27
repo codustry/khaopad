@@ -22,8 +22,8 @@ A modular CMS built with SvelteKit for Cloudflare. One repo, two subdomains:
 
 ## Architecture
 
-- Single SvelteKit app with route groups: `(www)` for public, `(cms)` for admin
-- Path-based surface routing via `hooks.server.ts` — `/cms/*` is admin, everything else is public
+- Single SvelteKit app with route groups: `(www)` for public, `(admin)` for admin
+- Path-based surface routing via `hooks.server.ts` — `/admin/*` is admin, everything else is public
 - Content storage is D1-backed (`D1ContentProvider`); the `ContentProvider` interface is kept as a seam for tests
 - Media always stored in R2, metadata in D1
 
@@ -37,7 +37,7 @@ A modular CMS built with SvelteKit for Cloudflare. One repo, two subdomains:
 - `messages/` — Translation JSON files (th.json, en.json)
 - `project.inlang/` — Inlang project settings
 - `src/routes/(www)/` — Public site routes
-- `src/routes/(cms)/` — CMS admin routes
+- `src/routes/(admin)/` — CMS admin routes
 - `src/routes/api/auth/` — Auth API endpoints
 - `drizzle/` — D1 migration files
 
@@ -73,7 +73,7 @@ pnpm run deploy        # Build + deploy to Cloudflare Workers
 - All IDs use `nanoid()`
 - Dates stored as ISO strings in D1 (SQLite text)
 - Content provider is injected into `locals` via hooks
-- Auth guard is in `(cms)/+layout.server.ts`
+- Auth guard is in `(admin)/+layout.server.ts`
 - Route access control is enforced in `hooks.server.ts` (subdomain check)
 
 ## i18n — Two layers

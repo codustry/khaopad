@@ -15,7 +15,7 @@
  * generic default.
  *
  * To enable: paste a Resend API key + a sender address into
- * /cms/settings → "Newsletter" section.
+ * /admin/settings → "Newsletter" section.
  */
 import type { Locale, SiteSettings } from "$lib/server/content/types";
 

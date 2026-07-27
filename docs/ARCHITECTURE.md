@@ -54,7 +54,7 @@ authHook                  — getSession() → locals.user, locals.session (null
 
 After the hook chain, SvelteKit runs:
 
-1. The matched **layout** `+layout.server.ts` (e.g. `(cms)/+layout.server.ts` enforces auth).
+1. The matched **layout** `+layout.server.ts` (e.g. `(admin)/+layout.server.ts` enforces auth).
 2. The matched **page** `+page.server.ts` (runs DB queries via `locals.content`).
 3. The Svelte component server-renders.
 4. Cloudflare streams the response.
@@ -76,7 +76,7 @@ src/routes/
 │           └── [slug]/
 │               ├── +page.server.ts
 │               └── +page.svelte
-├── (cms)/                 # Admin. Auth required except /login and /signup.
+├── (admin)/                 # Admin. Auth required except /login and /signup.
 │   ├── +layout.server.ts  # Auth guard
 │   ├── +layout.svelte     # Sidebar nav
 │   ├── login/
@@ -107,7 +107,7 @@ See [CONTENT-MODEL.md](./CONTENT-MODEL.md) for schema details.
 
 | Concern                     | File(s)                                                                 |
 | --------------------------- | ----------------------------------------------------------------------- |
-| Surface dispatch (`/cms/*`) | `src/hooks.server.ts` (`surfaceHook`, `isCmsPath`)                      |
+| Surface dispatch (`/admin/*`) | `src/hooks.server.ts` (`surfaceHook`, `isCmsPath`)                      |
 | Platform binding validation | `src/lib/server/config/platform-status.ts`                              |
 | Content provider interface  | `src/lib/server/content/types.ts`                                       |
 | D1 provider                 | `src/lib/server/content/providers/d1.ts`                                |

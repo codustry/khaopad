@@ -93,7 +93,7 @@ This runs on every request. `getSession` reads the `better-auth.session_token` c
 
 **Layer A — subdomain guard (`hooks.server.ts subdomainHook`).** Blocks CMS routes from `www.*` and www-only routes from `cms.*`. Defense-in-depth: even a misconfigured route can't leak the admin panel on the public domain.
 
-**Layer B — auth guard (`src/routes/(cms)/+layout.server.ts`).**
+**Layer B — auth guard (`src/routes/(admin)/+layout.server.ts`).**
 
 ```ts
 if (url.pathname === "/login" || url.pathname === "/signup")
@@ -102,14 +102,14 @@ if (!locals.user) throw redirect(302, "/login");
 return { user: locals.user };
 ```
 
-Every `(cms)` page except login/signup requires a user. Because SvelteKit runs layout loads before page loads, no CMS page server code ever sees `locals.user === null`.
+Every `(admin)` page except login/signup requires a user. Because SvelteKit runs layout loads before page loads, no CMS page server code ever sees `locals.user === null`.
 
 ### 5. Role-based permissions — `src/lib/server/auth/permissions.ts`
 
 Better Auth doesn't opinionate on authorization — it just gives you `locals.user.role`. The permission helpers (`canEditArticle`, `canPublish`, `canDeleteArticle`, `canManageUsers`) live in that file, keyed off a 4-level hierarchy (`super_admin > admin > editor > author`). Article actions call them:
 
 ```ts
-// src/routes/(cms)/articles/[id]/+page.server.ts
+// src/routes/(admin)/articles/[id]/+page.server.ts
 if (!canEditArticle(locals.user, existing.authorId)) return fail(403, ...);
 if (!canPublish(user) && user.id !== existing.authorId) return fail(403, ...);
 ```
@@ -145,8 +145,8 @@ GET  /dashboard                →     hooks: authHook
                                      auth.api.getSession(headers)   →    SELECT session JOIN user WHERE token = ?
                                                                     ←    row
                                      locals.user = session.user
-                                     → (cms)/+layout.server.ts: user exists, allow
-                                     → (cms)/dashboard/+page.server.ts runs
+                                     → (admin)/+layout.server.ts: user exists, allow
+                                     → (admin)/dashboard/+page.server.ts runs
                                ←     HTML
 ```
 
@@ -169,9 +169,9 @@ Sign-up goes the same way except via `auth.api.signUpEmail()` (in-process, no HT
 wrangler.toml                  hooks.server.ts              routes
 ─────────────                  ─────────────────            ───────
 DB binding ──────┐             subdomainHook                (www)/*     → no auth needed
-BETTER_AUTH_*    │             bindingsHook                 (cms)/login → public
-secrets ─────────┤             configurationGuardHook       (cms)/signup → public, conditional (bootstrap)
-                 │             paraglideLocaleHook          (cms)/**    → layout guard: locals.user required
+BETTER_AUTH_*    │             bindingsHook                 (admin)/login → public
+secrets ─────────┤             configurationGuardHook       (admin)/signup → public, conditional (bootstrap)
+                 │             paraglideLocaleHook          (admin)/**    → layout guard: locals.user required
                  ▼             authHook ──────┐                          │
                  createAuth(DB,...)           │                          ▼
                  ┌─────────────┴────┐         │              permissions.ts: canEditArticle, canPublish, ...
@@ -186,4 +186,4 @@ Better Auth is intentionally the smallest, most boring piece — our code adds t
 
 ---
 
-_Last touched: 2026-04-18 · Files referenced: `src/lib/server/auth/index.ts`, `src/lib/server/auth/bootstrap.ts`, `src/lib/server/auth/permissions.ts`, `src/hooks.server.ts`, `src/routes/api/auth/[...all]/+server.ts`, `src/routes/(cms)/+layout.server.ts`, `src/routes/(cms)/signup/+page.server.ts`._
+_Last touched: 2026-04-18 · Files referenced: `src/lib/server/auth/index.ts`, `src/lib/server/auth/bootstrap.ts`, `src/lib/server/auth/permissions.ts`, `src/hooks.server.ts`, `src/routes/api/auth/[...all]/+server.ts`, `src/routes/(admin)/+layout.server.ts`, `src/routes/(admin)/signup/+page.server.ts`._

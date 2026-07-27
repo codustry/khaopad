@@ -204,7 +204,7 @@ export const media = sqliteTable("media", {
 // ─── Media folders (v1.7) ────────────────────────────────
 // Self-referential tree of folders. Backwards-compatible: existing
 // rows on `media` keep folderId = null and live at the root. The
-// CMS /cms/media page renders a left tree with folder CRUD.
+// CMS /admin/media page renders a left tree with folder CRUD.
 
 export const mediaFolders = sqliteTable("media_folders", {
   id: text("id").primaryKey(),
@@ -542,7 +542,7 @@ export const formSubmissions = sqliteTable("form_submissions", {
 // goes out (when an email provider is configured) and the subscriber
 // is "confirmed" only after they click the link. When no provider is
 // configured, the row is created with confirmedAt=now (single-opt-in
-// mode — clearly documented in /cms/settings).
+// mode — clearly documented in /admin/settings).
 
 export const subscribers = sqliteTable("subscribers", {
   id: text("id").primaryKey(),

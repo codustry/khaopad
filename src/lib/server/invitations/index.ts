@@ -113,7 +113,7 @@ export async function consumeInvitation(
   return (result.meta?.changes ?? 0) > 0;
 }
 
-/** List all invitations (for the /cms/users page). */
+/** List all invitations (for the /admin/users page). */
 export async function listInvitations(d1: D1Database) {
   const db = drizzle(d1, { schema });
   return db.select().from(schema.invitations).all();

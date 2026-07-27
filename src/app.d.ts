@@ -11,11 +11,11 @@ declare global {
     interface Locals {
       /**
        * Which surface the request is hitting.
-       * "cms" for `/cms/*` (admin), "www" for everything else (public).
+       * "admin" for `/admin/*`, "www" for everything else (public).
        */
-      surface: "www" | "cms";
+      surface: "www" | "admin";
       /** @deprecated Use `surface`. Kept as alias during the v1.1 migration. */
-      subdomain: "www" | "cms";
+      subdomain: "www" | "admin";
       /** Current locale for the request */
       locale: string;
       /** True when D1/R2 and required secrets are present and services were constructed */
