@@ -107,7 +107,7 @@ See [CONTENT-MODEL.md](./CONTENT-MODEL.md) for schema details.
 
 | Concern                     | File(s)                                                                 |
 | --------------------------- | ----------------------------------------------------------------------- |
-| Surface dispatch (`/admin/*`) | `src/hooks.server.ts` (`surfaceHook`, `isCmsPath`)                      |
+| Surface dispatch (`/admin/*`) | `src/hooks.server.ts` (`surfaceHook`, `isAdminPath`)                      |
 | Platform binding validation | `src/lib/server/config/platform-status.ts`                              |
 | Content provider interface  | `src/lib/server/content/types.ts`                                       |
 | D1 provider                 | `src/lib/server/content/providers/d1.ts`                                |

@@ -31,5 +31,5 @@ pnpm seed:legal
 filled in from `site_settings` (name, contact email).
 
 Until then: copy-paste the markdown into a new article via
-`/cms/articles/new`. (Articles aren't ideal for legal pages — they
+`/admin/articles/new`. (Articles aren't ideal for legal pages — they
 appear in `/blog` and feeds — so this is genuinely a stopgap.)
