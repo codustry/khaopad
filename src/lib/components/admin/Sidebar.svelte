@@ -3,7 +3,7 @@
 	import { ChevronLeft, LogOut } from 'lucide-svelte';
 	import { Avatar, Separator } from '$lib/components/ui';
 	import { cn } from '$lib/utils';
-	import { navGroups, type NavItem } from './sidebar-nav';
+	import { listNavGroups, type NavItem } from './sidebar-nav';
 
 	type User = { name: string; role: string };
 
@@ -32,6 +32,11 @@
 	}
 
 	const currentPath = $derived(page.url.pathname);
+
+	// Snapshot the registry once per render — plugin boot must complete
+	// before the sidebar mounts, which it does since plugins register
+	// server-side at module load. Re-reading each render is cheap.
+	const groups = $derived(listNavGroups());
 
 	function isActive(href: string) {
 		// Exact match wins; otherwise treat as section root (e.g. /admin/articles
@@ -87,7 +92,7 @@
 
 	<!-- Navigation groups -->
 	<nav class="flex-1 overflow-y-auto p-2">
-		{#each navGroups as group, i (group.id)}
+		{#each groups as group, i (group.id)}
 			{@const items = visibleItems(group.items)}
 			{#if items.length > 0}
 				{#if i > 0}
