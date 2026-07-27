@@ -21,7 +21,13 @@ import { drizzle } from "drizzle-orm/d1";
 import { nanoid } from "nanoid";
 import * as schema from "../content/schema";
 
-export type AuditAction =
+/**
+ * Actions that ship with core. Autocompletes in editors; a typo like
+ * `article.publisj` will still error. Plugins register additional
+ * actions via `AuditAction` (widened below) — this keeps the DX for
+ * core call sites without blocking extensibility.
+ */
+export type KnownAuditAction =
   | `article.${"create" | "update" | "publish" | "unpublish" | "delete"}`
   | `category.${"create" | "update" | "delete"}`
   | `tag.${"create" | "update" | "delete"}`
@@ -32,6 +38,15 @@ export type AuditAction =
   | `form.${"create" | "update" | "delete" | "submit"}`
   | `newsletter.${"subscribe" | "confirm" | "unsubscribe" | "delete" | "digest_sent"}`
   | `comment.${"create" | "approve" | "spam" | "archive" | "delete"}`;
+
+/**
+ * Any string a plugin may pass. The `& {}` intersection preserves
+ * autocomplete for KnownAuditAction while accepting arbitrary strings
+ * from plugins (e.g. `shop.order.paid`). Plugin actions MUST follow
+ * the same `<entity>.<verb>` convention or `entityTypeOf` returns the
+ * prefix as-is (still valid, still queryable).
+ */
+export type AuditAction = KnownAuditAction | (string & {});
 
 /** Entity type derived from the action prefix. */
 function entityTypeOf(action: AuditAction): string {

@@ -1,7 +1,10 @@
 import { error, fail, redirect } from "@sveltejs/kit";
 import { canManageUsers } from "$lib/server/auth/permissions";
 import { logAudit } from "$lib/server/audit";
-import { WEBHOOK_EVENTS, type WebhookEvent } from "$lib/server/content/types";
+import {
+  listKnownWebhookEvents,
+  type WebhookEvent,
+} from "$lib/server/content/types";
 import type { Actions, PageServerLoad } from "./$types";
 
 /**
@@ -18,16 +21,15 @@ export const load: PageServerLoad = async ({ locals }) => {
     throw error(403, "Only admins can manage webhooks.");
   }
   const webhooks = await locals.content.listWebhooks();
-  return { webhooks, knownEvents: WEBHOOK_EVENTS };
+  return { webhooks, knownEvents: listKnownWebhookEvents() };
 };
 
 function parseEvents(form: FormData): WebhookEvent[] {
+  const known = new Set(listKnownWebhookEvents());
   return form
     .getAll("events")
     .map((v) => String(v))
-    .filter((v): v is WebhookEvent =>
-      (WEBHOOK_EVENTS as string[]).includes(v),
-    );
+    .filter((v): v is WebhookEvent => known.has(v));
 }
 
 export const actions: Actions = {
