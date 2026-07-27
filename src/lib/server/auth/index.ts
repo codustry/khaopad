@@ -76,6 +76,24 @@ export function createAuth(
         role: { type: "string", defaultValue: "author", input: false },
       },
     },
+    advanced: {
+      /**
+       * Force the __Host- cookie prefix on the session cookie.
+       *
+       * Better Auth's default in production is `__Secure-better-auth.session_token`,
+       * which requires Secure=true but permits Domain/Path variations. `__Host-`
+       * additionally mandates Path=/ and forbids Domain — the browser enforces
+       * that no subdomain (however friendly) can set a cookie with this name.
+       *
+       * Khao Pad already ships single-host at /admin — this is belt-and-braces
+       * against a future subdomain being added and inheriting cookie trust.
+       *
+       * See RFC 6265bis §4.1.3.2, OWASP Session Management Cheat Sheet.
+       */
+      cookies: {
+        session_token: { name: "__Host-khaopad_session" },
+      },
+    },
   });
 }
 

@@ -308,6 +308,84 @@ const cacheHook: Handle = async ({ event, resolve }) => {
   return response;
 };
 
+/**
+ * Security headers hook.
+ *
+ * The real threat model on a same-host admin (`/admin` on the same origin
+ * as public content) is stored-XSS in user-generated content exfiltrating
+ * the admin session cookie. HttpOnly on the cookie blocks the primary
+ * `document.cookie` vector; CSP closes off script injection at the source.
+ *
+ * We ship separate CSP for public and admin surfaces:
+ *
+ * - Public: strict — script-src 'self', no inline scripts, no eval.
+ *   Public HTML never legitimately needs inline JS; a stored-XSS payload
+ *   that would `<script>` under a permissive policy just gets refused.
+ *   `img-src` and `media-src` include `data:` and `blob:` for markdown-
+ *   embedded images/media; `connect-src` allows same-origin fetch for
+ *   comment forms + newsletter subscribe.
+ *
+ * - Admin: relaxed only where the shadcn/svelte-sonner stack needs it
+ *   (inline style attributes from bits-ui components). Scripts still
+ *   locked to 'self'. Admin is authenticated so external content injection
+ *   isn't the same threat class.
+ *
+ * Same-origin defenses beyond CSP:
+ * - `X-Content-Type-Options: nosniff` — kills MIME sniffing attacks
+ * - `Referrer-Policy: strict-origin-when-cross-origin` — narrows leakage
+ * - `Permissions-Policy` — denies sensor/camera/mic access we never use
+ * - HSTS is set by Cloudflare in front of the Worker; not our job
+ */
+const SECURITY_HEADERS_STATIC: Record<string, string> = {
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+  "X-Frame-Options": "DENY",
+};
+
+const CSP_PUBLIC = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'", // Tailwind emits some inline styles at build; svelte hydration attaches per-component styles
+  "img-src 'self' data: blob: https:", // https: allows R2 CDN + external cover images
+  "media-src 'self' data: blob: https:",
+  "font-src 'self' data:",
+  "connect-src 'self'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+].join("; ");
+
+const CSP_ADMIN = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "media-src 'self' data: blob: https:",
+  "font-src 'self' data:",
+  "connect-src 'self'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+].join("; ");
+
+const securityHeadersHook: Handle = async ({ event, resolve }) => {
+  const response = await resolve(event);
+
+  for (const [name, value] of Object.entries(SECURITY_HEADERS_STATIC)) {
+    if (!response.headers.has(name)) response.headers.set(name, value);
+  }
+
+  if (!response.headers.has("Content-Security-Policy")) {
+    const isAdmin = event.locals.surface === "admin";
+    response.headers.set("Content-Security-Policy", isAdmin ? CSP_ADMIN : CSP_PUBLIC);
+  }
+
+  return response;
+};
+
 export const handle = sequence(
   surfaceHook,
   bindingsHook,
@@ -315,4 +393,5 @@ export const handle = sequence(
   paraglideLocaleHook,
   authHook,
   cacheHook,
+  securityHeadersHook,
 );
