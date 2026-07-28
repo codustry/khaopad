@@ -13,6 +13,7 @@ const config = {
     }),
     alias: {
       $components: "src/lib/components",
+      $plugins: "src/plugins",
     },
   },
 };

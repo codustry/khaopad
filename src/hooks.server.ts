@@ -390,14 +390,15 @@ const securityHeadersHook: Handle = async ({ event, resolve }) => {
 /**
  * Plugin init hook.
  *
- * Calls `initPlugins()` — idempotent, no-op after the first request in
- * an isolate. Plugins register sidebar nav entries, webhook events,
- * audit actions from their `onInit`. Runs after `bindingsHook` so
- * `event.platform.env` is validated; ordered before `authHook` so any
- * plugin-registered auth extensions could hook in (none yet).
+ * Calls each plugin's optional `onInit(ctx)` hook once per Worker
+ * cold start. Most plugins don't need this — sidebar nav / webhook
+ * event registration happens at module load (see
+ * `$lib/plugins/registrations`). `onInit` is reserved for plugins
+ * that need `env` at first-request time (e.g. warming a KV cache,
+ * conditional seeding).
  *
- * Skipped when platform is not ready — plugin init that can't access
- * env would blow up trying to touch D1/R2.
+ * Idempotent: safe to call from every request; only runs once per
+ * isolate. Skipped when platform is not ready.
  */
 const pluginInitHook: Handle = async ({ event, resolve }) => {
   const env = event.platform?.env;

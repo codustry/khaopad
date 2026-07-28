@@ -661,87 +661,29 @@ export interface SubscriberFilter {
 }
 
 // ─── Webhooks (v2.0d) ────────────────────────────────────
-
-/**
- * Events core knows how to fire. Autocompletes in editors; a typo
- * like `article.publisj` will still error. Plugins register their
- * own event names via `registerWebhookEvent()` below — the union is
- * widened to accept arbitrary strings so plugin call sites typecheck.
- */
-export type KnownWebhookEvent =
-  | "article.publish"
-  | "article.unpublish"
-  | "article.delete"
-  | "comment.approve"
-  | "form.submit"
-  | "subscriber.confirm";
-
-/**
- * Any webhook event a plugin may fire. The `& {}` intersection preserves
- * autocomplete for `KnownWebhookEvent` while accepting arbitrary strings
- * from plugins (e.g. `shop.order.paid`). Plugin events must be registered
- * via `registerWebhookEvent()` so the admin webhook-create form accepts
- * them; unregistered events still dispatch fine (D1 query is by string
- * match, not enum lookup), they just can't be picked in the UI.
- */
-export type WebhookEvent = KnownWebhookEvent | (string & {});
-
-const CORE_WEBHOOK_EVENTS: readonly KnownWebhookEvent[] = [
-  "article.publish",
-  "article.unpublish",
-  "article.delete",
-  "comment.approve",
-  "form.submit",
-  "subscriber.confirm",
-];
-
-/**
- * Runtime registry — starts with core events, plugins append at boot
- * via `registerWebhookEvent()`. Consumed by the admin webhook-create
- * form (for the event picker + input validation) and by any code that
- * needs to enumerate known events (e.g. `/admin/webhooks` UI).
- */
-const registeredWebhookEvents = new Set<WebhookEvent>(CORE_WEBHOOK_EVENTS);
-
-/**
- * Register a plugin-owned webhook event so it appears in the admin
- * webhook-create UI. Idempotent — safe to call at every plugin boot.
- * Never removes core events.
- */
-export function registerWebhookEvent(event: WebhookEvent): void {
-  registeredWebhookEvents.add(event);
-}
-
-/**
- * All webhook events currently known — core + registered plugins.
- * Returns a fresh array each call to avoid consumers mutating the
- * internal set.
- */
-export function listKnownWebhookEvents(): WebhookEvent[] {
-  return Array.from(registeredWebhookEvents);
-}
-
-/**
- * @deprecated Use `listKnownWebhookEvents()` — the direct array export
- * captured events at module load time and missed plugin registrations
- * that happened after import. Kept as a getter so old imports still work
- * during the migration and always see the current set.
- */
-export const WEBHOOK_EVENTS = new Proxy([] as WebhookEvent[], {
-  get(_target, prop, receiver) {
-    const live = listKnownWebhookEvents();
-    return Reflect.get(live, prop, receiver);
-  },
-  has(_target, prop) {
-    return Reflect.has(listKnownWebhookEvents(), prop);
-  },
-  ownKeys(_target) {
-    return Reflect.ownKeys(listKnownWebhookEvents());
-  },
-  getOwnPropertyDescriptor(_target, prop) {
-    return Object.getOwnPropertyDescriptor(listKnownWebhookEvents(), prop);
-  },
-});
+//
+// Webhook event types + registry moved to `$lib/plugins/webhook-events`
+// so plugin code can `registerWebhookEvent()` from a client-safe
+// module (SvelteKit refuses to import `$lib/server/*` into the client
+// bundle). Re-exported here so existing imports (`from
+// "$lib/server/content/types"`) keep working AND so type usages later
+// in this file (e.g. WebhookRecord.events, ContentProvider methods)
+// still resolve.
+export type {
+  KnownWebhookEvent,
+  WebhookEvent,
+} from "$lib/plugins/webhook-events";
+export {
+  registerWebhookEvent,
+  listKnownWebhookEvents,
+  WEBHOOK_EVENTS,
+} from "$lib/plugins/webhook-events";
+// Local alias so the WebhookEvent identifier resolves in type positions
+// below (declarations in this file's remaining ~150 lines).
+import type { WebhookEvent } from "$lib/plugins/webhook-events";
+// Consumed only for the type-alias — the runtime version is re-exported above.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _WebhookEventTypeUsage = WebhookEvent;
 
 export interface WebhookRecord {
   id: string;

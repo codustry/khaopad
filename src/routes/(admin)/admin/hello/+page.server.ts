@@ -12,7 +12,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { desc } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { logAudit } from "$lib/server/audit";
-import { helloPings } from "../../../../plugins/hello/schema";
+import { helloPings } from "$plugins/hello/schema";
 import type { Actions, PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals, platform }) => {

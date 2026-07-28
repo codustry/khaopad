@@ -11,30 +11,35 @@
  * Copy this folder to bootstrap a new plugin.
  */
 import { CircleHelp } from "lucide-svelte";
-import { defineKhaopadPlugin } from "$lib/plugins";
+import { defineKhaopadPlugin } from "$lib/plugins/types";
 import { registerNavGroup } from "$lib/components/admin/sidebar-nav";
-import { registerWebhookEvent } from "$lib/server/content/types";
+import { registerWebhookEvent } from "$lib/plugins/webhook-events";
+
+// Module-load registration: side effects run when this file is imported
+// (via src/lib/plugins/runtime.ts). Registries are idempotent, so
+// re-imports are safe. This runs before the first request so the sidebar
+// and webhook picker see plugin entries on the very first render.
+registerWebhookEvent("hello.pinged");
+
+registerNavGroup({
+  id: "hello",
+  title: () => "Plugins",
+  items: [
+    {
+      href: "/admin/hello",
+      label: () => "Hello",
+      icon: CircleHelp,
+      roles: ["super_admin", "admin", "editor", "author"],
+    },
+  ],
+});
 
 export default defineKhaopadPlugin({
   slug: "hello",
   name: "Hello",
   version: "0.1.0",
   description: "Reference plugin — sends pings, tests the runtime",
-
-  onInit() {
-    registerWebhookEvent("hello.pinged");
-
-    registerNavGroup({
-      id: "hello",
-      title: () => "Plugins",
-      items: [
-        {
-          href: "/admin/hello",
-          label: () => "Hello",
-          icon: CircleHelp,
-          roles: ["super_admin", "admin", "editor", "author"],
-        },
-      ],
-    });
-  },
+  // No onInit needed — registration happens at module load above.
+  // The optional onInit hook remains for plugins that need per-cold-start
+  // work (e.g. warming a cache, seeding data conditionally).
 });

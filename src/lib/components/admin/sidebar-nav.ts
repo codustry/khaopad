@@ -108,6 +108,10 @@ export function listNavGroups(): ReadonlyArray<NavGroup> {
 // ─── Core registration ─────────────────────────────────────────
 // Core groups + items registered at module load. Order determines
 // sidebar order; plugin groups will render after these.
+//
+// Plugin registrations happen via the side-effect import at the
+// bottom of this file — after core is in place, so plugin groups
+// slot in below core groups.
 
 registerNavGroup({
   id: "main",
@@ -221,3 +225,12 @@ export const navGroups = new Proxy([] as NavGroup[], {
     return Object.getOwnPropertyDescriptor(listNavGroups(), prop);
   },
 });
+
+// ─── Plugin side-effect imports ─────────────────────────────────
+// Importing this at the BOTTOM (after core registrations above) means
+// plugin groups slot in below core groups in insertion order. This
+// import runs in BOTH client + server bundles because sidebar-nav.ts
+// is imported by Sidebar.svelte (a browser component) — which was the
+// original bug fix: plugin registrations that only ran server-side
+// vanished after client hydration.
+import "$lib/plugins/registrations";
