@@ -85,6 +85,13 @@
       "when": 1778060000000,
       "tag": "0011_fts5_external_content",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1785138000000,
+      "tag": "0012_plugin_hello_pings",
+      "breakpoints": true
     }
   ]
 }
