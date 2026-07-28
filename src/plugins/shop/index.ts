@@ -1,0 +1,59 @@
+/**
+ * @khaopad/plugin-shop — small ecommerce for Thailand-first sites.
+ *
+ * Ships as an optional plugin so sites that don't sell anything stay
+ * lean. Uses the v3.0 plugin runtime.
+ *
+ * v3.1 scope (#56, in progress):
+ *   - Product catalog + variants (this milestone, incremental sub-PRs)
+ *
+ * v3.2 scope (#57):
+ *   - Cart, checkout, Beam payments, orders, shipping, tax, refunds
+ *
+ * Later:
+ *   - v3.4 discounts + abandoned cart (#60)
+ *   - v3.x Stripe + Omise adapters (#61)
+ *
+ * This first sub-PR (2a) ships only the plugin skeleton: registers
+ * itself into the runtime, contributes an empty admin section, wires
+ * up a placeholder route so the sidebar entry doesn't 404. The real
+ * shop tables + admin CRUD land in follow-up sub-PRs.
+ */
+import { ShoppingCart, Package, Boxes } from "lucide-svelte";
+import { defineKhaopadPlugin } from "$lib/plugins/types";
+import { registerNavGroup } from "$lib/components/admin/sidebar-nav";
+
+// Module-load registration — runs before the first render in both
+// client and server bundles. See docs/plugin-authoring.md.
+registerNavGroup({
+  id: "shop",
+  title: () => "Shop",
+  items: [
+    {
+      href: "/admin/shop/products",
+      label: () => "Products",
+      icon: Package,
+      roles: ["super_admin", "admin", "editor"],
+    },
+    {
+      href: "/admin/shop/collections",
+      label: () => "Collections",
+      icon: Boxes,
+      roles: ["super_admin", "admin", "editor"],
+    },
+    {
+      href: "/admin/shop/orders",
+      label: () => "Orders",
+      icon: ShoppingCart,
+      roles: ["super_admin", "admin"],
+    },
+  ],
+});
+
+export default defineKhaopadPlugin({
+  slug: "shop",
+  name: "Shop",
+  version: "0.1.0",
+  description:
+    "Small ecommerce: products, variants, cart, checkout (BeamCheckout for Thailand)",
+});

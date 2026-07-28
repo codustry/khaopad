@@ -20,6 +20,7 @@
  * `enabledPlugins` array in `runtime.ts`.
  */
 import hello from "$plugins/hello";
+import shop from "$plugins/shop";
 
 // Silence unused-import warnings — the import is the point (side effects).
-export const _pluginModules = [hello];
+export const _pluginModules = [hello, shop];

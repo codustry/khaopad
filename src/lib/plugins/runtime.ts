@@ -24,8 +24,9 @@ import "./registrations";
 // Keep this list in sync with the imports in registrations.ts.
 
 import hello from "$plugins/hello";
+import shop from "$plugins/shop";
 
-const enabledPlugins: KhaopadPlugin[] = [hello];
+const enabledPlugins: KhaopadPlugin[] = [hello, shop];
 
 let initialized = false;
 let initPromise: Promise<void> | null = null;
