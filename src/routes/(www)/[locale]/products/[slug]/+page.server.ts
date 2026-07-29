@@ -84,6 +84,10 @@ export const load: PageServerLoad = async ({ params, url, platform, locals }) =>
 
   return {
     product: {
+      // Canonical product id — analytics event tagging relies on this
+      // so the per-product dashboard's queries by product.id resolve.
+      // Previously fired with `product.slug` which broke the join.
+      id: product.id,
       slug: product.slug,
       status: product.status,
       vendor: product.vendor,

@@ -27,13 +27,13 @@
 		goto(`?${params}`, { replaceState: true, noScroll: true, keepFocus: true });
 	}
 
-	// Fire product_view once on mount. Includes selected variant so
-	// per-variant conversion funnels can be sliced (though the
-	// dashboard v4a doesn't split by variant yet).
+	// Fire product_view once on mount. Tagged with the canonical
+	// product id so the per-product dashboard's queries (which key
+	// on the same id) actually find these rows.
 	onMount(() => {
 		if (!selectedVariant) return;
 		track('product_view', {
-			productId: product.slug, // storefront doesn't expose product id — use slug
+			productId: product.id,
 			variantId: selectedVariant.id,
 			priceSatang: selectedVariant.priceSatang,
 		});

@@ -156,6 +156,9 @@ export const load: PageServerLoad = async ({ params, url, platform }) => {
   //
   // The check is on ANY unknown param: known display flags (utm_*,
   // ref, gclid) are ignored — they're marketing tokens, not facets.
+  // Marketing tokens + pagination + sort are NOT facets — allow them
+  // to stay indexable. Everything else (color, size, price-range, etc.)
+  // becomes a facet permutation we don't want in the index.
   const KNOWN_NON_FACET_PARAMS = new Set([
     "utm_source",
     "utm_medium",
@@ -165,6 +168,8 @@ export const load: PageServerLoad = async ({ params, url, platform }) => {
     "ref",
     "gclid",
     "fbclid",
+    "page", // pagination — /collections/tees?page=2 must stay indexable
+    "sort", // sort variant of a canonical collection
   ]);
   const hasFacetParam = Array.from(url.searchParams.keys()).some(
     (k) => !KNOWN_NON_FACET_PARAMS.has(k),

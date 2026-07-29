@@ -443,12 +443,26 @@ const analyticsPageViewHook: Handle = async ({ event, resolve }) => {
     ) {
       return response;
     }
-    if (response.status >= 400) return response;
-    // JSON client-navigation fetches (data.json) — skip.
-    const accept = event.request.headers.get("accept") ?? "";
-    if (accept.includes("application/json") && !accept.includes("text/html")) {
+    // SPA client-navigation data fetches — SvelteKit hits
+    // `/<path>/__data.json?...` on every soft nav; if we don't skip
+    // these, every navigation fires TWO page_views (initial SSR + the
+    // subsequent data-only fetch). The `Accept: application/json`
+    // check from the initial commit isn't reliable — SvelteKit sends
+    // default Accept. Filter on the URL shape + on SvelteKit's
+    // `isDataRequest` flag (set by the runtime for internal fetches).
+    if (
+      path.endsWith("/__data.json") ||
+      event.url.searchParams.has("x-sveltekit-invalidated") ||
+      // isDataRequest exists on SvelteKit >=2 for exactly this case
+      (event as unknown as { isDataRequest?: boolean }).isDataRequest === true
+    ) {
       return response;
     }
+    // Count only successful renders (2xx). 3xx redirects don't count
+    // as viewed pages — an auth redirect at `/admin` → `/admin/login`
+    // shouldn't inflate homepage view counts. 4xx/5xx errors also
+    // aren't real content-served pages.
+    if (response.status >= 300) return response;
     const env = event.platform?.env;
     if (!env) return response;
     const { track, buildEventContext } = await import(

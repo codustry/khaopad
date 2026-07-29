@@ -11,9 +11,12 @@
  * the cart to the user id automatically.
  */
 import { error, json } from "@sveltejs/kit";
+import { drizzle } from "drizzle-orm/d1";
+import { eq } from "drizzle-orm";
 import { CartService, CartError } from "$plugins/shop/cart-service";
 import { ensureCartSession } from "$plugins/shop/cart-cookie";
 import { ShopValidationError } from "$plugins/shop/service";
+import { shopProductVariants } from "$plugins/shop/schema";
 import { track, buildEventContext } from "$lib/server/analytics/track";
 import type { RequestHandler } from "./$types";
 
@@ -97,24 +100,39 @@ export const POST: RequestHandler = async ({ request, platform, cookies, locals,
       variantId: body.variantId,
       quantity,
     });
-    // Fire add_to_cart. Fire-and-forget — analytics failure never
-    // blocks the cart write.
-    void track(
-      env.DB,
-      "add_to_cart",
-      {
-        productId: item.variantId, // v3.3 stores variantId, dashboards can join to product
-        variantId: item.variantId,
-        quantity: item.quantity,
-        priceSatang: item.priceSatangAtAdd,
-      },
-      buildEventContext({
-        url,
-        request,
-        sessionId,
-        userId: locals.user?.id ?? null,
-      }),
-    );
+    // Fire add_to_cart tagged with the canonical productId (not the
+    // variantId — that broke the per-product dashboard's join).
+    // Resolve productId via a single-row select — cheap; fire-and-forget.
+    void (async () => {
+      try {
+        const dbLite = drizzle(env.DB);
+        const variantRow = await dbLite
+          .select({ productId: shopProductVariants.productId })
+          .from(shopProductVariants)
+          .where(eq(shopProductVariants.id, item.variantId))
+          .limit(1)
+          .get();
+        if (!variantRow) return;
+        await track(
+          env.DB,
+          "add_to_cart",
+          {
+            productId: variantRow.productId,
+            variantId: item.variantId,
+            quantity: item.quantity,
+            priceSatang: item.priceSatangAtAdd,
+          },
+          buildEventContext({
+            url,
+            request,
+            sessionId,
+            userId: locals.user?.id ?? null,
+          }),
+        );
+      } catch {
+        /* analytics failure never blocks — swallow */
+      }
+    })();
     return json({ ok: true, item });
   } catch (err) {
     if (err instanceof CartError) {

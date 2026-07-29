@@ -17,8 +17,8 @@ import { getPaymentProvider } from "$plugins/shop/payment";
 import { OrderService } from "$plugins/shop/order-service";
 import { sendOrderReceipt } from "$plugins/shop/email";
 import { drizzle } from "drizzle-orm/d1";
-import { eq } from "drizzle-orm";
-import { shopOrders } from "$plugins/shop/schema-cart";
+import { and, eq, desc } from "drizzle-orm";
+import { shopCarts, shopOrders } from "$plugins/shop/schema-cart";
 import { track, buildEventContext } from "$lib/server/analytics/track";
 import type { RequestHandler } from "./$types";
 
@@ -80,11 +80,23 @@ export const POST: RequestHandler = async ({ request, platform, url }) => {
       sendOrderReceipt(env, paid).catch(() => {
         /* email module already logs failures */
       });
-      // Fire analytics purchase event. The webhook has no cookies/URL
-      // context (Beam calls us server-to-server), so we synthesize a
-      // minimal context — session id falls back to the order id itself
-      // so per-session funnel queries don't lose the event; the shop
-      // funnel dashboard groups by attributedArticleId anyway.
+      // Fire analytics purchase event. Look up the cart that was
+      // ordered to reuse the visitor's session id — otherwise the
+      // funnel (product_view → add_to_cart → begin_checkout →
+      // purchase) can't join by session_id and conversion looks 0.
+      const cartRow = await drizzle(env.DB)
+        .select({ sessionId: shopCarts.sessionId })
+        .from(shopCarts)
+        .where(
+          and(
+            eq(shopCarts.email, paid.email),
+            eq(shopCarts.status, "ordered"),
+          ),
+        )
+        .orderBy(desc(shopCarts.updatedAt))
+        .limit(1)
+        .get();
+      const sessionIdForFunnel = cartRow?.sessionId ?? paid.id;
       await track(
         env.DB,
         "purchase",
@@ -97,7 +109,7 @@ export const POST: RequestHandler = async ({ request, platform, url }) => {
         buildEventContext({
           url,
           request,
-          sessionId: paid.id,
+          sessionId: sessionIdForFunnel,
           userId: paid.userId ?? null,
           locale: "en",
         }),
