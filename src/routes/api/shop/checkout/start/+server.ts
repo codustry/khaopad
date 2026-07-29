@@ -1,0 +1,90 @@
+/**
+ * POST /api/shop/checkout/start — start checkout.
+ *
+ * Flips the cart to `checkout_started`, reserves inventory for
+ * 15 minutes. Creates the order (status='pending', no charge yet).
+ * The next call — /api/shop/checkout/pay — creates the Beam charge
+ * and returns the payment URL/QR to the customer.
+ *
+ * Body: { email: string, shippingAddress?: OrderAddress, billingAddress?: OrderAddress }
+ * Returns: { orderId, orderNumber, reservations, expiresAt }
+ */
+import { error, json } from "@sveltejs/kit";
+import { CartService, CartError } from "$plugins/shop/cart-service";
+import { OrderService } from "$plugins/shop/order-service";
+import { ensureCartSession } from "$plugins/shop/cart-cookie";
+import { ShopValidationError } from "$plugins/shop/service";
+import type { RequestHandler } from "./$types";
+
+export const POST: RequestHandler = async ({ request, platform, cookies, locals }) => {
+  const env = platform?.env;
+  if (!env) throw error(503, "Platform not ready");
+
+  const body = (await request.json().catch(() => null)) as
+    | {
+        email?: string;
+        shippingAddress?: unknown;
+        billingAddress?: unknown;
+      }
+    | null;
+  const email = String(body?.email ?? "").trim();
+  if (!email || !email.includes("@")) {
+    return json(
+      { ok: false, code: "INVALID_EMAIL", message: "Valid email required" },
+      { status: 400 },
+    );
+  }
+
+  const sessionId = ensureCartSession(cookies);
+  const cartSvc = new CartService(env.DB);
+  const cart = await cartSvc.ensureCart({
+    sessionId,
+    userId: locals.user?.id,
+  });
+
+  try {
+    const { reservations } = await cartSvc.startCheckout({
+      cartId: cart.id,
+      email,
+    });
+
+    const orderSvc = new OrderService(env.DB);
+    const { orderId, orderNumber } = await orderSvc.createFromCart({
+      cartId: cart.id,
+      email,
+      providerName: "beam", // v3.2 default; #61 will let customer pick
+      shippingAddress: body?.shippingAddress as Parameters<
+        typeof orderSvc.createFromCart
+      >[0]["shippingAddress"],
+      billingAddress: body?.billingAddress as Parameters<
+        typeof orderSvc.createFromCart
+      >[0]["billingAddress"],
+    });
+
+    return json({
+      ok: true,
+      orderId,
+      orderNumber,
+      reservations,
+    });
+  } catch (err) {
+    if (err instanceof CartError) {
+      return json(
+        {
+          ok: false,
+          code: err.reason,
+          message: err.message,
+          cartItemId: err.cartItemId,
+        },
+        { status: 400 },
+      );
+    }
+    if (err instanceof ShopValidationError) {
+      return json(
+        { ok: false, code: err.code, message: err.message, field: err.field },
+        { status: 400 },
+      );
+    }
+    throw err;
+  }
+};
