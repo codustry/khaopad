@@ -57,6 +57,14 @@ declare global {
          * Triggers as `?token=<CRON_SECRET>`. Absent = cron endpoint 401s.
          */
         CRON_SECRET?: string;
+        /**
+         * Resend API key + verified sender for order receipt emails.
+         * Absent = checkout still succeeds, customer just doesn't
+         * receive a receipt (they can lookup via /order/[number]).
+         * Same provider as v2.0b newsletter.
+         */
+        RESEND_API_KEY?: string;
+        RESEND_FROM?: string;
       };
     }
   }

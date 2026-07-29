@@ -15,6 +15,7 @@
 import { json } from "@sveltejs/kit";
 import { getPaymentProvider } from "$plugins/shop/payment";
 import { OrderService } from "$plugins/shop/order-service";
+import { sendOrderReceipt } from "$plugins/shop/email";
 import { drizzle } from "drizzle-orm/d1";
 import { eq } from "drizzle-orm";
 import { shopOrders } from "$plugins/shop/schema-cart";
@@ -62,12 +63,20 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
   const orderSvc = new OrderService(env.DB);
   switch (verified.status) {
-    case "succeeded":
-      await orderSvc.markPaid({
+    case "succeeded": {
+      const paid = await orderSvc.markPaid({
         orderId: order.id,
         providerChargeId: verified.providerChargeId,
       });
+      // Fire the receipt email. Never awaited-blocking — Beam should
+      // get its 200 fast, and email delivery is best-effort. Silent
+      // no-op when Resend isn't configured.
+      // (waitUntil isn't in RequestHandler ctx; fire-and-forget.)
+      sendOrderReceipt(env, paid).catch(() => {
+        /* email module already logs failures */
+      });
       break;
+    }
     case "failed":
       await orderSvc.markCancelled({ orderId: order.id });
       break;
