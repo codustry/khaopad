@@ -53,6 +53,41 @@ export const POST: RequestHandler = async ({ request, platform, cookies, locals,
   });
 
   try {
+    // v3.5: read the discount code that may be stashed on the cart
+    // (via POST /api/shop/cart/discount). Re-validate at checkout time
+    // — the code might have hit its cap or expired between apply and
+    // checkout. Attribution stashes have `attribution:` prefix; only
+    // plain codes get applied here.
+    let discountSatang = 0;
+    let discountCodeSnapshot: string | null = null;
+    let discountId: string | null = null;
+    if (
+      cart.discountCode &&
+      !cart.discountCode.startsWith("attribution:")
+    ) {
+      const items = await cartSvc.listCartItems(cart.id);
+      const subtotal = items.reduce(
+        (sum, i) => sum + i.priceSatangAtAdd * i.quantity,
+        0,
+      );
+      const { validateDiscount } = await import("$plugins/shop/discount-service");
+      const outcome = await validateDiscount(env.DB, {
+        code: cart.discountCode,
+        subtotalSatang: subtotal,
+        shippingSatang: 0,
+        userId: locals.user?.id ?? null,
+        userEmail: email,
+      });
+      if (outcome.ok) {
+        discountSatang = outcome.amountSatang;
+        discountCodeSnapshot = outcome.discount.code;
+        discountId = outcome.discount.id;
+      }
+      // Silent no-op on invalidation — customer proceeds without
+      // discount rather than being blocked at the door. The receipt
+      // won't show a discount they didn't get.
+    }
+
     const { reservations } = await cartSvc.startCheckout({
       cartId: cart.id,
       email,
@@ -69,7 +104,28 @@ export const POST: RequestHandler = async ({ request, platform, cookies, locals,
       billingAddress: body?.billingAddress as Parameters<
         typeof orderSvc.createFromCart
       >[0]["billingAddress"],
+      discountSatang,
+      discountCodeSnapshot,
     });
+
+    // Stash the discount id on the cart's discountCode column too so
+    // the webhook can record the redemption. Format:
+    //   `<discountId>:<code>` when a discount is applied
+    //   `attribution:<articleId>` for v3.4 attribution
+    // The webhook parses both prefixes.
+    if (discountId && discountCodeSnapshot) {
+      const { drizzle } = await import("drizzle-orm/d1");
+      const { eq } = await import("drizzle-orm");
+      const { shopCarts } = await import("$plugins/shop/schema-cart");
+      try {
+        await drizzle(env.DB)
+          .update(shopCarts)
+          .set({ discountCode: `${discountId}:${discountCodeSnapshot}` })
+          .where(eq(shopCarts.id, cart.id));
+      } catch {
+        /* redemption tracking can miss — better than blocking checkout */
+      }
+    }
 
     // Track begin_checkout. Uses reservations for item count/subtotal
     // since we don't want to re-hydrate the cart just for analytics.

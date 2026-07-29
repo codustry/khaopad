@@ -130,6 +130,7 @@ export class CartService {
       status: "open" as const,
       checkoutStartedAt: null,
       discountCode: null,
+      recoveryEmailSentAt: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -604,5 +605,78 @@ export class CartService {
       .bind(nowIso, cutoff)
       .run();
     return (result.meta as { changes?: number })?.changes ?? 0;
+  }
+
+  /**
+   * v3.5: identify open carts eligible for a recovery email — 24h
+   * idle, has captured email, has items, hasn't been emailed yet.
+   * Returns the cart contexts so the caller (typically the cron
+   * endpoint) can fire the emails and update recoveryEmailSentAt.
+   *
+   * Excludes carts already flipped to abandoned by
+   * sweepAbandonedCarts (those are past the recovery window — a
+   * 30-day-old cart is unlikely to convert on a nudge).
+   */
+  async listCartsForRecoveryEmail(
+    now: Date = new Date(),
+    idleWindowMs = 24 * 60 * 60 * 1000,
+  ): Promise<
+    Array<{
+      cartId: string;
+      sessionId: string;
+      email: string;
+      items: ShopCartItemWithContext[];
+      subtotalSatang: number;
+    }>
+  > {
+    const cutoff = new Date(now.getTime() - idleWindowMs).toISOString();
+    // Candidates: open carts, updated before cutoff, with an email set,
+    // never emailed. Ceiling: 50 per sweep — an operator with many
+    // stale carts avoids a single-tick Resend burst.
+    const rows = await this.db
+      .select()
+      .from(shopCarts)
+      .where(
+        and(
+          eq(shopCarts.status, "open"),
+          isNull(shopCarts.recoveryEmailSentAt),
+          lt(shopCarts.updatedAt, cutoff),
+        ),
+      )
+      .limit(50)
+      .all();
+
+    const eligible: Array<{
+      cartId: string;
+      sessionId: string;
+      email: string;
+      items: ShopCartItemWithContext[];
+      subtotalSatang: number;
+    }> = [];
+    for (const cart of rows) {
+      if (!cart.email) continue;
+      const items = await this.listCartItems(cart.id);
+      if (items.length === 0) continue;
+      const subtotal = items.reduce(
+        (sum, i) => sum + i.priceSatangAtAdd * i.quantity,
+        0,
+      );
+      eligible.push({
+        cartId: cart.id,
+        sessionId: cart.sessionId,
+        email: cart.email,
+        items,
+        subtotalSatang: subtotal,
+      });
+    }
+    return eligible;
+  }
+
+  /** Mark a cart's recovery email as sent so the sweep skips it next tick. */
+  async markRecoveryEmailSent(cartId: string, sentAt: Date = new Date()): Promise<void> {
+    await this.db
+      .update(shopCarts)
+      .set({ recoveryEmailSentAt: sentAt.toISOString() })
+      .where(eq(shopCarts.id, cartId));
   }
 }

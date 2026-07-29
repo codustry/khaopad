@@ -78,9 +78,17 @@ export const shopCarts = sqliteTable(
     // Set when status flips to checkout_started — used to compute
     // reservation expiry (checkoutStartedAt + 15 minutes).
     checkoutStartedAt: text("checkout_started_at"),
-    // Optional discount code applied at checkout (v3.4 feature; column
-    // exists now so the shape is stable — no discount table until then).
+    // Multipurpose text column since v3.4:
+    //   - `attribution:<articleId>` (v3.4 federation stash)
+    //   - `<discountId>:<code>` (v3.5 discount, after checkout-start)
+    //   - Plain code string (v3.5, right after POST /cart/discount but
+    //     before checkout-start rewrites to the id:code form)
+    // Real v3.5+ discount codes have their own tables — this column
+    // now doubles as the cart's temporary bookkeeping slot.
     discountCode: text("discount_code"),
+    // v3.5: set once the recovery email has been sent for this cart.
+    // Prevents re-sending on every sweep tick. NULL = never sent.
+    recoveryEmailSentAt: text("recovery_email_sent_at"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },

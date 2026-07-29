@@ -19,7 +19,7 @@
  * up a placeholder route so the sidebar entry doesn't 404. The real
  * shop tables + admin CRUD land in follow-up sub-PRs.
  */
-import { ShoppingCart, Package, Boxes } from "lucide-svelte";
+import { ShoppingCart, Package, Boxes, Ticket } from "lucide-svelte";
 import { defineKhaopadPlugin } from "$lib/plugins/types";
 import { registerNavGroup } from "$lib/components/admin/sidebar-nav";
 import { registerWebhookEvent } from "$lib/plugins/webhook-events";
@@ -58,6 +58,12 @@ registerNavGroup({
       href: "/admin/shop/orders",
       label: () => "Orders",
       icon: ShoppingCart,
+      roles: ["super_admin", "admin"],
+    },
+    {
+      href: "/admin/shop/discounts",
+      label: () => "Discounts",
+      icon: Ticket,
       roles: ["super_admin", "admin"],
     },
   ],

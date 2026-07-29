@@ -22,8 +22,36 @@ async function runSweep(env: App.Platform["env"]) {
   const now = new Date();
   const releasedReservations = await svc.sweepExpiredReservations(now);
   const abandonedCarts = await svc.sweepAbandonedCarts(now);
+
+  // v3.5 recovery emails. Fire-and-forget per cart — one Resend
+  // request per eligible cart, mark sent so the next tick skips.
+  // Capped by listCartsForRecoveryEmail (50/tick) so a cold-start
+  // catch-up doesn't burst Resend.
+  let recoveryEmailsSent = 0;
+  try {
+    const { sendAbandonedCartEmail } = await import(
+      "$plugins/shop/abandoned-cart-email"
+    );
+    const eligible = await svc.listCartsForRecoveryEmail(now);
+    for (const cart of eligible) {
+      // Mark before sending. If the send fails we've burned this cart's
+      // one recovery attempt, which is the cheaper failure: marking
+      // after would re-send every minute to everyone whose delivery
+      // ambiguously failed (Resend accepted, connection dropped).
+      await svc.markRecoveryEmailSent(cart.cartId, now);
+      const ok = await sendAbandonedCartEmail(env, cart);
+      if (ok) recoveryEmailsSent++;
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[shop.cron] recovery email pass failed:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+
   const ms = Date.now() - startedAt;
-  return { releasedReservations, abandonedCarts, ms };
+  return { releasedReservations, abandonedCarts, recoveryEmailsSent, ms };
 }
 
 function guard(request: Request, env: App.Platform["env"]) {

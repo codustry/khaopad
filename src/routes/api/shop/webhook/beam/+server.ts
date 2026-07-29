@@ -105,8 +105,35 @@ export const POST: RequestHandler = async ({ request, platform, url }) => {
         .get();
       const sessionIdForFunnel = cartRow?.sessionId ?? paid.id;
       let attributedArticleId: string | undefined;
+      let discountRedemption:
+        | { discountId: string; code: string }
+        | undefined;
       if (cartRow?.discountCode?.startsWith("attribution:")) {
         attributedArticleId = cartRow.discountCode.slice("attribution:".length);
+      } else if (cartRow?.discountCode?.includes(":")) {
+        // v3.5 format: `<discountId>:<code>` stashed by checkout/start
+        const [id, ...rest] = cartRow.discountCode.split(":");
+        if (id && rest.length > 0) {
+          discountRedemption = { discountId: id, code: rest.join(":") };
+        }
+      }
+      // v3.5 record discount redemption on payment success. Idempotent
+      // via composite PK — webhook retries insert nothing new.
+      if (discountRedemption && paid.discountSatang > 0) {
+        try {
+          const { recordRedemption } = await import(
+            "$plugins/shop/discount-service"
+          );
+          await recordRedemption(env.DB, {
+            discountId: discountRedemption.discountId,
+            orderId: paid.id,
+            userId: paid.userId ?? null,
+            userEmail: paid.email,
+            amountSatang: paid.discountSatang,
+          });
+        } catch {
+          /* redemption tracking is best-effort — never fail an order over it */
+        }
       }
       await track(
         env.DB,
