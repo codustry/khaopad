@@ -16,6 +16,7 @@
  *     an admin+ session, not shipped as an API surface yet)
  */
 import { json, error } from "@sveltejs/kit";
+import { toLocale } from "$lib/i18n";
 import { ShopService } from "$plugins/shop/service";
 import type { RequestHandler } from "./$types";
 
@@ -23,7 +24,11 @@ export const GET: RequestHandler = async ({ platform, url }) => {
   const env = platform?.env;
   if (!env) throw error(503, "Platform not ready");
 
-  const locale = url.searchParams.get("locale") ?? "en";
+  // Validate locale against SUPPORTED_LOCALES; unknown values fall
+  // back to the default (`en`). Prevents echoing arbitrary garbage
+  // in the response and prevents future locale-scoped queries from
+  // reading a bogus value.
+  const locale = toLocale(url.searchParams.get("locale") ?? "en");
   const limitRaw = Number(url.searchParams.get("limit") ?? "20");
   const offsetRaw = Number(url.searchParams.get("offset") ?? "0");
   const limit = Math.max(1, Math.min(100, Number.isFinite(limitRaw) ? limitRaw : 20));

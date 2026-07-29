@@ -493,6 +493,23 @@ export class ShopService {
       );
     }
 
+    // Pre-check slug uniqueness so callers get a nice validation error
+    // instead of a D1 UNIQUE constraint 500. Race between two creates
+    // for the same slug: one wins, the second hits the D1 UNIQUE at
+    // insert time — the catch below rethrows as ShopValidationError.
+    const existing = await this.db
+      .select({ id: shopProducts.id })
+      .from(shopProducts)
+      .where(eq(shopProducts.slug, slug))
+      .limit(1)
+      .get();
+    if (existing) {
+      throw new ShopValidationError(
+        `A product with slug "${slug}" already exists. Choose a different title or set an explicit slug.`,
+        "slug",
+      );
+    }
+
     const productId = nanoid();
     const now = nowIso();
     const publishedAt =
@@ -611,20 +628,37 @@ export class ShopService {
     // insert fails, cascading FKs mean deleting the product row cleans
     // up everything downstream — see `deleteProduct()`. Full D1 batch
     // atomicity is a v3.2 concern (wrap in this.d1.batch() then).
-    await this.db.insert(shopProducts).values({
-      id: productId,
-      slug,
-      status: input.status ?? "draft",
-      vendor: input.vendor ?? null,
-      productType: input.productType ?? null,
-      tags: input.tags ? JSON.stringify(input.tags) : null,
-      featuredMediaId: input.featuredMediaId ?? null,
-      seoTitle: input.seoTitle ?? null,
-      seoDescription: input.seoDescription ?? null,
-      createdAt: now,
-      updatedAt: now,
-      publishedAt,
-    });
+    //
+    // The pre-check above catches the common slug-collision case, but
+    // a race between two concurrent creates for the same slug still
+    // lands here — one wins, the other's INSERT trips the D1 UNIQUE
+    // constraint. Catch and rethrow as ShopValidationError so the
+    // caller gets a nice 400 instead of a 500 with a leaked D1 error.
+    try {
+      await this.db.insert(shopProducts).values({
+        id: productId,
+        slug,
+        status: input.status ?? "draft",
+        vendor: input.vendor ?? null,
+        productType: input.productType ?? null,
+        tags: input.tags ? JSON.stringify(input.tags) : null,
+        featuredMediaId: input.featuredMediaId ?? null,
+        seoTitle: input.seoTitle ?? null,
+        seoDescription: input.seoDescription ?? null,
+        createdAt: now,
+        updatedAt: now,
+        publishedAt,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("UNIQUE") && msg.includes("shop_products.slug")) {
+        throw new ShopValidationError(
+          `A product with slug "${slug}" already exists.`,
+          "slug",
+        );
+      }
+      throw err;
+    }
     await this.db.insert(shopProductLocalizations).values(
       Object.entries(input.localizations).map(([locale, loc]) => ({
         productId,

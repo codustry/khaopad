@@ -59,11 +59,15 @@ export const GET: RequestHandler = async ({ platform, params }) => {
         // Inventory: onHand + reserved intentionally omitted from the
         // public API — reveals ops data. Only "available" (as a bool)
         // and "count" (when >10, exact number would leak stock signal).
+        // Clamp to 0 before masking: continue-selling variants can go
+        // negative (available = on_hand - reserved past on_hand); a
+        // negative stockCount in the public payload leaks that state.
         inStock: (v.inventory?.available ?? 0) > 0,
-        stockCount:
-          (v.inventory?.available ?? 0) > 10
-            ? null
-            : (v.inventory?.available ?? 0),
+        stockCount: (() => {
+          const raw = v.inventory?.available ?? 0;
+          const clamped = Math.max(0, raw);
+          return clamped > 10 ? null : clamped;
+        })(),
       })),
     },
     {

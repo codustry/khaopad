@@ -22,7 +22,7 @@
  *     admin can see how many pre-orders are outstanding.
  */
 import { drizzle } from "drizzle-orm/d1";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   shopInventoryItems,
   shopInventoryLevels,
@@ -70,29 +70,20 @@ export async function reserveVariant(
   if (!item.tracked) return { ok: false, reason: "NOT_TRACKED" };
 
   // Continue-selling variants: bump reserved unconditionally.
+  // RETURNING gives us the post-update counts atomically in the same
+  // statement — no race where a follow-up SELECT sees a different
+  // increment from a concurrent reserver.
   if (item.continueSellingWhenOutOfStock) {
-    await db
-      .update(shopInventoryLevels)
-      .set({
-        reserved: sql`${shopInventoryLevels.reserved} + ${qty}`,
-      })
-      .where(
-        and(
-          eq(shopInventoryLevels.itemId, item.id),
-          eq(shopInventoryLevels.locationId, "default"),
-        ),
-      );
-    const after = await db
-      .select()
-      .from(shopInventoryLevels)
-      .where(
-        and(
-          eq(shopInventoryLevels.itemId, item.id),
-          eq(shopInventoryLevels.locationId, "default"),
-        ),
+    const rows = await d1
+      .prepare(
+        `UPDATE shop_inventory_levels
+         SET reserved = reserved + ?1
+         WHERE item_id = ?2 AND location_id = 'default'
+         RETURNING on_hand AS onHand, reserved`,
       )
-      .limit(1)
-      .get();
+      .bind(qty, item.id)
+      .all<{ onHand: number; reserved: number }>();
+    const after = rows.results?.[0];
     if (!after) return { ok: false, reason: "NO_INVENTORY" };
     return { ok: true, onHand: after.onHand, reserved: after.reserved };
   }
@@ -103,34 +94,24 @@ export async function reserveVariant(
   //   available = on_hand - reserved
   //   Only apply the +qty if available >= qty
   // If two carts race for the last unit, exactly one WHERE evaluates
-  // true; the other's changes count is 0 → OUT_OF_STOCK.
-  const result = await d1
+  // true; the other's RETURNING is empty → OUT_OF_STOCK.
+  // Using RETURNING (not a follow-up SELECT) so the returned counts
+  // reflect *this* reserver's post-state, not whatever a concurrent
+  // reserver's update landed after.
+  const rows = await d1
     .prepare(
       `UPDATE shop_inventory_levels
        SET reserved = reserved + ?1
        WHERE item_id = ?2
          AND location_id = 'default'
-         AND (on_hand - reserved) >= ?1`,
+         AND (on_hand - reserved) >= ?1
+       RETURNING on_hand AS onHand, reserved`,
     )
     .bind(qty, item.id)
-    .run();
+    .all<{ onHand: number; reserved: number }>();
 
-  const changed =
-    (result.meta as { changes?: number } | undefined)?.changes ?? 0;
-  if (changed === 0) return { ok: false, reason: "OUT_OF_STOCK" };
-
-  const after = await db
-    .select()
-    .from(shopInventoryLevels)
-    .where(
-      and(
-        eq(shopInventoryLevels.itemId, item.id),
-        eq(shopInventoryLevels.locationId, "default"),
-      ),
-    )
-    .limit(1)
-    .get();
-  if (!after) return { ok: false, reason: "NO_INVENTORY" };
+  const after = rows.results?.[0];
+  if (!after) return { ok: false, reason: "OUT_OF_STOCK" };
   return { ok: true, onHand: after.onHand, reserved: after.reserved };
 }
 
@@ -163,27 +144,19 @@ export async function releaseVariant(
     .get();
   if (!item) throw new Error(`No inventory item for variant ${variantId}`);
 
-  // Clamp: max(reserved - qty, 0).
-  await d1
+  // Clamp: max(reserved - qty, 0). RETURNING gives us the atomic
+  // post-state so a concurrent reserver's update doesn't skew the
+  // reported counts.
+  const rows = await d1
     .prepare(
       `UPDATE shop_inventory_levels
        SET reserved = MAX(reserved - ?1, 0)
-       WHERE item_id = ?2 AND location_id = 'default'`,
+       WHERE item_id = ?2 AND location_id = 'default'
+       RETURNING on_hand AS onHand, reserved`,
     )
     .bind(qty, item.id)
-    .run();
-
-  const after = await db
-    .select()
-    .from(shopInventoryLevels)
-    .where(
-      and(
-        eq(shopInventoryLevels.itemId, item.id),
-        eq(shopInventoryLevels.locationId, "default"),
-      ),
-    )
-    .limit(1)
-    .get();
+    .all<{ onHand: number; reserved: number }>();
+  const after = rows.results?.[0];
   if (!after) throw new Error(`No inventory level for variant ${variantId}`);
   return { onHand: after.onHand, reserved: after.reserved };
 }
@@ -216,17 +189,9 @@ export async function commitVariantSale(
     .get();
   if (!item) throw new Error(`No inventory item for variant ${variantId}`);
 
-  await d1
-    .prepare(
-      `UPDATE shop_inventory_levels
-       SET on_hand = MAX(on_hand - ?1, 0),
-           reserved = MAX(reserved - ?1, 0)
-       WHERE item_id = ?2 AND location_id = 'default'`,
-    )
-    .bind(qty, item.id)
-    .run();
-
-  const after = await db
+  // Read pre-state so we can log accounting divergence (reserved
+  // clamped means the reservation was mismatched — books off).
+  const pre = await db
     .select()
     .from(shopInventoryLevels)
     .where(
@@ -237,6 +202,32 @@ export async function commitVariantSale(
     )
     .limit(1)
     .get();
+  if (pre) {
+    if (pre.onHand < qty) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[shop.inventory] commitVariantSale silently clamps on_hand for variant ${variantId}: on_hand=${pre.onHand}, qty=${qty}`,
+      );
+    }
+    if (pre.reserved < qty) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[shop.inventory] commitVariantSale silently clamps reserved for variant ${variantId}: reserved=${pre.reserved}, qty=${qty}. Books likely off — reservation may have been double-released.`,
+      );
+    }
+  }
+
+  const rows = await d1
+    .prepare(
+      `UPDATE shop_inventory_levels
+       SET on_hand = MAX(on_hand - ?1, 0),
+           reserved = MAX(reserved - ?1, 0)
+       WHERE item_id = ?2 AND location_id = 'default'
+       RETURNING on_hand AS onHand, reserved`,
+    )
+    .bind(qty, item.id)
+    .all<{ onHand: number; reserved: number }>();
+  const after = rows.results?.[0];
   if (!after) throw new Error(`No inventory level for variant ${variantId}`);
   return { onHand: after.onHand, reserved: after.reserved };
 }

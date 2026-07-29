@@ -7,7 +7,8 @@
  */
 import { error, json } from "@sveltejs/kit";
 import { drizzle } from "drizzle-orm/d1";
-import { and, eq, inArray, count } from "drizzle-orm";
+import { eq, inArray, count } from "drizzle-orm";
+import { toLocale } from "$lib/i18n";
 import {
   shopCollectionLocalizations,
   shopCollectionProducts,
@@ -20,7 +21,7 @@ export const GET: RequestHandler = async ({ platform, url }) => {
   if (!env) throw error(503, "Platform not ready");
   const db = drizzle(env.DB);
 
-  const locale = url.searchParams.get("locale") ?? "en";
+  const locale = toLocale(url.searchParams.get("locale") ?? "en");
 
   const collections = await db
     .select()

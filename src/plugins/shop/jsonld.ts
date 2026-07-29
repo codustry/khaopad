@@ -42,6 +42,20 @@ export type ProductJsonLdInput = {
 };
 
 /**
+ * Escape any `<` in JSON output so an embedded `</script>` in the
+ * source data cannot break out of a `<script type="application/ld+json">`
+ * container and execute attacker-controlled HTML. Classic stored-XSS
+ * vector for JSON-LD.
+ *
+ * `JSON.stringify` does NOT escape `<` by default — this replace runs
+ * on the finished string to catch every occurrence regardless of where
+ * in the JSON structure it landed.
+ */
+function escapeForScriptTag(json: string): string {
+  return json.replace(/</g, "\\u003c");
+}
+
+/**
  * Emit Product + Offer JSON-LD. When there's one variant, uses a
  * single Offer. When there are multiple, uses AggregateOffer with
  * lowPrice/highPrice/offerCount. Google's Rich Results validates
@@ -97,7 +111,7 @@ export function buildProductJsonLd(input: ProductJsonLdInput): string {
     };
   }
 
-  return JSON.stringify(base);
+  return escapeForScriptTag(JSON.stringify(base));
 }
 
 export type CollectionJsonLdInput = {
@@ -116,16 +130,18 @@ export function buildCollectionJsonLd(input: CollectionJsonLdInput): string {
     position: i + 1,
     url: `${input.siteOrigin}/products/${slug}`,
   }));
-  return JSON.stringify({
-    "@context": "https://schema.org",
-    "@type": "CollectionPage",
-    name: input.title,
-    url: canonicalUrl,
-    ...(input.description ? { description: input.description } : {}),
-    mainEntity: {
-      "@type": "ItemList",
-      itemListElement: items,
-      numberOfItems: items.length,
-    },
-  });
+  return escapeForScriptTag(
+    JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": "CollectionPage",
+      name: input.title,
+      url: canonicalUrl,
+      ...(input.description ? { description: input.description } : {}),
+      mainEntity: {
+        "@type": "ItemList",
+        itemListElement: items,
+        numberOfItems: items.length,
+      },
+    }),
+  );
 }
