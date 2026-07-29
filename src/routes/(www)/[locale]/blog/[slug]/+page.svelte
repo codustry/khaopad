@@ -2,8 +2,13 @@
 	import { formatDate } from '$lib/utils';
 	import ResponsiveImage from '$lib/components/media/ResponsiveImage.svelte';
 	import CommentSection from '$lib/components/comments/CommentSection.svelte';
+	import ArticleReadTracker from '$lib/analytics/ArticleReadTracker.svelte';
 	let { data } = $props();
 </script>
+
+{#if data.articleId}
+	<ArticleReadTracker articleId={data.articleId} />
+{/if}
 
 <!-- SEO is handled by the layout's <Seo /> component (full meta + Article JSON-LD). -->
 

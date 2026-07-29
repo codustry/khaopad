@@ -408,6 +408,75 @@ const pluginInitHook: Handle = async ({ event, resolve }) => {
   return resolve(event);
 };
 
+/**
+ * Analytics page_view hook — fires ONCE per public HTML page load.
+ *
+ * Skip conditions (in order of frequency):
+ *   - Non-GET (POST/PATCH/DELETE/etc. — not a page view)
+ *   - Admin surface (/admin/* — internal traffic, not audience metric)
+ *   - API routes (/api/* — data endpoints, not pages)
+ *   - Static asset paths (favicon, sitemap.xml, robots.txt, RSS)
+ *   - Response with Accept header pointing at JSON (SvelteKit client
+ *     navigation prefetch fetches JSON, not HTML)
+ *
+ * Fired AFTER resolve() so the response status is known — a 4xx/5xx
+ * doesn't count as a page view. Fire-and-forget: never blocks the
+ * response.
+ */
+const analyticsPageViewHook: Handle = async ({ event, resolve }) => {
+  const response = await resolve(event);
+  // Late-bind the import so a broken analytics module never breaks
+  // the whole hook chain.
+  try {
+    if (event.request.method !== "GET") return response;
+    if (event.locals.surface === "admin") return response;
+    if (!event.locals.platformReady) return response;
+    const path = event.url.pathname;
+    if (
+      path.startsWith("/api/") ||
+      path.startsWith("/_app/") ||
+      path === "/favicon.png" ||
+      path === "/favicon.ico" ||
+      path === "/robots.txt" ||
+      path.startsWith("/sitemap") ||
+      path.startsWith("/feed")
+    ) {
+      return response;
+    }
+    if (response.status >= 400) return response;
+    // JSON client-navigation fetches (data.json) — skip.
+    const accept = event.request.headers.get("accept") ?? "";
+    if (accept.includes("application/json") && !accept.includes("text/html")) {
+      return response;
+    }
+    const env = event.platform?.env;
+    if (!env) return response;
+    const { track, buildEventContext } = await import(
+      "$lib/server/analytics/track"
+    );
+    const { ensureCartSession } = await import(
+      "$plugins/shop/cart-cookie"
+    );
+    const sessionId = ensureCartSession(event.cookies);
+    const localeMatch = /^\/([a-z]{2})\//.exec(path);
+    void track(
+      env.DB,
+      "page_view",
+      { title: undefined },
+      buildEventContext({
+        url: event.url,
+        request: event.request,
+        sessionId,
+        userId: event.locals.user?.id ?? null,
+        locale: localeMatch?.[1] ?? event.locals.locale ?? "en",
+      }),
+    );
+  } catch {
+    /* analytics failure never blocks a request */
+  }
+  return response;
+};
+
 export const handle = sequence(
   surfaceHook,
   bindingsHook,
@@ -417,4 +486,5 @@ export const handle = sequence(
   authHook,
   cacheHook,
   securityHeadersHook,
+  analyticsPageViewHook,
 );
