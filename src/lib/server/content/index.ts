@@ -11,6 +11,18 @@ import { D1ContentProvider } from "./providers/d1";
  */
 export function createContentProvider(
   env: App.Platform["env"],
+  ctx?: { waitUntil?: (p: Promise<unknown>) => void },
 ): ContentProvider {
-  return new D1ContentProvider(env.DB);
+  // CONTENT_CACHE is optional — passing it in lets the provider
+  // invalidate cached populate payloads on write (Phase 1, #68 §D).
+  // Without it the provider behaves exactly as it did before.
+  //
+  // `waitUntil` (from the Worker's execution context) keeps that
+  // invalidation alive past the response. Absent it, invalidation still
+  // runs, it just isn't guaranteed to finish.
+  return new D1ContentProvider(
+    env.DB,
+    env.CONTENT_CACHE,
+    ctx?.waitUntil ? ctx.waitUntil.bind(ctx) : undefined,
+  );
 }

@@ -35,6 +35,17 @@ declare global {
     }
 
     interface Platform {
+      /**
+       * Worker execution context, supplied by
+       * @sveltejs/adapter-cloudflare. `waitUntil` keeps background work
+       * (e.g. cache invalidation after a write) alive past the
+       * response, which the isolate would otherwise be free to cancel.
+       * Optional because it is absent under `vite dev` without
+       * bindings.
+       */
+      context?: {
+        waitUntil(promise: Promise<unknown>): void;
+      };
       env: {
         DB: D1Database;
         MEDIA_BUCKET: R2Bucket;

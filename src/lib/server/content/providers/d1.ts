@@ -13,7 +13,11 @@ import {
 } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { generateSlugFromTitle, slugify } from "$lib/utils";
+import { QueryCache } from "../query/cache";
 import * as schema from "../schema";
+
+/** D1 binds at most 100 parameters per statement. See `loadChunked`. */
+const D1_MAX_BIND_PARAMS = 100;
 import type {
   ContentProvider,
   ArticleRecord,
@@ -62,9 +66,74 @@ import type {
 
 export class D1ContentProvider implements ContentProvider {
   private db: DrizzleD1Database<typeof schema>;
+  /**
+   * Populate-payload cache (Phase 1, #68 §D). Optional: when no KV
+   * binding is available (tests, local dev without bindings) the
+   * provider works exactly as before and every read goes to D1.
+   */
+  private cache: QueryCache | null;
+  /**
+   * Workers tears the isolate down once the response is returned, which
+   * can cancel a still-pending KV write. `waitUntil` keeps the
+   * invalidation alive past the response — without it a write can
+   * return 200 while its cache-invalidation never lands, pinning stale
+   * content for the full TTL.
+   */
+  private waitUntil: ((p: Promise<unknown>) => void) | null;
 
-  constructor(d1: D1Database) {
+  constructor(
+    d1: D1Database,
+    kv?: KVNamespace,
+    waitUntil?: (p: Promise<unknown>) => void,
+  ) {
     this.db = drizzle(d1, { schema });
+    this.cache = kv ? new QueryCache(kv) : null;
+    this.waitUntil = waitUntil ?? null;
+  }
+
+  /**
+   * Drop cached populate payloads that read these collections.
+   *
+   * Invalidation lives here, in the provider, rather than in each
+   * admin route: this is the one chokepoint every write already passes
+   * through, so a new write path can't forget to call it.
+   *
+   * Non-blocking but not abandoned — handed to `waitUntil` where it's
+   * available so it survives the response. A failed invalidation must
+   * never fail the write; the per-key TTL bounds the damage.
+   */
+  private invalidate(...collections: string[]): void {
+    if (!this.cache) return;
+    const pending = this.cache.invalidateMany(collections);
+    if (this.waitUntil) this.waitUntil(pending);
+    else void pending;
+  }
+
+  /**
+   * Run an `inArray` load in chunks that respect D1's 100-bound-
+   * parameter ceiling.
+   *
+   * Batching these loads is what makes them fast (see `hydrateArticles`),
+   * but it's also what introduces the limit: the per-row versions bound
+   * exactly one id and could never hit it. `listCategories`/`listTags`
+   * are the sharp edge — they bind every row in the table, so without
+   * chunking the public site starts 500ing once a site has ~100 tags.
+   *
+   * Sequential by design: D1 counts each statement against the
+   * per-invocation query budget, so fanning chunks out in parallel
+   * trades one limit for another.
+   */
+  private async loadChunked<T>(
+    ids: string[],
+    load: (chunk: string[]) => Promise<T[]>,
+  ): Promise<T[]> {
+    if (ids.length === 0) return [];
+    if (ids.length <= D1_MAX_BIND_PARAMS) return load(ids);
+    const out: T[] = [];
+    for (let i = 0; i < ids.length; i += D1_MAX_BIND_PARAMS) {
+      out.push(...(await load(ids.slice(i, i + D1_MAX_BIND_PARAMS))));
+    }
+    return out;
   }
 
   // ─── Articles ──────────────────────────────────────────
@@ -125,7 +194,15 @@ export class D1ContentProvider implements ContentProvider {
       );
     }
 
-    // Tag filter requires a subquery
+    // Tag filter requires a subquery.
+    //
+    // KNOWN LIMIT (pre-existing, not introduced by the Phase 1 batching):
+    // the id list below is bound as one parameter per id, so a tag
+    // applied to more than ~100 articles exceeds D1's bound-parameter
+    // ceiling. Unlike the batched *loads* elsewhere in this file, this
+    // is a WHERE condition and can't be chunked without either running
+    // the page query N times or rewriting it as a real SQL subquery /
+    // join. Left alone deliberately rather than half-fixed.
     let articleIdsWithTag: string[] | undefined;
     if (tagId) {
       const tagRows = await this.db
@@ -173,9 +250,11 @@ export class D1ContentProvider implements ContentProvider {
         .get(),
     ]);
 
-    const items = await Promise.all(
-      articles.map((a) => this.hydrateArticle(a)),
-    );
+    // Batched hydration — was `articles.map(a => this.hydrateArticle(a))`,
+    // which fired 2 queries per row (localizations + tags), making a
+    // 20-item list 1 + 40 queries (#68 §1.4). Now 2 queries total,
+    // flat in the number of rows.
+    const items = await this.hydrateArticles(articles);
 
     return {
       items,
@@ -183,6 +262,78 @@ export class D1ContentProvider implements ContentProvider {
       page,
       limit,
     };
+  }
+
+  /**
+   * Hydrate many articles with a fixed number of queries.
+   *
+   * Collects every article id up front and issues ONE localizations
+   * query and ONE tags query for the whole page, then stitches in
+   * memory. Same output as calling `hydrateArticle` per row — this is
+   * purely a query-count fix, not a behaviour change.
+   *
+   * Kept here (rather than routed through the new QueryEngine) so the
+   * fix applies to every existing caller of `listArticles` without any
+   * of them changing. The engine is the forward path; this is the
+   * back-compatible one.
+   */
+  private async hydrateArticles(
+    articles: (typeof schema.articles.$inferSelect)[],
+  ): Promise<ArticleRecord[]> {
+    if (articles.length === 0) return [];
+    const ids = articles.map((a) => a.id);
+
+    const [localizations, tagRows] = await Promise.all([
+      this.loadChunked(ids, (chunk) =>
+        this.db
+          .select()
+          .from(schema.articleLocalizations)
+          .where(inArray(schema.articleLocalizations.articleId, chunk))
+          .all(),
+      ),
+      this.loadChunked(ids, (chunk) =>
+        this.db
+          .select()
+          .from(schema.articleTags)
+          .where(inArray(schema.articleTags.articleId, chunk))
+          .all(),
+      ),
+    ]);
+
+    const locsByArticle = new Map<string, ArticleRecord["localizations"]>();
+    for (const loc of localizations) {
+      const bucket = locsByArticle.get(loc.articleId) ?? {};
+      bucket[loc.locale as Locale] = {
+        title: loc.title,
+        excerpt: loc.excerpt ?? "",
+        body: loc.body,
+        seoTitle: loc.seoTitle ?? undefined,
+        seoDescription: loc.seoDescription ?? undefined,
+      };
+      locsByArticle.set(loc.articleId, bucket);
+    }
+
+    const tagsByArticle = new Map<string, string[]>();
+    for (const row of tagRows) {
+      const list = tagsByArticle.get(row.articleId) ?? [];
+      list.push(row.tagId);
+      tagsByArticle.set(row.articleId, list);
+    }
+
+    return articles.map((article) => ({
+      id: article.id,
+      slug: article.slug,
+      coverMediaId: article.coverMediaId,
+      categoryId: article.categoryId,
+      status: article.status as ArticleRecord["status"],
+      authorId: article.authorId,
+      publishedAt: article.publishedAt,
+      commentsMode: article.commentsMode as ArticleRecord["commentsMode"],
+      createdAt: article.createdAt,
+      updatedAt: article.updatedAt,
+      tagIds: tagsByArticle.get(article.id) ?? [],
+      localizations: locsByArticle.get(article.id) ?? {},
+    }));
   }
 
   /**
@@ -397,6 +548,8 @@ export class D1ContentProvider implements ContentProvider {
       }
     }
 
+    this.invalidate("articles");
+
     return (await this.getArticle(id))!;
   }
 
@@ -525,11 +678,14 @@ export class D1ContentProvider implements ContentProvider {
       }
     }
 
+    this.invalidate("articles");
+
     return (await this.getArticle(id))!;
   }
 
   async deleteArticle(id: string): Promise<void> {
     await this.db.delete(schema.articles).where(eq(schema.articles.id, id));
+    this.invalidate("articles");
   }
 
   private async hydrateArticle(
@@ -589,8 +745,37 @@ export class D1ContentProvider implements ContentProvider {
   }
 
   async listCategories(): Promise<CategoryRecord[]> {
+    // 2 queries total, not 1 + N. This runs on every blog page render,
+    // so the per-row version cost one query per category site-wide.
     const cats = await this.db.select().from(schema.categories).all();
-    return Promise.all(cats.map((c) => this.hydrateCategory(c)));
+    if (cats.length === 0) return [];
+
+    const locs = await this.loadChunked(
+      cats.map((c) => c.id),
+      (chunk) =>
+        this.db
+          .select()
+          .from(schema.categoryLocalizations)
+          .where(inArray(schema.categoryLocalizations.categoryId, chunk))
+          .all(),
+    );
+
+    const byCategory = new Map<string, CategoryRecord["localizations"]>();
+    for (const loc of locs) {
+      const bucket = byCategory.get(loc.categoryId) ?? {};
+      bucket[loc.locale as Locale] = {
+        name: loc.name,
+        description: loc.description ?? undefined,
+      };
+      byCategory.set(loc.categoryId, bucket);
+    }
+
+    return cats.map((c) => ({
+      id: c.id,
+      slug: c.slug,
+      createdAt: c.createdAt,
+      localizations: byCategory.get(c.id) ?? {},
+    }));
   }
 
   async createCategory(data: {
@@ -613,6 +798,8 @@ export class D1ContentProvider implements ContentProvider {
         description: content.description,
       });
     }
+
+    this.invalidate("categories", "articles");
 
     return (await this.getCategory(id))!;
   }
@@ -659,11 +846,16 @@ export class D1ContentProvider implements ContentProvider {
       }
     }
 
+    this.invalidate("categories", "articles");
+
     return (await this.getCategory(id))!;
   }
 
   async deleteCategory(id: string): Promise<void> {
     await this.db.delete(schema.categories).where(eq(schema.categories.id, id));
+    // Articles embed their category when populated, so their cached
+    // payloads are stale too.
+    this.invalidate("categories", "articles");
   }
 
   private async hydrateCategory(
@@ -705,8 +897,34 @@ export class D1ContentProvider implements ContentProvider {
   }
 
   async listTags(): Promise<TagRecord[]> {
+    // 2 queries total, not 1 + N — same fix as listCategories, and the
+    // same hot path (tag chips render on every blog index).
     const allTags = await this.db.select().from(schema.tags).all();
-    return Promise.all(allTags.map((t) => this.hydrateTag(t)));
+    if (allTags.length === 0) return [];
+
+    const locs = await this.loadChunked(
+      allTags.map((t) => t.id),
+      (chunk) =>
+        this.db
+          .select()
+          .from(schema.tagLocalizations)
+          .where(inArray(schema.tagLocalizations.tagId, chunk))
+          .all(),
+    );
+
+    const byTag = new Map<string, TagRecord["localizations"]>();
+    for (const loc of locs) {
+      const bucket = byTag.get(loc.tagId) ?? {};
+      bucket[loc.locale as Locale] = { name: loc.name };
+      byTag.set(loc.tagId, bucket);
+    }
+
+    return allTags.map((t) => ({
+      id: t.id,
+      slug: t.slug,
+      createdAt: t.createdAt,
+      localizations: byTag.get(t.id) ?? {},
+    }));
   }
 
   async createTag(data: {
@@ -725,6 +943,8 @@ export class D1ContentProvider implements ContentProvider {
         name: content.name,
       });
     }
+
+    this.invalidate("tags", "articles");
 
     return (await this.getTag(id))!;
   }
@@ -770,11 +990,14 @@ export class D1ContentProvider implements ContentProvider {
       }
     }
 
+    this.invalidate("tags", "articles");
+
     return (await this.getTag(id))!;
   }
 
   async deleteTag(id: string): Promise<void> {
     await this.db.delete(schema.tags).where(eq(schema.tags.id, id));
+    this.invalidate("tags", "articles");
   }
 
   private async hydrateTag(
@@ -1083,6 +1306,7 @@ export class D1ContentProvider implements ContentProvider {
         seoDescription: content.seoDescription ?? null,
       });
     }
+    this.invalidate("pages");
     return (await this.getPage(id))!;
   }
 
@@ -1141,11 +1365,13 @@ export class D1ContentProvider implements ContentProvider {
         }
       }
     }
+    this.invalidate("pages");
     return (await this.getPage(id))!;
   }
 
   async deletePage(id: string): Promise<void> {
     await this.db.delete(schema.pages).where(eq(schema.pages.id, id));
+    this.invalidate("pages");
   }
 
   private async hydratePage(

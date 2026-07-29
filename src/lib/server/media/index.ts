@@ -17,6 +17,14 @@ export class R2MediaService implements MediaService {
     d1: D1Database,
     private bucket: R2Bucket,
     private publicBaseUrl: string, // e.g. https://cdn.example.com or /api/media
+    /**
+     * Called after any write that changes a media row. Media is a
+     * populate target (`articles.coverMedia`), so cached article
+     * payloads embed its filename and alt text — without this,
+     * replacing an image or fixing alt text would not reach an
+     * already-warm cache entry until its TTL expired.
+     */
+    private onMediaChanged?: () => void,
   ) {
     this.db = drizzle(d1, { schema });
   }
@@ -70,6 +78,7 @@ export class R2MediaService implements MediaService {
       uploadedBy: input.uploadedBy ?? null,
     });
 
+    this.onMediaChanged?.();
     return (await this.get(id))!;
   }
 
@@ -82,6 +91,7 @@ export class R2MediaService implements MediaService {
 
     // Delete from D1
     await this.db.delete(schema.media).where(eq(schema.media.id, id));
+    this.onMediaChanged?.();
   }
 
   async move(id: string, folderId: string | null): Promise<MediaRecord> {
@@ -89,6 +99,7 @@ export class R2MediaService implements MediaService {
       .update(schema.media)
       .set({ folderId })
       .where(eq(schema.media.id, id));
+    this.onMediaChanged?.();
     return (await this.get(id))!;
   }
 
@@ -157,6 +168,9 @@ export class R2MediaService implements MediaService {
     await this.db
       .delete(schema.mediaFolders)
       .where(eq(schema.mediaFolders.id, id));
+    // Detaching the folder rewrote media rows, so cached payloads that
+    // embedded them are stale.
+    this.onMediaChanged?.();
   }
 
   private toRecord(row: typeof schema.media.$inferSelect): MediaRecord {

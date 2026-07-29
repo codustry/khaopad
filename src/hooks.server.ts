@@ -9,6 +9,7 @@ import {
   validatePlatformEnv,
 } from "$lib/server/config/platform-status";
 import { createContentProvider } from "$lib/server/content";
+import { QueryCache } from "$lib/server/content/query/cache";
 import { localeFromPathname } from "$lib/i18n";
 import { R2MediaService } from "$lib/server/media";
 import { initPlugins } from "$lib/plugins";
@@ -65,7 +66,12 @@ const bindingsHook: Handle = async ({ event, resolve }) => {
   }
 
   try {
-    event.locals.content = createContentProvider(env!);
+    // `platform.context` carries the Worker execution context; passing
+    // it lets cache invalidation outlive the response (Phase 1, #68).
+    event.locals.content = createContentProvider(
+      env!,
+      event.platform?.context,
+    );
 
     const mediaBaseUrl =
       event.locals.subdomain === "admin"
@@ -75,6 +81,20 @@ const bindingsHook: Handle = async ({ event, resolve }) => {
       env!.DB,
       env!.MEDIA_BUCKET,
       mediaBaseUrl,
+      // Media is a populate target (articles.coverMedia), so a media
+      // write has to drop cached article payloads that embedded it.
+      () => {
+        if (!env!.CONTENT_CACHE) return;
+        const pending = new QueryCache(env!.CONTENT_CACHE).invalidateMany([
+          "media",
+          "articles",
+        ]);
+        if (event.platform?.context?.waitUntil) {
+          event.platform.context.waitUntil(pending);
+        } else {
+          void pending;
+        }
+      },
     );
     event.locals.platformReady = true;
     event.locals.configurationError = null;
