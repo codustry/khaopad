@@ -77,7 +77,10 @@ export const GET: RequestHandler = async ({
     return json({ error: "Unauthorized" }, { status: 401 });
   }
   if (!hasScope(auth.key, scope)) {
-    return json({ error: `Forbidden — ${scope} scope required` }, { status: 403 });
+    return json(
+      { error: `Forbidden — ${scope} scope required` },
+      { status: 403 },
+    );
   }
 
   let query;

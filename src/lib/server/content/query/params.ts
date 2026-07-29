@@ -64,10 +64,7 @@ export function parsePopulate(
 
   const tree: Record<string, PopulateSpec> = {};
   for (const path of trimmed.split(",")) {
-    const segments = path
-      .trim()
-      .split(".")
-      .filter(Boolean);
+    const segments = path.trim().split(".").filter(Boolean);
     if (segments.length === 0) continue;
     if (segments.length > MAX_PATH_SEGMENTS) {
       throw new QueryError(

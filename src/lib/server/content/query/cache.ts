@@ -182,7 +182,10 @@ export class QueryCache {
 export function collectionsTouched(
   rootCollection: string,
   query: FindQuery,
-  resolveRelationTarget: (collection: string, relation: string) => string | null,
+  resolveRelationTarget: (
+    collection: string,
+    relation: string,
+  ) => string | null,
 ): string[] {
   const seen = new Set<string>([rootCollection]);
 

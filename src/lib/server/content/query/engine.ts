@@ -420,7 +420,8 @@ export class QueryEngine {
 
     for (let i = 0; i < targetRows.length; i++) {
       const fk = sourceRows[i][localKey];
-      targetRows[i][relationName] = fk == null ? null : byId.get(String(fk)) ?? null;
+      targetRows[i][relationName] =
+        fk == null ? null : (byId.get(String(fk)) ?? null);
     }
 
     if (node.populate && rows.length > 0) {
@@ -503,7 +504,9 @@ export class QueryEngine {
       this.projectScalars(target, r, node.fields),
     );
     const byId = new Map<string, EntryRow>();
-    projected.forEach((p, i) => byId.set(String(rows[i][target.primaryKey]), p));
+    projected.forEach((p, i) =>
+      byId.set(String(rows[i][target.primaryKey]), p),
+    );
 
     const grouped = new Map<string, EntryRow[]>();
     for (const edge of edges) {
@@ -625,9 +628,7 @@ export class QueryEngine {
         "publishedAt",
         collection.apiId,
       );
-      conditions.push(
-        or(isNull(col), lte(col, new Date().toISOString()))!,
-      );
+      conditions.push(or(isNull(col), lte(col, new Date().toISOString()))!);
     }
 
     if (!filters) return conditions.length ? and(...conditions) : undefined;
@@ -659,11 +660,7 @@ export class QueryEngine {
     return conditions.length ? and(...conditions) : undefined;
   }
 
-  private buildCondition(
-    col: SQLiteColumnLike,
-    op: string,
-    raw: unknown,
-  ): SQL {
+  private buildCondition(col: SQLiteColumnLike, op: string, raw: unknown): SQL {
     switch (op) {
       case "$eq":
         return eq(col, raw as never);
