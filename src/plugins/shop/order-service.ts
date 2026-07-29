@@ -18,7 +18,7 @@
  * must-fix from #56.
  */
 import { drizzle } from "drizzle-orm/d1";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { shopProductVariants } from "./schema";
 import {
@@ -78,25 +78,40 @@ export type OrderWithItems = ShopOrder & {
 /**
  * Generate a human-readable order number `KHP-YYYY-NNNNN`.
  *
- * Uses a per-year sequence lookup. Not race-safe under concurrent
- * order creation (two orders in the same second could get the same
- * number) — the UNIQUE constraint on shop_orders.order_number acts
- * as the tiebreaker; caller catches the collision and retries with
- * a fresh count. For a small-shop deployment (< 1 order/second) this
- * is fine; for high volume, switch to a sequence table or ULID-based
- * timestamped id.
+ * Uses `MAX(order_number)` + parse-sequence-suffix + increment, not
+ * `COUNT(*)` — which was buggy under concurrent creates because two
+ * writers could both read count=N before either committed, and both
+ * try to insert `KHP-YYYY-(N+1)`. The MAX approach still races (two
+ * writers both see same max), but the UNIQUE constraint on
+ * `shop_orders.order_number` + the caller's retry loop breaks the
+ * tie deterministically: the losing writer re-reads the fresh MAX
+ * (which now includes the winner's row), gets a strictly higher
+ * suffix, and succeeds.
+ *
+ * For high volume (>1 order/sec sustained), replace with a sequence
+ * row updated via `UPDATE ... RETURNING new_value`. Small-shop scale
+ * is well-served by this.
  */
 async function nextOrderNumber(d1: D1Database, now: Date): Promise<string> {
   const year = now.getUTCFullYear();
   const prefix = `KHP-${year}-`;
   const db = drizzle(d1);
   const rows = await db
-    .select({ count: sql<number>`count(*)` })
+    .select({ maxNumber: sql<string | null>`MAX(order_number)` })
     .from(shopOrders)
     .where(sql`${shopOrders.orderNumber} LIKE ${prefix + "%"}`)
     .all();
-  const count = rows[0]?.count ?? 0;
-  return `${prefix}${String(count + 1).padStart(5, "0")}`;
+  const maxNumber = rows[0]?.maxNumber ?? null;
+  let nextSeq = 1;
+  if (maxNumber) {
+    // Parse "KHP-YYYY-NNNNN" → NNNNN
+    const suffix = maxNumber.slice(prefix.length);
+    const parsed = Number.parseInt(suffix, 10);
+    if (Number.isFinite(parsed) && parsed >= 1) {
+      nextSeq = parsed + 1;
+    }
+  }
+  return `${prefix}${String(nextSeq).padStart(5, "0")}`;
 }
 
 // ─── Service ────────────────────────────────────────────────
@@ -277,6 +292,26 @@ export class OrderService {
     orderId: string;
     providerChargeId: string;
   }): Promise<OrderWithItems> {
+    const nowIso = this.nowIso();
+
+    // Atomic state-transition guard: only the ONE writer that flips
+    // pending → paid proceeds to commit inventory. Concurrent webhook
+    // retries see changes=0 and short-circuit as a no-op (idempotent).
+    // Fixes double-inventory-decrement race from post-merge bug hunt.
+    const flipResult = await this.d1
+      .prepare(
+        `UPDATE shop_orders
+         SET status = 'paid',
+             provider_charge_id = ?1,
+             paid_at = ?2,
+             updated_at = ?2
+         WHERE id = ?3 AND status = 'pending'`,
+      )
+      .bind(input.providerChargeId, nowIso, input.orderId)
+      .run();
+
+    const flipped = (flipResult.meta as { changes?: number })?.changes ?? 0;
+
     const order = await this.db
       .select()
       .from(shopOrders)
@@ -284,31 +319,34 @@ export class OrderService {
       .limit(1)
       .get();
     if (!order) throw new ShopValidationError("Order not found", "orderId");
-    if (order.status !== "pending") {
-      // Idempotent: paid → paid is a no-op (webhook can fire twice).
-      if (order.status === "paid") {
-        return this.hydrate(order);
+
+    if (flipped === 0) {
+      // Idempotent no-op path. Already paid → return hydrated state.
+      // Any other terminal status (cancelled/refunded) → log + no-op
+      // rather than throw, so a late webhook doesn't blow up the
+      // handler (fixes MINOR #14 from bug hunt).
+      if (order.status !== "paid") {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[shop.order] markPaid: order ${order.orderNumber} already in terminal status '${order.status}', ignoring late webhook`,
+        );
       }
-      throw new ShopValidationError(
-        `Order ${order.orderNumber} is ${order.status}, cannot mark paid`,
-        "order.status",
-      );
+      return this.hydrate(order);
     }
 
+    // We won the transition — commit inventory + finalize side effects.
     const items = await this.db
       .select()
       .from(shopOrderItems)
       .where(eq(shopOrderItems.orderId, order.id))
       .all();
 
-    // Commit each variant's stock (on_hand -= qty, reserved -= qty).
-    // Fires our silent-clamp telemetry from inventory.ts if books are off.
     for (const item of items) {
       try {
         await commitVariantSale(this.d1, item.variantId, item.quantity);
       } catch (err) {
-        // Never fail a paid order over inventory bookkeeping — customer
-        // has already been charged. Log the drift and continue.
+        // Customer already charged — never fail a paid order over
+        // inventory bookkeeping. Log and continue.
         // eslint-disable-next-line no-console
         console.error(
           `[shop.order] commitVariantSale failed for order ${order.orderNumber} variant ${item.variantId}:`,
@@ -317,30 +355,55 @@ export class OrderService {
       }
     }
 
-    // Mark reservation ledger rows as committed.
-    const cartItemIds = await this.db
-      .select({ id: shopCartItems.id })
-      .from(shopCartItems)
-      .innerJoin(shopCarts, eq(shopCarts.id, shopCartItems.cartId))
-      .where(eq(shopCarts.email, order.email))
-      .all();
-    if (cartItemIds.length > 0) {
-      await this.db
-        .update(shopInventoryReservations)
-        .set({
-          releasedAt: this.nowIso(),
-          releaseReason: "committed",
-        })
+    // Mark reservation ledger rows for THIS order's cart as committed.
+    // Fixes email-scope bug — was previously matching every cart with
+    // the same email (historical purchases got their ledger rewritten).
+    // Uses variantId + qty to identify likely reservations; the sweep
+    // cron already handles rows that don't match.
+    const variantQtyPairs = items.map((i) => ({
+      variantId: i.variantId,
+      quantity: i.quantity,
+    }));
+    if (variantQtyPairs.length > 0) {
+      const activeReservationIds = await this.db
+        .select()
+        .from(shopInventoryReservations)
         .where(
-          inArray(
-            shopInventoryReservations.cartItemId,
-            cartItemIds.map((c) => c.id),
+          and(
+            inArray(
+              shopInventoryReservations.variantId,
+              variantQtyPairs.map((p) => p.variantId),
+            ),
+            isNull(shopInventoryReservations.releasedAt),
           ),
+        )
+        .all();
+      const idsToRelease: string[] = [];
+      const needByVariant = new Map<string, number>();
+      for (const p of variantQtyPairs) {
+        needByVariant.set(
+          p.variantId,
+          (needByVariant.get(p.variantId) ?? 0) + p.quantity,
         );
+      }
+      for (const r of activeReservationIds) {
+        if (r.releasedAt) continue;
+        const need = needByVariant.get(r.variantId) ?? 0;
+        if (need <= 0) continue;
+        idsToRelease.push(r.id);
+        needByVariant.set(r.variantId, need - r.quantity);
+      }
+      if (idsToRelease.length > 0) {
+        await this.db
+          .update(shopInventoryReservations)
+          .set({ releasedAt: nowIso, releaseReason: "committed" })
+          .where(inArray(shopInventoryReservations.id, idsToRelease));
+      }
     }
 
-    // Flip cart to ordered (find by matching provider charge or email).
-    const nowIso = this.nowIso();
+    // Flip cart(s) matching this order's email + checkout_started
+    // status. Multiple carts with same email is rare; scoping tightly
+    // to checkout_started avoids touching already-ordered carts.
     await this.db
       .update(shopCarts)
       .set({ status: "ordered", updatedAt: nowIso })
@@ -350,16 +413,6 @@ export class OrderService {
           eq(shopCarts.status, "checkout_started"),
         ),
       );
-
-    await this.db
-      .update(shopOrders)
-      .set({
-        status: "paid",
-        providerChargeId: input.providerChargeId,
-        paidAt: nowIso,
-        updatedAt: nowIso,
-      })
-      .where(eq(shopOrders.id, order.id));
 
     return this.hydrate({
       ...order,

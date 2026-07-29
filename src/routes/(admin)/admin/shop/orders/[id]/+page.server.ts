@@ -75,9 +75,20 @@ export const actions: Actions = {
     if (amount === null || amount <= 0) {
       return fail(400, { error: "Enter a valid refund amount in baht" });
     }
-    if (amount > order.totalSatang) {
+    // Cap against remaining refundable = total - abs(sum of prior refund adjustments).
+    // Prevents "click 500฿ twice on a 700฿ order" from over-refunding.
+    const priorRefundedSatang = order.adjustments
+      .filter((a) => a.kind === "refund_full" || a.kind === "refund_partial")
+      .reduce((sum, a) => sum + Math.abs(a.amountSatang), 0);
+    const refundable = order.totalSatang - priorRefundedSatang;
+    if (refundable <= 0) {
       return fail(400, {
-        error: `Refund amount exceeds order total (${order.totalSatang / 100}฿)`,
+        error: `Order already fully refunded (${priorRefundedSatang / 100}฿ of ${order.totalSatang / 100}฿)`,
+      });
+    }
+    if (amount > refundable) {
+      return fail(400, {
+        error: `Refund amount exceeds remaining refundable (${refundable / 100}฿; ${priorRefundedSatang / 100}฿ already refunded of ${order.totalSatang / 100}฿ total)`,
       });
     }
 

@@ -194,8 +194,11 @@ export class BeamPaymentProvider implements PaymentProvider {
     if (!signature) {
       return { ok: false, code: "MISSING_SIGNATURE", message: "X-Beam-Signature header absent" };
     }
+    // Strip optional `sha256=` scheme prefix (Stripe convention that
+    // Beam MAY adopt) so we compare hex-to-hex regardless of format.
+    const providedHex = signature.toLowerCase().replace(/^sha256=/, "");
     const expected = await hmacSha256Hex(this.config.webhookSecret, rawBody);
-    if (!timingSafeEqual(expected, signature.toLowerCase())) {
+    if (!timingSafeEqual(expected, providedHex)) {
       return { ok: false, code: "INVALID_SIGNATURE", message: "HMAC mismatch" };
     }
     let parsed: BeamWebhookEnvelope;

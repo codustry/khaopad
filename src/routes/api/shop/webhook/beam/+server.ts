@@ -54,11 +54,16 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     .limit(1)
     .get();
   if (!order) {
-    // Webhook can arrive before attachProviderCharge lands (unlikely
-    // with sequential flow, but possible). Return 200 so Beam doesn't
-    // retry indefinitely — the customer's next pageload will retry
-    // via /order/[number]?refresh=1.
-    return json({ ok: true, code: "ORDER_NOT_FOUND_YET" });
+    // Webhook can arrive before attachProviderCharge lands (Beam
+    // async redirect flow, network reorder). Return 5xx so Beam
+    // RETRIES — a 200 here would silently swallow the succeeded
+    // event and leave the order pending forever with the customer
+    // charged. Beam's retry cadence (a few minutes) gives
+    // attachProviderCharge time to land.
+    return json(
+      { ok: false, code: "ORDER_NOT_FOUND_YET" },
+      { status: 503 },
+    );
   }
 
   const orderSvc = new OrderService(env.DB);

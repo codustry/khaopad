@@ -10,6 +10,7 @@
  * gets access to whatever's in the guest's cart, no more. The auth
  * cookie (__Host-khaopad_session) covers authenticated flows.
  */
+import { dev } from "$app/environment";
 import type { Cookies } from "@sveltejs/kit";
 import { nanoid } from "nanoid";
 
@@ -20,6 +21,11 @@ const MAX_AGE_SECONDS = 30 * 24 * 60 * 60; // 30 days
  * Get the existing cart session id, or mint + set a new one. Always
  * returns a valid session id. Caller decides whether to touch the
  * cart (via CartService.ensureCart).
+ *
+ * `secure: !dev` — production requires HTTPS (Cloudflare enforces
+ * this at the edge); `pnpm dev` on http://localhost:5173 needs
+ * secure=false or browsers silently drop the Set-Cookie, breaking
+ * every add-to-cart locally.
  */
 export function ensureCartSession(cookies: Cookies): string {
   const existing = cookies.get(COOKIE_NAME);
@@ -29,7 +35,7 @@ export function ensureCartSession(cookies: Cookies): string {
     path: "/",
     httpOnly: true,
     sameSite: "lax",
-    secure: true,
+    secure: !dev,
     maxAge: MAX_AGE_SECONDS,
   });
   return sessionId;

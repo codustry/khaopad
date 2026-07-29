@@ -27,10 +27,19 @@ async function runSweep(env: App.Platform["env"]) {
 }
 
 function guard(request: Request, env: App.Platform["env"]) {
+  // Prefer header (avoids logging the secret in query strings). Falls
+  // back to ?token= for compatibility with Cloudflare Cron Triggers'
+  // simplest URL-only form — but log a warning when that path is used.
+  const header = request.headers.get("x-cron-secret") ?? "";
   const url = new URL(request.url);
-  const token = url.searchParams.get("token") ?? "";
+  const token = header || url.searchParams.get("token") || "";
+  if (header === "" && url.searchParams.get("token")) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[shop.cron] secret received via query string — prefer X-Cron-Secret header (query values are logged)",
+    );
+  }
   const expected = env.CRON_SECRET ?? "";
-  // Constant-time-ish compare — safe against short guesses.
   if (!expected || token.length !== expected.length) return false;
   let diff = 0;
   for (let i = 0; i < token.length; i++) {
