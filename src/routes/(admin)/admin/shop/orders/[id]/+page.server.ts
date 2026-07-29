@@ -13,6 +13,7 @@ import { logAudit } from "$lib/server/audit";
 import { OrderService } from "$plugins/shop/order-service";
 import { getPaymentProvider } from "$plugins/shop/payment";
 import { parseBahtToSatang } from "$plugins/shop/money";
+import { track, buildEventContext } from "$lib/server/analytics/track";
 import type { Actions, PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals, platform, params }) => {
@@ -49,7 +50,7 @@ export const actions: Actions = {
     return { success: true, message: "Marked delivered" };
   },
 
-  refund: async ({ request, locals, platform, params }) => {
+  refund: async ({ request, locals, platform, params, url }) => {
     if (!locals.user) throw redirect(302, "/admin/login");
     if (!hasRole(locals.user, "admin")) return fail(403, { error: "Forbidden" });
     const env = platform?.env;
@@ -123,6 +124,23 @@ export const actions: Actions = {
       kind,
       providerRefundId: refundResult.providerRefundId,
     });
+    // Fire refund analytics event. Admin action, so context uses the
+    // admin's session id (event dashboards will filter by name only).
+    void track(
+      env.DB,
+      "refund",
+      {
+        orderId: params.id,
+        amountSatang: amount,
+        kind: kind === "refund_full" ? "full" : "partial",
+      },
+      buildEventContext({
+        url,
+        request,
+        sessionId: locals.user.id,
+        userId: locals.user.id,
+      }),
+    );
     return {
       success: true,
       message: `Refund of ${amount / 100}฿ processed (${refundResult.providerRefundId})`,

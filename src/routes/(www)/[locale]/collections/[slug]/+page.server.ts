@@ -148,6 +148,28 @@ export const load: PageServerLoad = async ({ params, url, platform }) => {
     productSlugs: orderedProducts.map((p) => p.slug),
   });
 
+  // v3.3 SEO polish: any filter/facet query param (e.g. ?color=red,
+  // ?size=m, ?sort=price-asc) turns the URL into a facet page — mark
+  // noindex,follow so Google follows out-links but doesn't index the
+  // filter permutation. Prevents crawl-budget bleed. Canonical still
+  // points at the base collection URL so link equity consolidates.
+  //
+  // The check is on ANY unknown param: known display flags (utm_*,
+  // ref, gclid) are ignored — they're marketing tokens, not facets.
+  const KNOWN_NON_FACET_PARAMS = new Set([
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+    "ref",
+    "gclid",
+    "fbclid",
+  ]);
+  const hasFacetParam = Array.from(url.searchParams.keys()).some(
+    (k) => !KNOWN_NON_FACET_PARAMS.has(k),
+  );
+
   const seo: PageSeo = {
     title: collection.seoTitle ?? localization.title,
     description:
@@ -157,6 +179,7 @@ export const load: PageServerLoad = async ({ params, url, platform }) => {
         : undefined),
     canonical,
     ogType: "website",
+    robots: hasFacetParam ? "noindex,follow" : undefined,
   };
 
   return {

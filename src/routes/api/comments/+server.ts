@@ -7,6 +7,8 @@ import {
 } from "$lib/server/forms";
 import { logAudit } from "$lib/server/audit";
 import { commentsAllowedForArticle } from "$lib/server/comments";
+import { track, buildEventContext } from "$lib/server/analytics/track";
+import { ensureCartSession } from "$plugins/shop/cart-cookie";
 import type { RequestHandler } from "./$types";
 
 const MAX_NAME = 80;
@@ -33,6 +35,8 @@ export const POST: RequestHandler = async ({
   locals,
   platform,
   getClientAddress,
+  cookies,
+  url,
 }) => {
   let payload: Record<string, FormDataEntryValue>;
   try {
@@ -111,6 +115,20 @@ export const POST: RequestHandler = async ({
       "comment.create",
       comment.id,
       { articleId: article.id, slug: article.slug },
+    );
+    // Fire comment_submit analytics event — feeds the per-article
+    // engagement metrics.
+    const sessionId = ensureCartSession(cookies);
+    void track(
+      platform.env.DB,
+      "comment_submit",
+      { articleId: article.id },
+      buildEventContext({
+        url,
+        request,
+        sessionId,
+        userId: locals.user?.id ?? null,
+      }),
     );
   }
 
