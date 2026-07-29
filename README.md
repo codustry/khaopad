@@ -1,10 +1,24 @@
 # Khao Pad (ข้าวผัด)
 
-**The open-source website platform for Cloudflare.** Drives a non-ecommerce site end-to-end — content, SEO, analytics, navigation, and engagement — on Cloudflare Workers + D1 + R2 + KV.
+**The open-source website platform for Cloudflare.** Drives a content site end-to-end — content, SEO, analytics, navigation, engagement — plus an optional shop, on Cloudflare Workers + D1 + R2 + KV.
 
 > ข้าวผัด = Fried rice. Everyone wants something slightly different, but in the end it's the same core dish — just with different sauces and ingredients.
 
 🌐 **Live demo**: [khaopad-example.codustry.workers.dev](https://khaopad-example.codustry.workers.dev) ([source](https://github.com/codustry/khaopad-example)) · 🌍 **Marketing site**: [khaopad-website.codustry.workers.dev](https://khaopad-website.codustry.workers.dev)
+
+### Try the CMS
+
+The demo's admin panel is open with an editor account — sign in and click around:
+
+| | |
+| --- | --- |
+| **URL** | [khaopad-example.codustry.workers.dev/admin](https://khaopad-example.codustry.workers.dev/admin) |
+| **Email** | `demo@khaopad.dev` |
+| **Password** | `KhaoPadDemo!2026` |
+
+Every plugin is enabled, so the sidebar shows the full surface: articles, pages, media, navigation, forms, newsletter, comments, webhooks, API keys — and the shop's products, collections, orders, and discounts.
+
+The database resets nightly, so nothing you do there can break anything. Payments run against BeamCheckout's sandbox — no real charge is ever made. Full walkthrough in the [demo's README](https://github.com/codustry/khaopad-example#sign-in-and-play).
 
 ## What it is
 
@@ -27,7 +41,7 @@ Khao Pad fills the gap: **start lightweight, scale when needed, stay on Cloudfla
 
 ## What ships
 
-Eleven shipped milestones (v1.0 → v2.0). Five "platform pillars" shaped the v1.6+ work:
+Shipped through **v3.5**. v1.0 → v2.0 built the content + growth platform; v3.0 → v3.5 added the plugin runtime and the shop plugin on top of it. Five "platform pillars" shaped the v1.6+ work:
 
 ### Content (v1.0–v1.5)
 
@@ -81,13 +95,26 @@ Eleven shipped milestones (v1.0 → v2.0). Five "platform pillars" shaped the v1
 - **Webhooks** — register HTTPS URLs for `article.publish` / `article.unpublish` / `comment.approve` / `form.submit` / `subscriber.confirm`; HMAC-SHA256 signed; auto-retry; delivery log
 - **Public REST API** — `/api/public/articles` / `/categories` / `/tags` / `/pages` for headless consumers; bearer-token auth via `/admin/api-keys`; per-key scopes; SHA-256 hashed at rest
 
-### Plugins (proposed for post-v2.0)
+### Plugin runtime (v3.0)
 
 Khao Pad core stays focused on the content + growth surface every non-ecommerce site needs. Anything beyond that ships as an **optional plugin** — self-contained, zero-core-surgery, opt-in per install.
 
-- **`@khaopad/plugin-shop`** — small ecommerce for Thailand-first sites. **BeamCheckout** integration (PromptPay QR + credit card + LINE Pay + TrueMoney), cart / checkout / order flow, discount codes, affiliate referrals, receipt emails via Resend. Products are static TypeScript (`src/lib/products.ts`) — no CMS catalog UI in v0.1, escape hatch to D1-backed catalog via `ProductProvider`. Reference implementation runs today at [bactrack.in.th](https://bactrack.in.th). Full design: [docs/adr/0001-shop-as-optional-plugin.md](docs/adr/0001-shop-as-optional-plugin.md).
+The runtime is live: plugins mount their own routes, concatenate their D1 schema, merge into the admin sidebar, and register their own audit actions, webhook events, settings, and i18n keys. See [docs/plugin-authoring.md](docs/plugin-authoring.md).
 
-The plugin mechanism itself is not yet implemented — the ADR above proposes the contract (route mount + schema concatenation + sidebar merge + audit + webhook + settings + i18n). If you'd use it, open an issue or +1 [the ADR discussion](https://github.com/codustry/khaopad/issues) so we can size the work.
+### Shop plugin (v3.1 → v3.5)
+
+**`@khaopad/plugin-shop`** — small ecommerce for Thailand-first sites, built on the v3.0 runtime.
+
+- **Catalog** — products, variants, collections, per-locale titles/descriptions, R2 media
+- **Inventory** — atomic reserve / release / commit against variant stock, with a reservation ledger and a 15-minute TTL swept by cron
+- **Cart + checkout** — session-cookie cart (guest or signed-in), price snapshots at add-to-cart, address + shipping zones + tax
+- **Payments** — **BeamCheckout** (PromptPay QR, credit card, LINE Pay, TrueMoney); HMAC-SHA256 verified webhooks; orders, refunds, receipt emails via Resend. The `PaymentProvider` interface is the seam for Stripe / Omise
+- **Discount codes** (v3.5) — percent or fixed-baht, redemption caps (total and per-customer), minimum-order thresholds, validity windows; redemptions recorded on payment success, idempotent under webhook retry
+- **Abandoned-cart recovery** (v3.5) — carts idle 24h with an email on file get one recovery message with a resume link
+- **Article ↔ product federation** (v3.4) — embed products in articles, attribute purchases back to the article that drove them
+- **Analytics** (v3.3) — typed event catalog, D1-backed funnel from `page_view` through `purchase`, per-article and per-product dashboards; Merchant Center feed
+
+Money is stored as integer satang throughout — no floats anywhere in the price path.
 
 ### Platform fundamentals
 
