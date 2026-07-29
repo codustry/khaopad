@@ -25,7 +25,7 @@ export type PageSeo = {
   /** OG image absolute URL (1200×630 ideal). */
   image?: string;
   /** og:type. Defaults to "website" for index pages, "article" for posts. */
-  ogType?: "website" | "article";
+  ogType?: "website" | "article" | "product";
   /** ISO datetime — only meaningful for ogType="article". */
   publishedTime?: string;
   /** ISO datetime — only meaningful for ogType="article". */
