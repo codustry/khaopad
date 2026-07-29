@@ -53,7 +53,53 @@ export const load: PageServerLoad = async ({ locals, params, platform }) => {
     }
   }
 
-  return { article, categories, tags, sparkline, totalViews };
+  // v3.4 federation: load current product refs + a small list of
+  // active products for the editor's picker. Only when the shop
+  // plugin is enabled (fails silently otherwise — a Khao Pad install
+  // without shop shows an empty picker).
+  let productRefs: Array<{
+    productId: string;
+    refKind: "featured" | "mentioned" | "promoted";
+    productTitle: string | null;
+    productSlug: string | null;
+  }> = [];
+  let productChoices: Array<{ id: string; title: string; slug: string }> = [];
+  if (platform?.env?.DB) {
+    try {
+      const { listRefsForArticle } = await import("$plugins/shop/federation");
+      const refs = await listRefsForArticle(platform.env.DB, article.id);
+      productRefs = refs.map((r) => ({
+        productId: r.productId,
+        refKind: r.refKind,
+        productTitle: r.product?.title ?? null,
+        productSlug: r.product?.slug ?? null,
+      }));
+      // Editor picker: up to 100 active products, English titles.
+      const { ShopService } = await import("$plugins/shop/service");
+      const svc = new ShopService(platform.env.DB);
+      const products = await svc.listProducts({
+        status: "active",
+        limit: 100,
+      });
+      productChoices = products.map((p) => ({
+        id: p.id,
+        title: p.title,
+        slug: p.slug,
+      }));
+    } catch {
+      // Shop plugin not enabled or an unrelated failure — leave arrays empty.
+    }
+  }
+
+  return {
+    article,
+    categories,
+    tags,
+    sparkline,
+    totalViews,
+    productRefs,
+    productChoices,
+  };
 };
 
 function requireAuthor(locals: App.Locals) {
@@ -62,6 +108,49 @@ function requireAuthor(locals: App.Locals) {
 }
 
 export const actions: Actions = {
+  saveProductRefs: async ({ request, locals, params, platform }) => {
+    const user = requireAuthor(locals);
+    const existing = await locals.content.getArticle(params.id);
+    if (!existing) return fail(404, { error: "Article not found" });
+    if (!canEditArticle(user, existing.authorId)) {
+      return fail(403, { error: "Forbidden" });
+    }
+    const env = platform?.env;
+    if (!env) return fail(503, { error: "Platform not ready" });
+
+    const form = await request.formData();
+    // refs[]=productId:refKind format. Empty submissions clear all
+    // refs — that's intended (unchecking every box in the editor).
+    const raw = form.getAll("refs").map(String);
+    const validKinds = new Set(["featured", "mentioned", "promoted"]);
+    const refs: Array<{
+      productId: string;
+      refKind: "featured" | "mentioned" | "promoted";
+    }> = [];
+    for (const entry of raw) {
+      const [productId, refKind] = entry.split(":");
+      if (!productId || !validKinds.has(refKind ?? "")) continue;
+      refs.push({
+        productId,
+        refKind: refKind as "featured" | "mentioned" | "promoted",
+      });
+    }
+
+    try {
+      const { setRefs } = await import("$plugins/shop/federation");
+      await setRefs(env.DB, {
+        articleId: params.id,
+        refs,
+        createdBy: user.id,
+      });
+      return { success: true, refsSaved: refs.length };
+    } catch (err) {
+      return fail(500, {
+        error: err instanceof Error ? err.message : "Save failed",
+      });
+    }
+  },
+
   save: async ({ request, locals, params, platform }) => {
     const user = requireAuthor(locals);
     const existing = await locals.content.getArticle(params.id);

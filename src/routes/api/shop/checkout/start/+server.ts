@@ -26,6 +26,15 @@ export const POST: RequestHandler = async ({ request, platform, cookies, locals,
         email?: string;
         shippingAddress?: unknown;
         billingAddress?: unknown;
+        /**
+         * v3.4 federation: article slug the visitor came from before
+         * they entered the funnel. Client reads this from
+         * sessionStorage (stashed by the product page). Resolved to
+         * an article id server-side and included in the analytics
+         * purchase event so per-article dashboards can show
+         * "products this article drove" with accurate revenue.
+         */
+        attributedArticleSlug?: string;
       }
     | null;
   const email = String(body?.email ?? "").trim();
@@ -64,6 +73,25 @@ export const POST: RequestHandler = async ({ request, platform, cookies, locals,
 
     // Track begin_checkout. Uses reservations for item count/subtotal
     // since we don't want to re-hydrate the cart just for analytics.
+    // v3.4: resolve attributedArticleSlug → article id and include in
+    // the event properties. The webhook's `purchase` event copies it
+    // forward — dashboard's article analytics reads attributedArticleId
+    // from `purchase` events to power the "products this article drove"
+    // panel.
+    let attributedArticleId: string | undefined;
+    if (
+      body?.attributedArticleSlug &&
+      /^[a-z0-9-]+$/.test(body.attributedArticleSlug)
+    ) {
+      try {
+        const article = await locals.content.getArticleBySlug(
+          body.attributedArticleSlug,
+        );
+        if (article) attributedArticleId = article.id;
+      } catch {
+        /* content provider unavailable — attribution stays undefined */
+      }
+    }
     void track(
       env.DB,
       "begin_checkout",
@@ -79,6 +107,23 @@ export const POST: RequestHandler = async ({ request, platform, cookies, locals,
         userId: locals.user?.id ?? null,
       }),
     );
+    if (attributedArticleId) {
+      // Also persist attribution in the cart's discountCode column
+      // (unused for v3.4; discount codes ship in v3.5 with a
+      // dedicated table). Overloads the column temporarily so the
+      // webhook can read `attribution:<articleId>` back at markPaid.
+      const { drizzle } = await import("drizzle-orm/d1");
+      const { eq } = await import("drizzle-orm");
+      const { shopCarts } = await import("$plugins/shop/schema-cart");
+      try {
+        await drizzle(env.DB)
+          .update(shopCarts)
+          .set({ discountCode: `attribution:${attributedArticleId}` })
+          .where(eq(shopCarts.id, cart.id));
+      } catch {
+        /* best-effort — attribution loss is acceptable */
+      }
+    }
 
     return json({
       ok: true,

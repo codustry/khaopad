@@ -84,8 +84,15 @@ export const POST: RequestHandler = async ({ request, platform, url }) => {
       // ordered to reuse the visitor's session id — otherwise the
       // funnel (product_view → add_to_cart → begin_checkout →
       // purchase) can't join by session_id and conversion looks 0.
+      // Also reads the discountCode field which v3.4 federation
+      // repurposes as `attribution:<articleId>` for article →
+      // purchase attribution tracking. Real discountCode ships in
+      // v3.5 with its own table.
       const cartRow = await drizzle(env.DB)
-        .select({ sessionId: shopCarts.sessionId })
+        .select({
+          sessionId: shopCarts.sessionId,
+          discountCode: shopCarts.discountCode,
+        })
         .from(shopCarts)
         .where(
           and(
@@ -97,6 +104,10 @@ export const POST: RequestHandler = async ({ request, platform, url }) => {
         .limit(1)
         .get();
       const sessionIdForFunnel = cartRow?.sessionId ?? paid.id;
+      let attributedArticleId: string | undefined;
+      if (cartRow?.discountCode?.startsWith("attribution:")) {
+        attributedArticleId = cartRow.discountCode.slice("attribution:".length);
+      }
       await track(
         env.DB,
         "purchase",
@@ -105,6 +116,7 @@ export const POST: RequestHandler = async ({ request, platform, url }) => {
           orderNumber: paid.orderNumber,
           totalSatang: paid.totalSatang,
           itemCount: paid.items.reduce((s, i) => s + i.quantity, 0),
+          ...(attributedArticleId ? { attributedArticleId } : {}),
         },
         buildEventContext({
           url,

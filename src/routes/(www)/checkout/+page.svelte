@@ -18,6 +18,19 @@
 		}
 		submitting = true;
 		errorMessage = null;
+		// v3.4 federation: read the article slug the visitor came from
+		// (if any) so /checkout/start can tag the pending order and the
+		// downstream `purchase` event with attributedArticleId. Stash
+		// set by the product page's product_view handler; cleared after
+		// use so a second cart doesn't inherit stale attribution.
+		let attributedArticleSlug: string | null = null;
+		try {
+			attributedArticleSlug =
+				sessionStorage.getItem('khaopad_shop_attributed_slug') ?? null;
+		} catch {
+			/* private mode — no stash */
+		}
+
 		try {
 			type StartResponse = {
 				ok: boolean;
@@ -34,7 +47,10 @@
 			const startRes = await fetch('/api/shop/checkout/start', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ email: email.trim() }),
+				body: JSON.stringify({
+					email: email.trim(),
+					attributedArticleSlug,
+				}),
 			});
 			const startJson = (await startRes.json()) as StartResponse;
 			if (!startJson.ok) {

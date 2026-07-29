@@ -33,6 +33,37 @@
 		{@html data.htmlContent}
 	</div>
 
+	{#if data.relatedProducts && data.relatedProducts.length > 0}
+		<!-- v3.4 federation: "Related products" section powered by
+			shop_article_product_refs. Featured refs get a distinct
+			treatment; mentioned refs are a simple list. -->
+		<section class="mt-12 border-t border-border pt-8">
+			<h2 class="mb-4 text-lg font-semibold">Related products</h2>
+			<ul class="grid gap-3 sm:grid-cols-2">
+				{#each data.relatedProducts as ref (ref.productId)}
+					{#if ref.product}
+						<li>
+							<a
+								href="/{data.locale}/products/{ref.product.slug}"
+								class="block rounded-lg border p-4 transition-colors hover:bg-muted {ref.refKind ===
+								'featured'
+									? 'border-primary bg-primary/5'
+									: 'border-border'}"
+							>
+								<div class="font-medium">{ref.product.title}</div>
+								{#if ref.product.priceFromSatang != null}
+									<div class="mt-1 text-sm text-muted-foreground tabular-nums">
+										From ฿{(ref.product.priceFromSatang / 100).toFixed(2)}
+									</div>
+								{/if}
+							</a>
+						</li>
+					{/if}
+				{/each}
+			</ul>
+		</section>
+	{/if}
+
 	{#if data.commentsOpen || data.comments.length > 0}
 		<CommentSection
 			articleId={data.articleId}

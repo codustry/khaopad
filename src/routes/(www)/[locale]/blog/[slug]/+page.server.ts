@@ -52,7 +52,33 @@ export const load: PageServerLoad = async ({ locals, params, url, cookies, platf
     locals.content,
     locale,
   );
-  const htmlContent = await marked(expanded);
+
+  // v3.4: rewrite :::product{slug=x} embeds into inline product cards
+  // before markdown → HTML. Batch-hydrates all embedded slugs in one
+  // D1 pass, then replaces every embed with an <a> card. Products
+  // that don't resolve (deleted, archived) get a comment marker.
+  let expandedWithEmbeds = expanded;
+  if (platform?.env?.DB) {
+    const { extractEmbeds, hydrateProductEmbeds, replaceEmbedsWithPlaceholders } =
+      await import("$plugins/shop/federation");
+    const slugs = extractEmbeds(expanded);
+    if (slugs.length > 0) {
+      const productsBySlug = await hydrateProductEmbeds(platform.env.DB, slugs);
+      expandedWithEmbeds = replaceEmbedsWithPlaceholders(expanded, productsBySlug);
+    }
+  }
+  const htmlContent = await marked(expandedWithEmbeds);
+
+  // v3.4: load related products declared via the shop plugin's
+  // article_product_refs table. Rendered as a section below the
+  // article body. Empty array when no refs exist — template no-ops.
+  let relatedProducts: Awaited<
+    ReturnType<typeof import("$plugins/shop/federation").listRefsForArticle>
+  > = [];
+  if (platform?.env?.DB) {
+    const { listRefsForArticle } = await import("$plugins/shop/federation");
+    relatedProducts = await listRefsForArticle(platform.env.DB, article.id);
+  }
 
   // SEO surface for the public article page.
   const settings = await locals.content.getSettings().catch(() => null);
@@ -144,6 +170,11 @@ export const load: PageServerLoad = async ({ locals, params, url, cookies, platf
       authorName: c.authorName,
       body: c.body,
       submittedAt: c.submittedAt,
+    })),
+    relatedProducts: relatedProducts.map((r) => ({
+      productId: r.productId,
+      refKind: r.refKind,
+      product: r.product,
     })),
   };
 };

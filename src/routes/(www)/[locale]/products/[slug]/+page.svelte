@@ -30,6 +30,16 @@
 	// Fire product_view once on mount. Tagged with the canonical
 	// product id so the per-product dashboard's queries (which key
 	// on the same id) actually find these rows.
+	//
+	// v3.4 federation: if the visitor arrived from an article page
+	// (document.referrer matches /[locale]/blog/<slug> OR
+	// /[locale]/articles/<slug>), stash the article slug in
+	// sessionStorage so the downstream `purchase` event can attribute
+	// this order to that article. product_view itself doesn't carry
+	// attributedArticleId (dashboard queries filter on `purchase`
+	// events); the sessionStorage stash is picked up server-side at
+	// checkout-start via a form-posted hidden field (defer to a
+	// follow-up sub-PR — this is the client-side half).
 	onMount(() => {
 		if (!selectedVariant) return;
 		track('product_view', {
@@ -37,6 +47,20 @@
 			variantId: selectedVariant.id,
 			priceSatang: selectedVariant.priceSatang,
 		});
+		try {
+			const referrer = document.referrer;
+			if (!referrer) return;
+			const url = new URL(referrer);
+			if (url.origin !== window.location.origin) return;
+			const match = url.pathname.match(
+				/^\/[a-z]{2}\/(?:articles|blog)\/([a-z0-9-]+)\/?$/,
+			);
+			if (match?.[1]) {
+				sessionStorage.setItem('khaopad_shop_attributed_slug', match[1]);
+			}
+		} catch {
+			// sessionStorage disabled (private mode etc.) — skip
+		}
 	});
 </script>
 

@@ -3,7 +3,10 @@
 	import * as m from '$lib/paraglide/messages';
 	import ArticleForm from '../ArticleForm.svelte';
 	import Sparkline from '$lib/components/analytics/Sparkline.svelte';
+	import RelatedProductsEditor from '$lib/components/admin/RelatedProductsEditor.svelte';
 	import type { ArticleRecord, CategoryRecord, TagRecord } from '$lib/server/content/types';
+
+	type RefKind = 'featured' | 'mentioned' | 'promoted';
 
 	let {
 		data,
@@ -15,6 +18,13 @@
 			tags: TagRecord[];
 			sparkline: Array<{ date: string; count: number }>;
 			totalViews: number;
+			productRefs: Array<{
+				productId: string;
+				refKind: RefKind;
+				productTitle: string | null;
+				productSlug: string | null;
+			}>;
+			productChoices: Array<{ id: string; title: string; slug: string }>;
 		};
 		form: { ok?: boolean; error?: string; status?: ArticleRecord['status'] } | null;
 	} = $props();
@@ -89,4 +99,14 @@
 		categories={data.categories}
 		tags={data.tags}
 	/>
+
+	<div class="mt-8">
+		<RelatedProductsEditor
+			currentRefs={data.productRefs.map((r) => ({
+				productId: r.productId,
+				refKind: r.refKind,
+			}))}
+			productChoices={data.productChoices}
+		/>
+	</div>
 </div>
