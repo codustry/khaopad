@@ -19,9 +19,10 @@ import { sendOrderReceipt } from "$plugins/shop/email";
 import { drizzle } from "drizzle-orm/d1";
 import { eq } from "drizzle-orm";
 import { shopOrders } from "$plugins/shop/schema-cart";
+import { track, buildEventContext } from "$lib/server/analytics/track";
 import type { RequestHandler } from "./$types";
 
-export const POST: RequestHandler = async ({ request, platform }) => {
+export const POST: RequestHandler = async ({ request, platform, url }) => {
   const env = platform?.env;
   if (!env) return json({ ok: false, code: "NO_PLATFORM" }, { status: 503 });
 
@@ -76,10 +77,31 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       // Fire the receipt email. Never awaited-blocking — Beam should
       // get its 200 fast, and email delivery is best-effort. Silent
       // no-op when Resend isn't configured.
-      // (waitUntil isn't in RequestHandler ctx; fire-and-forget.)
       sendOrderReceipt(env, paid).catch(() => {
         /* email module already logs failures */
       });
+      // Fire analytics purchase event. The webhook has no cookies/URL
+      // context (Beam calls us server-to-server), so we synthesize a
+      // minimal context — session id falls back to the order id itself
+      // so per-session funnel queries don't lose the event; the shop
+      // funnel dashboard groups by attributedArticleId anyway.
+      await track(
+        env.DB,
+        "purchase",
+        {
+          orderId: paid.id,
+          orderNumber: paid.orderNumber,
+          totalSatang: paid.totalSatang,
+          itemCount: paid.items.reduce((s, i) => s + i.quantity, 0),
+        },
+        buildEventContext({
+          url,
+          request,
+          sessionId: paid.id,
+          userId: paid.userId ?? null,
+          locale: "en",
+        }),
+      );
       break;
     }
     case "failed":

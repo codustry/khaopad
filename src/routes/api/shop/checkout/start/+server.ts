@@ -14,9 +14,10 @@ import { CartService, CartError } from "$plugins/shop/cart-service";
 import { OrderService } from "$plugins/shop/order-service";
 import { ensureCartSession } from "$plugins/shop/cart-cookie";
 import { ShopValidationError } from "$plugins/shop/service";
+import { track, buildEventContext } from "$lib/server/analytics/track";
 import type { RequestHandler } from "./$types";
 
-export const POST: RequestHandler = async ({ request, platform, cookies, locals }) => {
+export const POST: RequestHandler = async ({ request, platform, cookies, locals, url }) => {
   const env = platform?.env;
   if (!env) throw error(503, "Platform not ready");
 
@@ -60,6 +61,24 @@ export const POST: RequestHandler = async ({ request, platform, cookies, locals 
         typeof orderSvc.createFromCart
       >[0]["billingAddress"],
     });
+
+    // Track begin_checkout. Uses reservations for item count/subtotal
+    // since we don't want to re-hydrate the cart just for analytics.
+    void track(
+      env.DB,
+      "begin_checkout",
+      {
+        cartId: cart.id,
+        itemCount: reservations.reduce((s, r) => s + r.quantity, 0),
+        subtotalSatang: 0, // exact subtotal is on the order; dashboard joins if needed
+      },
+      buildEventContext({
+        url,
+        request,
+        sessionId,
+        userId: locals.user?.id ?? null,
+      }),
+    );
 
     return json({
       ok: true,

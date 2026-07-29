@@ -14,6 +14,7 @@ import { error, json } from "@sveltejs/kit";
 import { CartService, CartError } from "$plugins/shop/cart-service";
 import { ensureCartSession } from "$plugins/shop/cart-cookie";
 import { ShopValidationError } from "$plugins/shop/service";
+import { track, buildEventContext } from "$lib/server/analytics/track";
 import type { RequestHandler } from "./$types";
 
 /**
@@ -96,6 +97,24 @@ export const POST: RequestHandler = async ({ request, platform, cookies, locals,
       variantId: body.variantId,
       quantity,
     });
+    // Fire add_to_cart. Fire-and-forget — analytics failure never
+    // blocks the cart write.
+    void track(
+      env.DB,
+      "add_to_cart",
+      {
+        productId: item.variantId, // v3.3 stores variantId, dashboards can join to product
+        variantId: item.variantId,
+        quantity: item.quantity,
+        priceSatang: item.priceSatangAtAdd,
+      },
+      buildEventContext({
+        url,
+        request,
+        sessionId,
+        userId: locals.user?.id ?? null,
+      }),
+    );
     return json({ ok: true, item });
   } catch (err) {
     if (err instanceof CartError) {

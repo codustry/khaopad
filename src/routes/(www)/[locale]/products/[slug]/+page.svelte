@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { onMount } from 'svelte';
+	import { track } from '$lib/analytics/track';
 	import { formatSatang, type Satang } from '$plugins/shop/money';
 	import type { PageData } from './$types';
 
@@ -24,6 +26,18 @@
 		params.set('variant', variant.sku);
 		goto(`?${params}`, { replaceState: true, noScroll: true, keepFocus: true });
 	}
+
+	// Fire product_view once on mount. Includes selected variant so
+	// per-variant conversion funnels can be sliced (though the
+	// dashboard v4a doesn't split by variant yet).
+	onMount(() => {
+		if (!selectedVariant) return;
+		track('product_view', {
+			productId: product.slug, // storefront doesn't expose product id — use slug
+			variantId: selectedVariant.id,
+			priceSatang: selectedVariant.priceSatang,
+		});
+	});
 </script>
 
 <!-- SEO is rendered by the layout via page.data.seo. Only the Product

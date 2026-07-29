@@ -113,6 +113,13 @@
       "when": 1785320000000,
       "tag": "0015_plugin_shop_shipping_tax",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1785330000000,
+      "tag": "0016_analytics_events",
+      "breakpoints": true
     }
   ]
 }
