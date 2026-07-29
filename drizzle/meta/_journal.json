@@ -92,6 +92,13 @@
       "when": 1785138000000,
       "tag": "0012_plugin_hello_pings",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1785276000000,
+      "tag": "0013_plugin_shop_catalog",
+      "breakpoints": true
     }
   ]
 }
