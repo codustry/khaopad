@@ -66,7 +66,26 @@ registerNavGroup({
 export default defineKhaopadPlugin({
   slug: "shop",
   name: "Shop",
-  version: "0.1.0",
+  version: "0.2.0",
   description:
     "Small ecommerce: products, variants, cart, checkout (BeamCheckout for Thailand)",
+  async onInit(ctx) {
+    // Register BeamCheckout provider at first-request time (needs env).
+    // Skip silently when Beam credentials aren't set — the shop still
+    // ships product catalog + cart, checkout will surface a helpful
+    // 503 if a payment attempt fires without a configured provider.
+    const beamKey = ctx.env.BEAM_API_KEY;
+    const beamWebhookSecret = ctx.env.BEAM_WEBHOOK_SECRET;
+    if (beamKey && beamWebhookSecret) {
+      const { BeamPaymentProvider } = await import("./beam");
+      const { registerPaymentProvider } = await import("./payment");
+      registerPaymentProvider(
+        new BeamPaymentProvider({
+          apiKey: beamKey,
+          webhookSecret: beamWebhookSecret,
+          baseUrl: ctx.env.BEAM_BASE_URL,
+        }),
+      );
+    }
+  },
 });

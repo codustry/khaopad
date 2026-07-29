@@ -45,6 +45,12 @@ declare global {
         CMS_SITE_URL: string;
         BETTER_AUTH_SECRET: string;
         BETTER_AUTH_URL: string;
+        // ─── @khaopad/plugin-shop (optional) ───────────────
+        // Present when the shop plugin's payment adapter is configured.
+        // Absent when the shop is running in browse-only mode (no checkout).
+        BEAM_API_KEY?: string;
+        BEAM_WEBHOOK_SECRET?: string;
+        BEAM_BASE_URL?: string;
       };
     }
   }
