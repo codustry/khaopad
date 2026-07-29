@@ -51,6 +51,12 @@ declare global {
         BEAM_API_KEY?: string;
         BEAM_WEBHOOK_SECRET?: string;
         BEAM_BASE_URL?: string;
+        /**
+         * Shared secret for /api/shop/cron/sweep. Set in wrangler.toml
+         * [vars] as a random 64-char string; used by Cloudflare Cron
+         * Triggers as `?token=<CRON_SECRET>`. Absent = cron endpoint 401s.
+         */
+        CRON_SECRET?: string;
       };
     }
   }

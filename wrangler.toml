@@ -117,3 +117,22 @@ bucket_name = "khaopad-media"
 [[env.production.kv_namespaces]]
 binding = "CONTENT_CACHE"
 id = "PRODUCTION_KV_ID"
+
+# ──────────────────────────────────────
+# Cron Triggers (v3.2 shop plugin)
+# ──────────────────────────────────────
+# Enable the shop plugin's reservation + abandoned-cart sweep by
+# uncommenting the triggers block below and setting CRON_SECRET in [vars].
+# The endpoint at /api/shop/cron/sweep runs `sweepExpiredReservations`
+# (15-min TTL) + `sweepAbandonedCarts` (30-day TTL).
+#
+# Cloudflare Cron Triggers fire the Worker's `scheduled` handler; for
+# v3.2 we use an HTTP endpoint fetched from that handler for simpler
+# per-plugin ownership. If you enable the fetch pattern, wire it in
+# your Worker entry.
+#
+# [triggers]
+# crons = ["* * * * *"]  # every minute
+#
+# Then set CRON_SECRET in [vars]:
+# CRON_SECRET = "generate-with-openssl-rand-hex-32"
