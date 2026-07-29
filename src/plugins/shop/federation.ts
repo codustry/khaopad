@@ -27,6 +27,8 @@ import {
   type ShopArticleProductRef,
 } from "./schema-federation";
 import {
+  shopInventoryItems,
+  shopInventoryLevels,
   shopProducts,
   shopProductLocalizations,
   shopProductVariants,
@@ -117,6 +119,11 @@ export async function listArticlesForProduct(
  * can appear once per kind; the same product with different kinds is
  * legal (e.g. same product both `featured` in the hero and `mentioned`
  * inline).
+ *
+ * Uses D1's `batch()` API so the DELETE + INSERT run as a single
+ * atomic unit. Partial-failure protection: without batch, a network
+ * hiccup between the two statements would leave the article with an
+ * empty ref set (worse than either the old state or the new state).
  */
 export async function setRefs(
   d1: D1Database,
@@ -126,22 +133,31 @@ export async function setRefs(
     createdBy?: string | null;
   },
 ): Promise<void> {
-  const db = drizzle(d1);
-  await db
-    .delete(shopArticleProductRefs)
-    .where(eq(shopArticleProductRefs.articleId, input.articleId));
-  if (input.refs.length === 0) return;
   const now = new Date().toISOString();
-  await db.insert(shopArticleProductRefs).values(
-    input.refs.map((r, index) => ({
-      articleId: input.articleId,
-      productId: r.productId,
-      refKind: r.refKind ?? "mentioned",
-      position: r.position ?? index,
-      createdAt: now,
-      createdBy: input.createdBy ?? null,
-    })),
-  );
+  const statements: D1PreparedStatement[] = [
+    d1
+      .prepare(`DELETE FROM shop_article_product_refs WHERE article_id = ?1`)
+      .bind(input.articleId),
+  ];
+  input.refs.forEach((r, index) => {
+    statements.push(
+      d1
+        .prepare(
+          `INSERT INTO shop_article_product_refs
+             (article_id, product_id, ref_kind, position, created_at, created_by)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+        )
+        .bind(
+          input.articleId,
+          r.productId,
+          r.refKind ?? "mentioned",
+          r.position ?? index,
+          now,
+          input.createdBy ?? null,
+        ),
+    );
+  });
+  await d1.batch(statements);
 }
 
 /**
@@ -219,7 +235,12 @@ export function extractEmbeds(markdown: string | null | undefined): string[] {
 export function replaceEmbedsWithPlaceholders(
   markdown: string,
   productsBySlug: Map<string, ProductSummary>,
+  locale: string = "en",
 ): string {
+  // Validate locale to a two-letter ASCII prefix — keeps the URL
+  // path segment safe from injection via a hostile locale value
+  // (caller should already have validated, but belt + braces).
+  const safeLocale = /^[a-z]{2}$/.test(locale) ? locale : "en";
   return markdown.replace(EMBED_PATTERN, (_match, slug: string) => {
     const product = productsBySlug.get(slug);
     if (!product) {
@@ -232,7 +253,7 @@ export function replaceEmbedsWithPlaceholders(
     const priceLabel = product.priceFromSatang
       ? `<span class="text-sm text-muted-foreground">From ฿${(product.priceFromSatang / 100).toFixed(2)}</span>`
       : "";
-    return `<a href="/en/products/${product.slug}" class="not-prose block rounded-lg border border-border p-4 my-4 hover:bg-muted transition-colors"><div class="font-semibold">${escapeHtml(product.title)}</div>${priceLabel}</a>`;
+    return `<a href="/${safeLocale}/products/${product.slug}" class="not-prose block rounded-lg border border-border p-4 my-4 hover:bg-muted transition-colors"><div class="font-semibold">${escapeHtml(product.title)}</div>${priceLabel}</a>`;
   });
 }
 
@@ -299,14 +320,43 @@ async function hydrateProductSummaries(
     variantsByProduct.set(v.productId, arr);
   }
 
+  // Real in-stock computation: join inventory items+levels. Fixed
+  // post-merge from a stale "prodVariants.length > 0" placeholder
+  // that was silently always-true. Now returns actual stock status.
+  const variantIds = variants.map((v) => v.id);
+  const invItems = variantIds.length
+    ? await db
+        .select()
+        .from(shopInventoryItems)
+        .where(inArray(shopInventoryItems.variantId, variantIds))
+        .all()
+    : [];
+  const itemByVariant = new Map(invItems.map((i) => [i.variantId, i]));
+  const itemIds = invItems.map((i) => i.id);
+  const levels = itemIds.length
+    ? await db
+        .select()
+        .from(shopInventoryLevels)
+        .where(inArray(shopInventoryLevels.itemId, itemIds))
+        .all()
+    : [];
+  const levelByItem = new Map(levels.map((l) => [l.itemId, l]));
+
   return products.map((p) => {
     const prodVariants = variantsByProduct.get(p.id) ?? [];
     const priceFromSatang = prodVariants.length
       ? (Math.min(...prodVariants.map((v) => v.priceSatang)) as Satang)
       : null;
-    // in_stock: any variant with price>0 (we don't join inventory here
-    // to keep the summary cheap — mostly used in "related products"
-    // sections where a definitive stock indicator isn't critical)
+    // Real in-stock: any variant with untracked inventory OR
+    // available (onHand - reserved) > 0.
+    const inStock = prodVariants.some((v) => {
+      const item = itemByVariant.get(v.id);
+      if (!item) return false;
+      if (!item.tracked) return true;
+      const level = levelByItem.get(item.id);
+      if (!level) return false;
+      return level.onHand - level.reserved > 0;
+    });
     return {
       id: p.id,
       slug: p.slug,
@@ -314,7 +364,7 @@ async function hydrateProductSummaries(
       priceFromSatang,
       vendor: p.vendor,
       featuredMediaId: p.featuredMediaId,
-      inStock: prodVariants.length > 0,
+      inStock,
     };
   });
 }

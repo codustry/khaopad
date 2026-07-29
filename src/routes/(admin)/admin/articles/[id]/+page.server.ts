@@ -136,6 +136,34 @@ export const actions: Actions = {
       });
     }
 
+    // Validate every productId exists in shopProducts. Prevents
+    // ghost-ref writes AND avoids leaking raw D1 constraint errors
+    // back to the admin UI on typo.
+    if (refs.length > 0) {
+      try {
+        const { drizzle } = await import("drizzle-orm/d1");
+        const { inArray } = await import("drizzle-orm");
+        const { shopProducts } = await import("$plugins/shop/schema");
+        const uniqueIds = Array.from(new Set(refs.map((r) => r.productId)));
+        const found = await drizzle(env.DB)
+          .select({ id: shopProducts.id })
+          .from(shopProducts)
+          .where(inArray(shopProducts.id, uniqueIds))
+          .all();
+        const foundIds = new Set(found.map((p) => p.id));
+        const missing = uniqueIds.filter((id) => !foundIds.has(id));
+        if (missing.length > 0) {
+          return fail(400, {
+            error: `Unknown product id(s): ${missing.join(", ")}`,
+          });
+        }
+      } catch {
+        return fail(500, {
+          error: "Could not validate products; try again.",
+        });
+      }
+    }
+
     try {
       const { setRefs } = await import("$plugins/shop/federation");
       await setRefs(env.DB, {
@@ -144,10 +172,11 @@ export const actions: Actions = {
         createdBy: user.id,
       });
       return { success: true, refsSaved: refs.length };
-    } catch (err) {
-      return fail(500, {
-        error: err instanceof Error ? err.message : "Save failed",
-      });
+    } catch {
+      // Never echo raw D1/Drizzle errors to admin — they may reveal
+      // internal column names or constraint details useful to an
+      // attacker who already has admin access (defense in depth).
+      return fail(500, { error: "Save failed." });
     }
   },
 

@@ -64,7 +64,11 @@ export const load: PageServerLoad = async ({ locals, params, url, cookies, platf
     const slugs = extractEmbeds(expanded);
     if (slugs.length > 0) {
       const productsBySlug = await hydrateProductEmbeds(platform.env.DB, slugs);
-      expandedWithEmbeds = replaceEmbedsWithPlaceholders(expanded, productsBySlug);
+      expandedWithEmbeds = replaceEmbedsWithPlaceholders(
+        expanded,
+        productsBySlug,
+        locale,
+      );
     }
   }
   const htmlContent = await marked(expandedWithEmbeds);

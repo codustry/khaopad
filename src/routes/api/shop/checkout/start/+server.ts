@@ -81,6 +81,10 @@ export const POST: RequestHandler = async ({ request, platform, cookies, locals,
     let attributedArticleId: string | undefined;
     if (
       body?.attributedArticleSlug &&
+      // Cap length at 128 chars — slugify's practical max is ~80,
+      // this leaves headroom without inviting a DOS via a 100KB
+      // payload dropped into getArticleBySlug.
+      body.attributedArticleSlug.length <= 128 &&
       /^[a-z0-9-]+$/.test(body.attributedArticleSlug)
     ) {
       try {
@@ -108,18 +112,32 @@ export const POST: RequestHandler = async ({ request, platform, cookies, locals,
       }),
     );
     if (attributedArticleId) {
-      // Also persist attribution in the cart's discountCode column
+      // Persist attribution in the cart's discountCode column
       // (unused for v3.4; discount codes ship in v3.5 with a
       // dedicated table). Overloads the column temporarily so the
       // webhook can read `attribution:<articleId>` back at markPaid.
+      //
+      // Guarded: only writes when the column is NULL or already
+      // carries an attribution — never overwrites a real coupon
+      // code. When v3.5 discount codes land, they'll write with a
+      // different prefix (or migrate off this column entirely) so
+      // this coexists cleanly.
       const { drizzle } = await import("drizzle-orm/d1");
-      const { eq } = await import("drizzle-orm");
+      const { eq, and, or, sql, isNull } = await import("drizzle-orm");
       const { shopCarts } = await import("$plugins/shop/schema-cart");
       try {
         await drizzle(env.DB)
           .update(shopCarts)
           .set({ discountCode: `attribution:${attributedArticleId}` })
-          .where(eq(shopCarts.id, cart.id));
+          .where(
+            and(
+              eq(shopCarts.id, cart.id),
+              or(
+                isNull(shopCarts.discountCode),
+                sql`${shopCarts.discountCode} LIKE 'attribution:%'`,
+              ),
+            ),
+          );
       } catch {
         /* best-effort — attribution loss is acceptable */
       }
