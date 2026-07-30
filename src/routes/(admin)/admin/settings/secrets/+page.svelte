@@ -1,5 +1,6 @@
 <script lang="ts">
   import { enhance } from "$app/forms";
+  import { resolve } from "$app/paths";
   import type { ActionData, PageData } from "./$types";
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -11,8 +12,9 @@
 
 <div class="mx-auto max-w-3xl p-6">
   <header class="mb-6">
-    <a href="/admin/settings" class="text-sm text-muted-foreground hover:underline"
-      >← Settings</a
+    <a
+      href={resolve("/(admin)/admin/settings")}
+      class="text-sm text-muted-foreground hover:underline">← Settings</a
     >
     <h1 class="mt-2 text-2xl font-semibold">Integration credentials</h1>
     <p class="mt-1 text-sm text-muted-foreground">
