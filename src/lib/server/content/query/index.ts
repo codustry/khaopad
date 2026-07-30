@@ -50,9 +50,17 @@ function resolveRelationTarget(
   if (relation === "*") return null; // expanded by the engine, not a target
   const rel = def.relations[relation];
   if (!rel) return null;
-  // A localizations relation lives in a sibling table of the same
-  // collection — it has no separate target collection to invalidate.
-  return rel.kind === "localizations" ? collection : rel.target;
+  switch (rel.kind) {
+    // Localizations live in a sibling table of the same collection —
+    // there is no separate target collection to invalidate.
+    case "localizations":
+    case "entryLocalizations":
+      return collection;
+    case "manyToOne":
+    case "manyToMany":
+    case "entryRelation":
+      return rel.target;
+  }
 }
 
 export interface ContentQuery {

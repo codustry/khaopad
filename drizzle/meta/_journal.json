@@ -141,6 +141,13 @@
       "when": 1785340500000,
       "tag": "0019_plugin_shop_recovery_email",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1785426900000,
+      "tag": "0020_collection_registry",
+      "breakpoints": true
     }
   ]
 }

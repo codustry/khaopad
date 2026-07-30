@@ -26,6 +26,7 @@
  * ids**, never per row. See engine.ts.
  */
 import * as schema from "../schema";
+import type { SQL } from "drizzle-orm";
 import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 
 /** How a relation is physically stored in the current schema. */
@@ -48,6 +49,36 @@ export type RelationDef =
       /** Join-table column pointing at the target collection. */
       throughTargetKey: string;
       target: string;
+    }
+  | {
+      /**
+       * Phase 2: an edge in the shared `entry_relations` table.
+       *
+       * Differs from `manyToMany` in two ways that matter to the engine:
+       * all relations of every collection share ONE table, so edges must
+       * additionally be filtered by `fieldApiId`; and edges carry an
+       * explicit `position`, so the joined array has a meaningful order
+       * (which `article_tags` cannot express).
+       */
+      kind: "entryRelation";
+      /** Field apiId discriminating these edges from every other field's. */
+      fieldApiId: string;
+      /** Target collection apiId. */
+      target: string;
+      /** `one` collapses the array to a single object or null. */
+      cardinality: "one" | "many";
+    }
+  | {
+      /**
+       * Phase 2: per-locale documents in the shared
+       * `entry_localizations` table. Same public shape as
+       * `localizations` (`{en: {...}, th: {...}}`) so consumers see one
+       * convention, but the values are lifted out of a JSON document
+       * rather than read from columns.
+       */
+      kind: "entryLocalizations";
+      /** Field apiIds carried in each locale's document. */
+      fields: readonly string[];
     }
   | {
       kind: "localizations";
@@ -77,6 +108,33 @@ export interface CollectionDef {
   /** Columns permitted in `filters` / `sort`. Subset of selectable. */
   filterable: readonly string[];
   relations: Record<string, RelationDef>;
+  /**
+   * Optional hook to flatten a raw DB row before projection.
+   *
+   * The built-in collections below store every field in its own column,
+   * so `row[fieldName]` just works and this is unset. Phase 2's registry
+   * collections keep their field values inside a `data_json` document on
+   * a shared `entries` table, so they supply a mapper that lifts those
+   * keys to the top level.
+   *
+   * This is the seam that lets ONE engine serve both storage shapes.
+   * Without it the engine would have to know which kind of collection it
+   * was reading, which is exactly the coupling the phase split avoids.
+   *
+   * Must be pure and synchronous — it runs once per row on the read
+   * path.
+   */
+  flattenRow?: (row: Record<string, unknown>) => Record<string, unknown>;
+  /**
+   * Extra condition ANDed into every query for this collection.
+   *
+   * Built-in collections each own a table, so they need none. Phase 2's
+   * registry collections all share `entries`, so without this a query
+   * for one content type would return every type's rows. Applied by the
+   * engine ahead of user filters and not expressible through the filter
+   * grammar, so a caller cannot widen or remove it.
+   */
+  scopeFilter?: SQL;
 }
 
 /**

@@ -57,6 +57,7 @@ import {
   type SQL,
 } from "drizzle-orm";
 import { type SQLiteTable } from "drizzle-orm/sqlite-core";
+import { entryLocalizations, entryRelations } from "../registry/schema";
 import {
   getCollection,
   type CollectionDef,
@@ -128,11 +129,29 @@ export class QueryEngine {
   /** Incremented per issued query so callers can assert on N+1. */
   private queryCount = 0;
 
+  /**
+   * `resolveCollection` is injectable so Phase 2's registry can supply
+   * user-defined collections alongside the built-in ones. Defaults to
+   * the built-in code registry, which is what the public per-entity
+   * endpoints use.
+   */
+  private readonly resolveCollection: (apiId: string) => CollectionDef | null;
+
+  /**
+   * Visibility rules inherited from the root query and applied to every
+   * populate target. Set per `find()` call — an admin read wants drafts,
+   * a public read must not see them, and a nested target has to honour
+   * whichever context it was reached from.
+   */
+  private visibility: { onlyPublished?: boolean } = {};
+
   constructor(
     d1: D1Database,
     private readonly opts: QueryEngineOptions,
+    resolveCollection?: (apiId: string) => CollectionDef | null,
   ) {
     this.db = drizzle(d1);
+    this.resolveCollection = resolveCollection ?? getCollection;
   }
 
   /** Queries issued since construction. Used by tests and `meta`. */
@@ -149,7 +168,7 @@ export class QueryEngine {
   }
 
   async find(collectionId: string, query: FindQuery = {}): Promise<FindResult> {
-    const collection = getCollection(collectionId);
+    const collection = this.resolveCollection(collectionId);
     if (!collection) {
       throw new QueryError(
         `Unknown collection "${collectionId}"`,
@@ -166,6 +185,9 @@ export class QueryEngine {
     const offset = (page - 1) * limit;
 
     this.assertDepth(query.populate, 1);
+
+    // Inherited by every populate target in this query's tree.
+    this.visibility = { onlyPublished: query.onlyPublished };
 
     const where = this.buildWhere(
       collection,
@@ -319,6 +341,190 @@ export class QueryEngine {
           depth,
           parent,
         );
+      case "entryLocalizations":
+        return this.resolveEntryLocalizations(
+          relation,
+          relationName,
+          sourceRows,
+          targetRows,
+          locale,
+          parent,
+        );
+      case "entryRelation":
+        return this.resolveEntryRelation(
+          relation,
+          relationName,
+          sourceRows,
+          targetRows,
+          node,
+          locale,
+          depth,
+          parent,
+        );
+    }
+  }
+
+  /**
+   * Phase 2 localizations: per-locale documents in the shared
+   * `entry_localizations` table.
+   *
+   * One query for every parent row, grouped into
+   * `{ en: {...}, th: {...} }` — deliberately the same output shape as
+   * the built-in `localizations` relation, so a consumer can't tell
+   * which storage backs the collection.
+   */
+  private async resolveEntryLocalizations(
+    relation: Extract<RelationDef, { kind: "entryLocalizations" }>,
+    relationName: string,
+    sourceRows: EntryRow[],
+    targetRows: EntryRow[],
+    locale: string | undefined,
+    parent: CollectionDef,
+  ): Promise<void> {
+    const ids = this.collectIds(sourceRows, parent.primaryKey);
+    if (ids.length === 0) return;
+
+    const extra: SQL[] = locale ? [eq(entryLocalizations.locale, locale)] : [];
+
+    const rows = (await this.loadChunked(ids, (chunk) =>
+      this.db
+        .select()
+        .from(entryLocalizations)
+        .where(and(inArray(entryLocalizations.entryId, chunk), ...extra))
+        .all(),
+    )) as EntryRow[];
+
+    const byParent = new Map<string, Record<string, unknown>>();
+    for (const row of rows) {
+      let doc: Record<string, unknown> = {};
+      try {
+        const parsed = JSON.parse(String(row.dataJson ?? "{}"));
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          doc = parsed as Record<string, unknown>;
+        }
+      } catch {
+        // A corrupt document degrades to empty rather than 500ing the
+        // whole page — one bad row shouldn't take out a listing.
+      }
+      // Project through the field allowlist so a key left behind by a
+      // removed field can't leak back into an API response.
+      const payload: Record<string, unknown> = {};
+      for (const f of relation.fields) payload[f] = doc[f] ?? null;
+
+      byParent.set(String(row.entryId), {
+        ...(byParent.get(String(row.entryId)) ?? {}),
+        [String(row.locale)]: payload,
+      });
+    }
+
+    for (let i = 0; i < targetRows.length; i++) {
+      const id = String(sourceRows[i][parent.primaryKey]);
+      targetRows[i][relationName] = byParent.get(id) ?? {};
+    }
+  }
+
+  /**
+   * Phase 2 relations: edges in the shared `entry_relations` table.
+   *
+   * Two batched queries regardless of parent count — edges, then
+   * targets — same as `manyToMany`, plus two differences: edges are
+   * filtered by `fieldApiId` because every collection's relations share
+   * one table, and the result respects the edge `position` so ordered
+   * relations (a curated product list, a dynamic zone's block order)
+   * come back in the author's order.
+   */
+  private async resolveEntryRelation(
+    relation: Extract<RelationDef, { kind: "entryRelation" }>,
+    relationName: string,
+    sourceRows: EntryRow[],
+    targetRows: EntryRow[],
+    node: PopulateNode,
+    locale: string | undefined,
+    depth: number,
+    parent: CollectionDef,
+  ): Promise<void> {
+    const target = this.resolveCollection(relation.target);
+    if (!target) {
+      throw new QueryError(
+        `Relation "${relationName}" targets unknown collection "${relation.target}"`,
+        "UNKNOWN_COLLECTION",
+      );
+    }
+
+    const parentIds = this.collectIds(sourceRows, parent.primaryKey);
+    const empty = relation.cardinality === "one" ? null : [];
+    if (parentIds.length === 0) return;
+
+    const edges = (await this.loadChunked(parentIds, (chunk) =>
+      this.db
+        .select()
+        .from(entryRelations)
+        .where(
+          and(
+            inArray(entryRelations.entryId, chunk),
+            eq(entryRelations.fieldApiId, relation.fieldApiId),
+          ),
+        )
+        .orderBy(asc(entryRelations.position))
+        .all(),
+    )) as EntryRow[];
+
+    if (edges.length === 0) {
+      for (const row of targetRows) row[relationName] = empty;
+      return;
+    }
+
+    const targetIds = Array.from(
+      new Set(edges.map((e) => String(e.targetEntryId))),
+    );
+
+    const rows = await this.loadPopulateTargets(
+      target,
+      targetIds,
+      this.visibility,
+    );
+
+    const projected = rows.map((r) =>
+      this.projectScalars(target, r, node.fields),
+    );
+    const byId = new Map<string, EntryRow>();
+    projected.forEach((p, i) =>
+      byId.set(String(rows[i][target.primaryKey]), p),
+    );
+
+    // Edges arrived position-ordered from SQL; chunking preserves that
+    // per chunk but not across chunks, so re-sort before grouping.
+    const ordered = [...edges].sort(
+      (a, b) => Number(a.position ?? 0) - Number(b.position ?? 0),
+    );
+
+    const grouped = new Map<string, EntryRow[]>();
+    for (const edge of ordered) {
+      const hit = byId.get(String(edge.targetEntryId));
+      if (!hit) continue;
+      const parentId = String(edge.entryId);
+      const list = grouped.get(parentId) ?? [];
+      list.push(hit);
+      grouped.set(parentId, list);
+    }
+
+    for (let i = 0; i < targetRows.length; i++) {
+      const id = String(sourceRows[i][parent.primaryKey]);
+      const list = grouped.get(id) ?? [];
+      targetRows[i][relationName] =
+        relation.cardinality === "one" ? (list[0] ?? null) : list;
+    }
+
+    if (node.populate && rows.length > 0) {
+      this.assertDepth(node.populate, depth + 1);
+      await this.populateLevel(
+        target,
+        rows,
+        projected,
+        node.populate,
+        locale,
+        depth + 1,
+      );
     }
   }
 
@@ -384,7 +590,7 @@ export class QueryEngine {
     locale: string | undefined,
     depth: number,
   ): Promise<void> {
-    const target = getCollection(relation.target);
+    const target = this.resolveCollection(relation.target);
     if (!target) {
       throw new QueryError(
         `Relation "${relationName}" targets unknown collection "${relation.target}"`,
@@ -402,15 +608,12 @@ export class QueryEngine {
     }
 
     const targetKey = relation.targetKey ?? target.primaryKey;
-    const targetCol = requireColumn(target.table, targetKey, target.apiId);
-
-    const rows = (await this.loadChunked(ids, (chunk) =>
-      this.db
-        .select()
-        .from(target.table)
-        .where(inArray(targetCol, chunk))
-        .all(),
-    )) as EntryRow[];
+    const rows = await this.loadPopulateTargets(
+      target,
+      ids,
+      this.visibility,
+      targetKey,
+    );
 
     const projected = rows.map((r) =>
       this.projectScalars(target, r, node.fields),
@@ -453,7 +656,7 @@ export class QueryEngine {
     depth: number,
     parent: CollectionDef,
   ): Promise<void> {
-    const target = getCollection(relation.target);
+    const target = this.resolveCollection(relation.target);
     if (!target) {
       throw new QueryError(
         `Relation "${relationName}" targets unknown collection "${relation.target}"`,
@@ -487,18 +690,11 @@ export class QueryEngine {
       new Set(edges.map((e) => String(e[relation.throughTargetKey]))),
     );
 
-    const rows = (await this.loadChunked(targetIds, (chunk) =>
-      this.db
-        .select()
-        .from(target.table)
-        .where(
-          inArray(
-            requireColumn(target.table, target.primaryKey, target.apiId),
-            chunk,
-          ),
-        )
-        .all(),
-    )) as EntryRow[];
+    const rows = await this.loadPopulateTargets(
+      target,
+      targetIds,
+      this.visibility,
+    );
 
     const projected = rows.map((r) =>
       this.projectScalars(target, r, node.fields),
@@ -567,6 +763,70 @@ export class QueryEngine {
     return out;
   }
 
+  /**
+   * Load populate targets by id, applying the TARGET collection's own
+   * scope and visibility rules.
+   *
+   * Filtering by id alone is not sufficient, for two reasons:
+   *
+   *  1. **Cross-collection leak.** Registry collections all share the
+   *     `entries` table, so an edge pointing at the wrong content type
+   *     would return that type's row projected through this
+   *     collection's field names. Write-path validation
+   *     (`assertValidTargets`) can't be trusted here — edges can also
+   *     arrive from an importer or a direct SQL seed.
+   *  2. **Draft leak.** The root query is `status = published`, but a
+   *     populate target loaded by id alone ignores status entirely, so
+   *     an unpublished or archived entry would ride along inside a
+   *     published parent's payload.
+   *
+   * `visibility` is inherited from the root query, so an admin read
+   * (which legitimately wants drafts) still sees them.
+   */
+  private async loadPopulateTargets(
+    target: CollectionDef,
+    ids: string[],
+    visibility: { onlyPublished?: boolean },
+    /** Column the ids match, when it isn't the primary key. */
+    matchKey?: string,
+  ): Promise<EntryRow[]> {
+    const idColumn = requireColumn(
+      target.table,
+      matchKey ?? target.primaryKey,
+      target.apiId,
+    );
+
+    const extra: SQL[] = [];
+    if (target.scopeFilter) extra.push(target.scopeFilter);
+    if (
+      visibility.onlyPublished &&
+      target.filterable.includes("status") &&
+      target.selectable.includes("status")
+    ) {
+      extra.push(
+        eq(requireColumn(target.table, "status", target.apiId), "published"),
+      );
+    }
+    if (visibility.onlyPublished && target.filterable.includes("publishedAt")) {
+      const publishedAt = requireColumn(
+        target.table,
+        "publishedAt",
+        target.apiId,
+      );
+      extra.push(
+        or(isNull(publishedAt), lte(publishedAt, new Date().toISOString()))!,
+      );
+    }
+
+    return (await this.loadChunked(ids, (chunk) =>
+      this.db
+        .select()
+        .from(target.table)
+        .where(and(inArray(idColumn, chunk), ...extra))
+        .all(),
+    )) as EntryRow[];
+  }
+
   /** Distinct, non-null values of `key` across rows. */
   private collectIds(rows: EntryRow[], key: string): string[] {
     const set = new Set<string>();
@@ -600,13 +860,18 @@ export class QueryEngine {
         })
       : collection.selectable;
 
+    // Registry-backed collections keep their field values inside a JSON
+    // document, so lift them to the top level before projecting. Column-
+    // per-field collections set no mapper and read straight through.
+    const source = collection.flattenRow ? collection.flattenRow(row) : row;
+
     const out: EntryRow = {};
-    for (const f of allowed) out[f] = row[f] ?? null;
+    for (const f of allowed) out[f] = source[f] ?? null;
     // The primary key always rides along — populate stitching and any
     // client-side cache keying need it, and omitting it makes results
     // ambiguous.
     if (!(collection.primaryKey in out)) {
-      out[collection.primaryKey] = row[collection.primaryKey];
+      out[collection.primaryKey] = source[collection.primaryKey];
     }
     return out;
   }
@@ -617,6 +882,12 @@ export class QueryEngine {
     onlyPublished?: boolean,
   ): SQL | undefined {
     const conditions: SQL[] = [];
+
+    // Collection scoping. Registry-backed collections all live in the
+    // shared `entries` table, so without this a query for one content
+    // type would return every type's rows. First in the list and not
+    // reachable through the filter grammar, so a caller cannot widen it.
+    if (collection.scopeFilter) conditions.push(collection.scopeFilter);
 
     // Scheduled-publishing guard. Applied before user filters so it
     // can't be displaced by them, and expressed as a disjunction the

@@ -1,0 +1,180 @@
+{
+  "_readme": [
+    "Demo fixture for the Phase 2 collection registry (#68).",
+    "",
+    "A three-level relational catalog (brand -> productLine -> variant)",
+    "plus an ordered component (a spec row), in EN and TH. Nothing here is",
+    "engine knowledge: these are ordinary USER collections, defined by",
+    "inserting registry rows. Swap this file for a Strapi export or a CSV",
+    "reader and the same importer loads it.",
+    "",
+    "Shape:",
+    "  collections[].fields[]  -> collection_fields rows",
+    "  entries[].key           -> local handle used to wire relations",
+    "  entries[].data          -> non-localized values (entries.data_json)",
+    "  entries[].localizations -> per-locale values (entry_localizations)",
+    "  entries[].relations     -> ordered edges (entry_relations)",
+    "",
+    "`promoted: true` asks for a VIRTUAL generated column + index, making",
+    "the field efficiently filterable/sortable. It spends part of D1's",
+    "100-column-per-table budget, so it is opt-in per field."
+  ],
+
+  "collections": [
+    {
+      "apiId": "brand",
+      "kind": "collection",
+      "localized": true,
+      "fields": [
+        {
+          "apiId": "name",
+          "type": "text",
+          "required": true,
+          "localized": true
+        },
+        { "apiId": "code", "type": "text", "unique": true, "promoted": true },
+        { "apiId": "country", "type": "text" },
+        { "apiId": "summary", "type": "richtext", "localized": true }
+      ]
+    },
+    {
+      "apiId": "product_line",
+      "kind": "collection",
+      "localized": true,
+      "fields": [
+        {
+          "apiId": "name",
+          "type": "text",
+          "required": true,
+          "localized": true
+        },
+        { "apiId": "excerpt", "type": "text", "localized": true },
+        { "apiId": "featured", "type": "boolean", "promoted": true },
+        {
+          "apiId": "brand",
+          "type": "relation",
+          "config": { "target": "brand", "cardinality": "one" }
+        },
+        {
+          "apiId": "variants",
+          "type": "relation",
+          "config": { "target": "variant", "cardinality": "many" }
+        }
+      ]
+    },
+    {
+      "apiId": "variant",
+      "kind": "collection",
+      "localized": true,
+      "fields": [
+        {
+          "apiId": "name",
+          "type": "text",
+          "required": true,
+          "localized": true
+        },
+        { "apiId": "sku", "type": "text", "unique": true, "promoted": true },
+        { "apiId": "weight_kg", "type": "number", "promoted": true },
+        {
+          "apiId": "specs",
+          "type": "component",
+          "config": { "allowed": ["spec_row"], "cardinality": "many" }
+        }
+      ]
+    },
+    {
+      "apiId": "spec_row",
+      "kind": "component",
+      "localized": true,
+      "fields": [
+        {
+          "apiId": "label",
+          "type": "text",
+          "required": true,
+          "localized": true
+        },
+        { "apiId": "value", "type": "text", "required": true },
+        { "apiId": "unit", "type": "text" }
+      ]
+    }
+  ],
+
+  "entries": [
+    {
+      "key": "brand_northwind",
+      "collection": "brand",
+      "slug": "northwind",
+      "data": { "code": "NW", "country": "TH" },
+      "localizations": {
+        "en": { "name": "Northwind", "summary": "A demo brand." },
+        "th": { "name": "นอร์ทวินด์", "summary": "แบรนด์ตัวอย่าง" }
+      }
+    },
+
+    {
+      "key": "line_alpha",
+      "collection": "product_line",
+      "slug": "alpha-series",
+      "data": { "featured": true },
+      "localizations": {
+        "en": { "name": "Alpha Series", "excerpt": "Entry-level range." },
+        "th": { "name": "ซีรีส์อัลฟา", "excerpt": "รุ่นเริ่มต้น" }
+      },
+      "relations": {
+        "brand": ["brand_northwind"],
+        "variants": ["variant_a100", "variant_a200"]
+      }
+    },
+
+    {
+      "key": "variant_a100",
+      "collection": "variant",
+      "slug": "a100",
+      "data": { "sku": "NW-A100", "weight_kg": 12.5 },
+      "localizations": {
+        "en": { "name": "A100" },
+        "th": { "name": "เอ100" }
+      },
+      "relations": { "specs": ["spec_a100_flow", "spec_a100_power"] }
+    },
+    {
+      "key": "variant_a200",
+      "collection": "variant",
+      "slug": "a200",
+      "data": { "sku": "NW-A200", "weight_kg": 18.0 },
+      "localizations": {
+        "en": { "name": "A200" },
+        "th": { "name": "เอ200" }
+      },
+      "relations": { "specs": ["spec_a200_flow"] }
+    },
+
+    {
+      "key": "spec_a100_flow",
+      "collection": "spec_row",
+      "data": { "value": "63", "unit": "m3/h" },
+      "localizations": {
+        "en": { "label": "Flow rate" },
+        "th": { "label": "อัตราการไหล" }
+      }
+    },
+    {
+      "key": "spec_a100_power",
+      "collection": "spec_row",
+      "data": { "value": "1.5", "unit": "kW" },
+      "localizations": {
+        "en": { "label": "Motor power" },
+        "th": { "label": "กำลังมอเตอร์" }
+      }
+    },
+    {
+      "key": "spec_a200_flow",
+      "collection": "spec_row",
+      "data": { "value": "100", "unit": "m3/h" },
+      "localizations": {
+        "en": { "label": "Flow rate" },
+        "th": { "label": "อัตราการไหล" }
+      }
+    }
+  ]
+}
