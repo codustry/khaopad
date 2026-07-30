@@ -1014,7 +1014,17 @@ export class RegistryService {
     };
 
     for (const field of collection.fields) {
-      if (field.promoted) continue;
+      // A promoted field has a real generated column, so it does NOT need
+      // an index row to be *filterable* — but it does need one to be
+      // checked for uniqueness, because `assertUniqueFields` reads this
+      // table. Skipping promoted fields here silently disabled `unique`
+      // on exactly the fields most likely to declare it (a SKU or ref
+      // code is the canonical case for BOTH flags). Verified: a duplicate
+      // value on a unique+promoted field was accepted.
+      //
+      // The extra row is cheap and keeps uniqueness enforcement in one
+      // place rather than forking on `promoted`.
+      if (field.promoted && !field.unique) continue;
       if (field.localized) {
         for (const [locale, doc] of Object.entries(localizedDocs)) {
           push(field, locale, doc[field.apiId]);

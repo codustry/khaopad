@@ -5,6 +5,7 @@ import {
   FileText,
   FilePlus,
   Image as ImageIcon,
+  Database,
   Folder,
   Menu as MenuIcon,
   Tag,
@@ -140,6 +141,14 @@ registerNavGroup({
   id: "taxonomy",
   title: m.cms_categories,
   items: [
+    {
+      // Phase 4 (#68): user-defined content types. Admin-only because
+      // defining a type changes what the public API exposes.
+      href: "/admin/content",
+      label: () => "Content types",
+      icon: Database,
+      roles: ["super_admin", "admin"],
+    },
     { href: "/admin/categories", label: m.cms_categories, icon: Folder },
     { href: "/admin/tags", label: m.cms_tags, icon: Tag },
     {
