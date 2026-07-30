@@ -123,6 +123,10 @@
       "entityType": "entry",
       "entityId": "seed_ent_variant_a100",
       "family": "vacuum_pump",
+      "qualified": {
+        "50hz": { "flow_rate": { "value": 63, "unit": "m3/h" } },
+        "60hz": { "flow_rate": { "value": 76, "unit": "m3/h" } }
+      },
       "values": {
         "flow_rate": { "value": 63, "unit": "m3/h" },
         "ultimate_pressure": { "value": 0.1, "unit": "mbar" },
@@ -142,7 +146,7 @@
       "values": {
         "flow_rate": { "value": 100, "unit": "m3/min" },
         "ultimate_pressure": { "value": 1, "unit": "Torr" },
-        "motor_power": { "value": 15, "unit": "hp" },
+        "motor_power": { "value": 15, "max": 20, "unit": "hp" },
         "supply_voltage": { "value": 380, "unit": "V" },
         "net_weight": { "value": 18, "unit": "kg" },
         "inlet_size": { "value": 2, "unit": "in" },

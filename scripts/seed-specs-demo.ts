@@ -59,9 +59,26 @@ interface FixtureEntity {
   /** Must match an id the registry seed created (`seed_ent_<key>`). */
   entityId: string;
   family?: string;
+  /**
+   * Field values. A measurement may be a scalar `{value, unit}` or an
+   * INTERVAL `{value, max, unit}` (#98) — the latter is what half of a
+   * real catalogue's specs actually are.
+   */
   values: Record<
     string,
-    number | boolean | string | string[] | { value: number; unit: string }
+    | number
+    | boolean
+    | string
+    | string[]
+    | { value: number; max?: number; unit: string }
+  >;
+  /**
+   * Context-keyed values (#98): the same attribute measured under a
+   * different condition. `{ "50hz": { nominal_speed: {...} } }`.
+   */
+  qualified?: Record<
+    string,
+    Record<string, { value: number; max?: number; unit: string }>
   >;
 }
 
@@ -211,7 +228,8 @@ for (const entity of fixture.entities) {
     if (!attr)
       throw new Error(`Unknown attribute "${key}" on ${entity.entityId}`);
 
-    let valueNumber: number | null = null;
+    let valueNumberMin: number | null = null;
+    let valueNumberMax: number | null = null;
     let valueUnit: string | null = null;
     let valueText: string | null = null;
     let valueJson: string | null = null;
@@ -229,7 +247,7 @@ for (const entity of fixture.entities) {
             `"${key}" is a measurement and needs {value, unit}, got ${JSON.stringify(raw)}`,
           );
         }
-        const m = raw as { value: number; unit: string };
+        const m = raw as { value: number; max?: number; unit: string };
         // THE POINT OF THIS SEED: store the canonical magnitude so
         // faceting is unit-correct, and keep the authored unit so the
         // datasheet renders what the editor typed.
@@ -238,13 +256,29 @@ for (const entity of fixture.entities) {
           m.value,
           m.unit,
         );
-        valueNumber = n.standardValue;
+        valueNumberMin = n.standardValue;
+        // A scalar sets both bounds equal, so every read path is one
+        // overlap test and never branches on "is this a range?".
+        valueNumberMax =
+          m.max === undefined
+            ? n.standardValue
+            : normalize(
+                attr.measureFamily as Parameters<typeof normalize>[0],
+                m.max,
+                m.unit,
+              ).standardValue;
+        if (valueNumberMax < valueNumberMin) {
+          throw new Error(
+            `"${key}" range is inverted (${m.value} > ${m.max} ${m.unit})`,
+          );
+        }
         valueUnit = n.unit;
         break;
       }
       case "number":
         if (typeof raw !== "number") throw new Error(`"${key}" needs a number`);
-        valueNumber = raw;
+        valueNumberMin = raw;
+        valueNumberMax = raw;
         break;
       case "boolean":
         if (typeof raw !== "boolean")
@@ -280,15 +314,62 @@ for (const entity of fixture.entities) {
     // duplicate rows through.
     exec(
       `INSERT OR REPLACE INTO attribute_values
-         (id,entity_type,entity_id,attribute_id,locale,value_number,value_unit,value_text,value_json,value_bool,created_at,updated_at)
+         (id,entity_type,entity_id,attribute_id,locale,qualifier,value_number_min,value_number_max,value_unit,value_text,value_json,value_bool,created_at,updated_at)
        VALUES (${lit(`${idFor("val", entity.entityId)}_${key}`)},
                ${lit(entity.entityType)}, ${lit(entity.entityId)},
-               ${lit(idFor("attr", key))}, '*',
-               ${lit(valueNumber)}, ${lit(valueUnit)}, ${lit(valueText)},
+               ${lit(idFor("attr", key))},
+               -- locale, then qualifier: both use the '*' sentinel rather
+               -- than NULL, because a nullable column inside a UNIQUE
+               -- index is inert in SQLite.
+               '*', '*',
+               ${lit(valueNumberMin)}, ${lit(valueNumberMax)},
+               ${lit(valueUnit)}, ${lit(valueText)},
                ${lit(valueJson)}, ${lit(valueBool)},
                ${lit(NOW)}, ${lit(NOW)})`,
     );
     valueCount++;
+  }
+
+  // ── Context-keyed values (#98)
+  //
+  // The SAME attribute measured under a different condition — a 50 Hz and
+  // a 60 Hz nominal speed sit alongside each other rather than the second
+  // overwriting the first, because `qualifier` is part of the uniqueness
+  // key. Without this the only options are prose in value_text or two
+  // near-duplicate attribute definitions that no compare view can align.
+  for (const [qualifier, values] of Object.entries(entity.qualified ?? {})) {
+    for (const [key, m] of Object.entries(values)) {
+      const attr = attrById.get(key);
+      if (!attr) {
+        throw new Error(`Unknown attribute "${key}" on ${entity.entityId}`);
+      }
+      if (attr.dataType !== "measurement" || !attr.measureFamily) {
+        throw new Error(
+          `"${key}" is a ${attr.dataType}; only measurements can be qualified in this fixture`,
+        );
+      }
+      const family = attr.measureFamily as Parameters<typeof normalize>[0];
+      const lo = normalize(family, m.value, m.unit).standardValue;
+      const hi =
+        m.max === undefined
+          ? lo
+          : normalize(family, m.max, m.unit).standardValue;
+      if (hi < lo) {
+        throw new Error(
+          `"${key}" [${qualifier}] range is inverted (${m.value} > ${m.max} ${m.unit})`,
+        );
+      }
+      exec(
+        `INSERT OR REPLACE INTO attribute_values
+           (id,entity_type,entity_id,attribute_id,locale,qualifier,value_number_min,value_number_max,value_unit,value_text,value_json,value_bool,created_at,updated_at)
+         VALUES (${lit(`${idFor("val", entity.entityId)}_${key}_${qualifier}`)},
+                 ${lit(entity.entityType)}, ${lit(entity.entityId)},
+                 ${lit(idFor("attr", key))}, '*', ${lit(qualifier)},
+                 ${lit(lo)}, ${lit(hi)}, ${lit(m.unit)}, NULL, NULL, NULL,
+                 ${lit(NOW)}, ${lit(NOW)})`,
+      );
+      valueCount++;
+    }
   }
 }
 
