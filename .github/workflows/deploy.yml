@@ -1,18 +1,19 @@
 name: Deploy to Cloudflare Workers
 
-# Deploy pipeline:
-#   - Every push to main             → deploy to staging
-#   - Every version tag  `v*.*.*`    → deploy to production
-#   - Manual run with environment    → deploy to the chosen env
-#
-# Both paths run the same CI gates (check / lint / build) first, then
-# apply pending D1 migrations for that env, then deploy the Worker,
-# then probe the public URL as a smoke test.
+# Reference deploy pipeline: CI gates (check / lint / build), then apply
+# pending D1 migrations for the chosen env, deploy the Worker, and probe
+# the public URL as a smoke test.
 
+# ⚠ DISABLED on push. This repo is the ENGINE, not a deployment — its
+# wrangler.toml ids are placeholders and no `khaopad-db` exists. Engine
+# work reaches production by syncing to codustry/khaopad-example, which
+# owns the real bindings and deploys itself.
+#
+# Kept (dispatch-only) rather than deleted because it is the reference
+# pipeline anyone scaffolding their own install will copy, and because
+# the gate job is useful to run by hand. Every push-triggered run before
+# this failed at the Cloudflare step by design, which was noise.
 on:
-  push:
-    branches: [main]
-    tags: ["v*.*.*"]
   workflow_dispatch:
     inputs:
       environment:
@@ -58,10 +59,9 @@ jobs:
         run: pnpm run build
 
   # ──────────────────────────────────────
-  # Resolve which environment this run targets.
-  # main push      → staging
-  # v*.*.* tag     → production
-  # manual dispatch → input
+  # Resolve which environment this run targets. Dispatch-only now, so the
+  # input decides; the push/tag branches below are retained for anyone who
+  # re-enables those triggers on their own fork.
   # ──────────────────────────────────────
   resolve-env:
     runs-on: ubuntu-latest
@@ -145,10 +145,10 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          # The DB name must match the one declared under the SELECTED env
-          # in wrangler.toml, not the top-level default — wrangler resolves
-          # the name within the chosen env and errors otherwise. staging
-          # uses `khaopad-db-staging`; production uses `khaopad-db`.
+          # The DB name must come from the SELECTED env in wrangler.toml,
+          # not the top-level default — wrangler resolves the name within
+          # the chosen env and errors otherwise. Reading it from the file
+          # keeps workflow and config from drifting apart.
           command: d1 migrations apply ${{ needs.resolve-env.outputs.d1_name }} --remote --env ${{ needs.resolve-env.outputs.environment }}
 
       - name: Deploy Worker (${{ needs.resolve-env.outputs.environment }})
