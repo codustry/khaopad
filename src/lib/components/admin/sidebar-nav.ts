@@ -52,7 +52,33 @@ export type NavGroup = {
  * on each call — do NOT hold onto the reference across plugin
  * registrations, or you'll miss late-registering plugins.
  */
-const registry = new Map<string, { title: () => string; items: NavItem[] }>();
+type RegistryEntry = { title: () => string; items: NavItem[] };
+
+/**
+ * Lazily-initialized so registration cannot depend on module evaluation
+ * ORDER.
+ *
+ * This file imports `$lib/plugins/registrations` at the bottom as a
+ * side effect, so plugin `registerNavGroup()` calls run during this
+ * module's own initialization. A bundler is free to hoist those calls
+ * above a top-level `const registry = new Map()`, at which point every
+ * request throws:
+ *
+ *   TypeError: Cannot read properties of undefined (reading 'get')
+ *       at registerNavGroup (sidebar-nav.js)
+ *
+ * That is not hypothetical — it took the demo deployment down with a
+ * Worker 1101 on every route, including /api/health, after an unrelated
+ * icon import shifted the import graph enough to change the order.
+ *
+ * Reading through this accessor makes the order irrelevant: whoever
+ * touches the registry first creates it.
+ */
+let _registry: Map<string, RegistryEntry> | undefined;
+function registry(): Map<string, RegistryEntry> {
+  if (!_registry) _registry = new Map<string, RegistryEntry>();
+  return _registry;
+}
 
 /**
  * Register a new nav group. Idempotent on id — a second call with the
@@ -61,7 +87,7 @@ const registry = new Map<string, { title: () => string; items: NavItem[] }>();
  * `registerNavItem()` instead.
  */
 export function registerNavGroup(group: NavGroup): void {
-  const existing = registry.get(group.id);
+  const existing = registry().get(group.id);
   if (existing) {
     existing.title = group.title;
     // Merge items — new ones appended, preserving core order.
@@ -72,7 +98,7 @@ export function registerNavGroup(group: NavGroup): void {
     }
     return;
   }
-  registry.set(group.id, {
+  registry().set(group.id, {
     title: group.title,
     items: [...group.items],
   });
@@ -88,7 +114,7 @@ export function registerNavGroup(group: NavGroup): void {
  * plugin boot.
  */
 export function registerNavItem(groupId: string, item: NavItem): void {
-  const group = registry.get(groupId);
+  const group = registry().get(groupId);
   if (!group) return;
   if (group.items.some((i) => i.href === item.href)) return;
   group.items.push(item);
@@ -100,7 +126,7 @@ export function registerNavItem(groupId: string, item: NavItem): void {
  * dependencies change). Returns groups in registration order.
  */
 export function listNavGroups(): ReadonlyArray<NavGroup> {
-  return Array.from(registry.entries()).map(([id, { title, items }]) => ({
+  return Array.from(registry().entries()).map(([id, { title, items }]) => ({
     id,
     title,
     items: [...items] as ReadonlyArray<NavItem>,
