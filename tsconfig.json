@@ -1,6 +1,15 @@
 {
   "extends": "./.svelte-kit/tsconfig.json",
-  "exclude": ["src/lib/paraglide/**"],
+  "exclude": [
+    // Paraglide compiler OUTPUT — generated, gitignored, and not ours to
+    // fix. Both paths are listed because the compiler used to emit to
+    // src/lib/paraglide/ and now emits to src/paraglide/; a stale
+    // single-path exclude is exactly why `pnpm check` reported 3 errors
+    // in generated code (#62), and why the same drift broke the lint
+    // gate in .prettierignore.
+    "src/lib/paraglide/**",
+    "src/paraglide/**"
+  ],
   "compilerOptions": {
     "allowJs": true,
     "checkJs": true,

@@ -2,7 +2,14 @@ node_modules
 package-lock.json
 yarn.lock
 .svelte-kit
+# Paraglide compiler output. BOTH paths: the compiler used to emit to
+# src/lib/paraglide and now also emits to src/paraglide. Listing both here
+# matters beyond git — eslint.config.js derives its ignores from this file
+# via includeIgnoreFile(), and src/paraglide/ has only its OWN generated
+# .gitignore, which that helper does not read. A missing entry here means
+# ESLint lints hundreds of generated files.
 src/lib/paraglide
+src/paraglide
 build
 .wrangler
 .env

@@ -55,6 +55,9 @@ jobs:
       - name: Lint
         run: pnpm run lint
 
+      - name: Test
+        run: pnpm run test
+
       - name: Build
         run: pnpm run build
 
@@ -178,16 +181,35 @@ jobs:
           fi
           echo "Probing $URL ..."
           # Retry for up to ~60s — Worker propagation is fast but not instant.
+          #
+          # 503 is accepted because it is Khao Pad's own "configuration
+          # required" screen: the Worker IS running, just pointed at
+          # unconfigured bindings. That is the correct reading for a fresh
+          # fork before secrets are set.
+          #
+          # A 500 is NOT accepted, and is not retried into a timeout. A
+          # module-init crash returns 500 on every route forever, so
+          # retrying it just delays the failure by a minute and buries the
+          # cause. This distinction matters: a nav-registry init bug once
+          # shipped green through check, build AND deploy, and stayed live
+          # because the only runtime signal was treated as retryable.
+          final=""
           for i in 1 2 3 4 5 6; do
             code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$URL" || echo "000")
             echo "  attempt $i → HTTP $code"
-            # 2xx/3xx is healthy. 503 is the Khao Pad "config required" screen —
-            # still counts as the Worker running, just pointed at unconfigured bindings.
+            final="$code"
             if [[ "$code" =~ ^(2|3)..$ ]] || [[ "$code" == "503" ]]; then
               echo "✔ Worker responded ($code)"
               exit 0
             fi
+            # Fail immediately on a hard server error — it will not heal.
+            if [[ "$code" =~ ^5..$ ]] && [[ "$code" != "503" ]]; then
+              echo "::error::$URL returned HTTP $code — the Worker is deployed but throwing."
+              echo "A 5xx other than 503 usually means an exception during module"
+              echo "initialization or request handling. Check: npx wrangler tail"
+              exit 1
+            fi
             sleep 10
           done
-          echo "::error::Smoke test failed — $URL never returned a healthy status."
+          echo "::error::Smoke test failed — $URL never returned a healthy status (last: HTTP ${final})."
           exit 1
