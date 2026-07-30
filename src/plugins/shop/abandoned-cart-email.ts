@@ -117,11 +117,32 @@ function buildHtml(input: AbandonedCartInput, siteUrl: string): string {
  * Send the recovery email via Resend. Returns true on success, false
  * (with console.warn) on any failure — never throws.
  */
+/**
+ * Resolve the Resend key: env first, then the encrypted secrets table.
+ * Returns undefined without a DB binding, keeping this usable in tests.
+ */
+async function resolveAbandonedResendKey(
+  env: ResendAbandonedEnv & { DB?: D1Database },
+): Promise<string | undefined> {
+  if (env.RESEND_API_KEY) return env.RESEND_API_KEY;
+  if (!env.DB) return undefined;
+  const { getSecret } = await import("$lib/server/secrets/service");
+  return (
+    (await getSecret(
+      env as ResendAbandonedEnv & { DB: D1Database },
+      "RESEND_API_KEY",
+    )) ?? undefined
+  );
+}
+
 export async function sendAbandonedCartEmail(
   env: ResendAbandonedEnv,
   input: AbandonedCartInput,
 ): Promise<boolean> {
-  if (!env.RESEND_API_KEY || !env.RESEND_FROM) return false;
+  // env-first, then the encrypted managed_secrets table so the key can be
+  // set from /admin/settings/secrets. Silent no-op when unset.
+  const apiKey = await resolveAbandonedResendKey(env);
+  if (!apiKey || !env.RESEND_FROM) return false;
   if (input.items.length === 0) return false;
   const siteUrl = env.PUBLIC_SITE_URL ?? "";
   const html = buildHtml(input, siteUrl);
@@ -129,7 +150,7 @@ export async function sendAbandonedCartEmail(
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
-        authorization: `Bearer ${env.RESEND_API_KEY}`,
+        authorization: `Bearer ${apiKey}`,
         "content-type": "application/json",
       },
       body: JSON.stringify({

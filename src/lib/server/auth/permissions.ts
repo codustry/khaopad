@@ -26,6 +26,18 @@ export function canManageSettings(user: AuthUser | null): boolean {
   return hasRole(user, "admin");
 }
 
+/**
+ * Check if user can manage integration credentials (super_admin ONLY).
+ *
+ * Deliberately stricter than `canManageSettings`, which admits `admin`.
+ * These values create charges and issue refunds against a live payment
+ * account: a site title is reversible, a leaked Beam key is not. Where
+ * the two differ, credentials belong with the narrower role.
+ */
+export function canManageSecrets(user: AuthUser | null): boolean {
+  return hasRole(user, "super_admin");
+}
+
 /** Check if user can manage categories/tags (editor+) */
 export function canManageTaxonomy(user: AuthUser | null): boolean {
   return hasRole(user, "editor");

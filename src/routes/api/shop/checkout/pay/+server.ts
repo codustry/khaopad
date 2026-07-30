@@ -9,7 +9,7 @@
  */
 import { error, json } from "@sveltejs/kit";
 import { OrderService } from "$plugins/shop/order-service";
-import { getPaymentProvider } from "$plugins/shop/payment";
+import { resolveProviderForRequest } from "$plugins/shop/beam-config.server";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ request, platform, url }) => {
@@ -35,7 +35,10 @@ export const POST: RequestHandler = async ({ request, platform, url }) => {
     );
   }
 
-  const provider = getPaymentProvider(order.providerName ?? "beam");
+  const provider = await resolveProviderForRequest(
+    env,
+    order.providerName ?? "beam",
+  );
   if (!provider) {
     return json(
       {

@@ -13,7 +13,7 @@
  * spoofed cancellations that would release inventory.
  */
 import { json } from "@sveltejs/kit";
-import { getPaymentProvider } from "$plugins/shop/payment";
+import { resolveProviderForRequest } from "$plugins/shop/beam-config.server";
 import { OrderService } from "$plugins/shop/order-service";
 import { sendOrderReceipt } from "$plugins/shop/email";
 import { drizzle } from "drizzle-orm/d1";
@@ -26,7 +26,7 @@ export const POST: RequestHandler = async ({ request, platform, url }) => {
   const env = platform?.env;
   if (!env) return json({ ok: false, code: "NO_PLATFORM" }, { status: 503 });
 
-  const provider = getPaymentProvider("beam");
+  const provider = await resolveProviderForRequest(env, "beam");
   if (!provider) {
     return json(
       { ok: false, code: "PROVIDER_NOT_CONFIGURED" },

@@ -11,7 +11,7 @@ import { error, fail, redirect } from "@sveltejs/kit";
 import { hasRole } from "$lib/server/auth/permissions";
 import { logAudit } from "$lib/server/audit";
 import { OrderService } from "$plugins/shop/order-service";
-import { getPaymentProvider } from "$plugins/shop/payment";
+import { resolveProviderForRequest } from "$plugins/shop/beam-config.server";
 import { parseBahtToSatang } from "$plugins/shop/money";
 import { track, buildEventContext } from "$lib/server/analytics/track";
 import type { Actions, PageServerLoad } from "./$types";
@@ -97,7 +97,10 @@ export const actions: Actions = {
     }
 
     // Provider refund first — if it fails, don't record the adjustment.
-    const provider = getPaymentProvider(order.providerName ?? "beam");
+    const provider = await resolveProviderForRequest(
+      env,
+      order.providerName ?? "beam",
+    );
     if (!provider) {
       return fail(503, {
         error: `Payment provider '${order.providerName}' is not configured — cannot process refund`,

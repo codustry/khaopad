@@ -95,6 +95,25 @@ describe("migrations", () => {
       .all() as { name: string }[];
     expect(tables.length).toBe(10);
   });
+
+  it("creates managed_secrets with the expected shape", () => {
+    const cols = db.prepare(`PRAGMA table_info(managed_secrets)`).all() as {
+      name: string;
+      notnull: number;
+      pk: number;
+    }[];
+    const byName = new Map(cols.map((c) => [c.name, c]));
+
+    expect(byName.get("key")?.pk).toBe(1);
+    expect(byName.get("value_encrypted")?.notnull).toBe(1);
+    expect(byName.get("updated_at")?.notnull).toBe(1);
+    expect(byName.has("updated_by")).toBe(true);
+
+    // There must be no column that could hold a plaintext value — the
+    // whole security property is that this table only ever holds
+    // ciphertext.
+    expect(byName.has("value")).toBe(false);
+  });
 });
 
 describe("entry_relations target shape (#99)", () => {

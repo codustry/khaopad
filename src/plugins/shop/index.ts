@@ -80,6 +80,15 @@ export default defineKhaopadPlugin({
     // Skip silently when Beam credentials aren't set — the shop still
     // ships product catalog + cart, checkout will surface a helpful
     // 503 if a payment attempt fires without a configured provider.
+    //
+    // Only ENV credentials are read here. This module is reachable from
+    // the browser bundle (sidebar-nav → registrations → this file), so it
+    // must never import the secrets service — that would pull decryption
+    // and the BETTER_AUTH_SECRET-derived key toward the client.
+    //
+    // DB-stored credentials are resolved per-request instead, in
+    // `beam-config.server.ts`. That also keeps a rotated key effective
+    // immediately, rather than pinning whatever existed at boot.
     const beamKey = ctx.env.BEAM_API_KEY;
     const beamWebhookSecret = ctx.env.BEAM_WEBHOOK_SECRET;
     if (beamKey && beamWebhookSecret) {

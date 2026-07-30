@@ -233,6 +233,14 @@ registerNavGroup({
       roles: ["super_admin", "admin"],
     },
     {
+      href: "/admin/settings/secrets",
+      label: () => "Credentials",
+      icon: KeyRound,
+      // super_admin only — these keys create charges and issue refunds.
+      // Deliberately narrower than site settings, which admits `admin`.
+      roles: ["super_admin"],
+    },
+    {
       href: "/admin/settings",
       label: m.cms_settings,
       icon: Settings,

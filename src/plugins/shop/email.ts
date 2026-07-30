@@ -88,6 +88,26 @@ function escapeAttr(s: string): string {
 }
 
 /**
+ * Resolve the Resend key: env first, then the encrypted secrets table.
+ *
+ * Falls back to `env.RESEND_API_KEY` alone when there is no DB binding,
+ * so this stays usable in tests and in any context without a database.
+ */
+async function resolveResendKey(
+  env: ResendEnv & { DB?: D1Database },
+): Promise<string | undefined> {
+  if (env.RESEND_API_KEY) return env.RESEND_API_KEY;
+  if (!env.DB) return undefined;
+  const { getSecret } = await import("$lib/server/secrets/service");
+  return (
+    (await getSecret(
+      env as ResendEnv & { DB: D1Database },
+      "RESEND_API_KEY",
+    )) ?? undefined
+  );
+}
+
+/**
  * Send the order receipt via Resend. Returns true on success, false
  * (with console.warn) on any failure — never throws into the caller.
  */
@@ -95,7 +115,11 @@ export async function sendOrderReceipt(
   env: ResendEnv,
   order: OrderWithItems,
 ): Promise<boolean> {
-  if (!env.RESEND_API_KEY || !env.RESEND_FROM) {
+  // Resolves env-first, then the encrypted managed_secrets table, so the
+  // key can be set from /admin/settings/secrets. Still a silent no-op when
+  // unset — a missing email key must never fail a paid order.
+  const apiKey = await resolveResendKey(env);
+  if (!apiKey || !env.RESEND_FROM) {
     return false;
   }
   const siteUrl = env.PUBLIC_SITE_URL ?? "";
@@ -104,7 +128,7 @@ export async function sendOrderReceipt(
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
-        authorization: `Bearer ${env.RESEND_API_KEY}`,
+        authorization: `Bearer ${apiKey}`,
         "content-type": "application/json",
       },
       body: JSON.stringify({
