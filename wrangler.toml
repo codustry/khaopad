@@ -20,7 +20,7 @@ assets = { directory = ".svelte-kit/cloudflare", binding = "ASSETS" }
 [[d1_databases]]
 binding = "DB"
 database_name = "khaopad-db"
-database_id = "LOCAL_DB_ID"           # Replace with actual D1 ID for production
+database_id = "046fad4d-f438-4c1c-97b9-28ed2cf58d40"
 migrations_dir = "drizzle"
 
 # ──────────────────────────────────────
@@ -35,7 +35,7 @@ bucket_name = "khaopad-media"
 # ──────────────────────────────────────
 [[kv_namespaces]]
 binding = "CONTENT_CACHE"
-id = "LOCAL_KV_ID"                    # Replace with actual KV ID for production
+id = "8fccdd8be6c944058d7e4e95c3793b0d"
 
 # ──────────────────────────────────────
 # Environment variables
@@ -80,7 +80,7 @@ BETTER_AUTH_URL = "https://staging.example.com"
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "khaopad-db-staging"
-database_id = "STAGING_DB_ID"
+database_id = "f5a80c39-9339-4f71-a63b-84bc5806c2ad"
 migrations_dir = "drizzle"
 
 [[env.staging.r2_buckets]]
@@ -89,7 +89,7 @@ bucket_name = "khaopad-media-staging"
 
 [[env.staging.kv_namespaces]]
 binding = "CONTENT_CACHE"
-id = "STAGING_KV_ID"
+id = "05c40ce176a446b4b948ece08a6fc32a"
 
 [env.production]
 name = "khaopad"
@@ -107,7 +107,7 @@ BETTER_AUTH_URL = "https://example.com"
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "khaopad-db"
-database_id = "PRODUCTION_DB_ID"
+database_id = "046fad4d-f438-4c1c-97b9-28ed2cf58d40"
 migrations_dir = "drizzle"
 
 [[env.production.r2_buckets]]
@@ -116,7 +116,7 @@ bucket_name = "khaopad-media"
 
 [[env.production.kv_namespaces]]
 binding = "CONTENT_CACHE"
-id = "PRODUCTION_KV_ID"
+id = "8fccdd8be6c944058d7e4e95c3793b0d"
 
 # ──────────────────────────────────────
 # Cron Triggers (v3.2 shop plugin)

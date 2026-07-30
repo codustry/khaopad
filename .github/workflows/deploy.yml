@@ -69,7 +69,11 @@ jobs:
     outputs:
       environment: ${{ steps.pick.outputs.environment }}
       public_url: ${{ steps.pick.outputs.public_url }}
+      d1_name: ${{ steps.pick.outputs.d1_name }}
     steps:
+      # Needed so the step below can read the D1 name out of wrangler.toml.
+      - uses: actions/checkout@v4
+
       - id: pick
         env:
           STAGING_URL: ${{ vars.STAGING_PUBLIC_URL }}
@@ -88,9 +92,27 @@ jobs:
           else
             URL="${STAGING_URL:-}"
           fi
+          # D1 name is read from wrangler.toml rather than hardcoded, so the
+          # two can never drift apart again. `wrangler d1 migrations apply`
+          # resolves the name inside the selected env, so passing the
+          # top-level default name with `--env staging` fails outright.
+          D1_NAME=$(
+            awk -v env="$ENV" '
+              $0 ~ "^\\[\\[env\\." env "\\.d1_databases\\]\\]" { inblock=1; next }
+              inblock && /^\[/ { inblock=0 }
+              inblock && /^database_name/ {
+                gsub(/^database_name[[:space:]]*=[[:space:]]*"|"$/, ""); print; exit
+              }
+            ' wrangler.toml
+          )
+          if [[ -z "$D1_NAME" ]]; then
+            echo "::error::No d1_databases entry found for env '$ENV' in wrangler.toml" >&2
+            exit 1
+          fi
           echo "environment=$ENV" >> "$GITHUB_OUTPUT"
           echo "public_url=$URL" >> "$GITHUB_OUTPUT"
-          echo "→ deploying to: $ENV (url: ${URL:-<unset>})"
+          echo "d1_name=$D1_NAME" >> "$GITHUB_OUTPUT"
+          echo "→ deploying to: $ENV (db: $D1_NAME, url: ${URL:-<unset>})"
 
   # ──────────────────────────────────────
   # Deploy: migrate D1, then deploy the Worker.
@@ -123,7 +145,11 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: d1 migrations apply khaopad-db --remote --env ${{ needs.resolve-env.outputs.environment }}
+          # The DB name must match the one declared under the SELECTED env
+          # in wrangler.toml, not the top-level default — wrangler resolves
+          # the name within the chosen env and errors otherwise. staging
+          # uses `khaopad-db-staging`; production uses `khaopad-db`.
+          command: d1 migrations apply ${{ needs.resolve-env.outputs.d1_name }} --remote --env ${{ needs.resolve-env.outputs.environment }}
 
       - name: Deploy Worker (${{ needs.resolve-env.outputs.environment }})
         uses: cloudflare/wrangler-action@v3
