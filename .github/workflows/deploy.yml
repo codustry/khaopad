@@ -141,9 +141,30 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+
+      # Each GitHub job gets a FRESH runner, so the gate job's compile
+      # output does not carry over — and src/lib/paraglide is gitignored.
+      # Without this, `pnpm build` here fails on missing imports from
+      # $lib/paraglide/messages. Reported in #51; still live until now.
+      - name: Compile Paraglide messages
+        run: pnpm exec paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide
+
       - run: pnpm build
 
+      # ⚠ Requires a token with `D1 — Edit`, which the conventional
+      # org-wide CLOUDFLARE_API_TOKEN does NOT have: that token is created
+      # from the "Edit Cloudflare Workers" template, granting only
+      # `Workers Scripts — Edit`. The symptom is a 7403 on THIS step while
+      # the deploy step against the same account succeeds, and the error
+      # text never mentions permissions — see #51, which diagnosed it.
+      #
+      # Opt-in so a fork is not blocked by a token it cannot change:
+      # set the repo variable RUN_D1_MIGRATIONS=true once your token has
+      # D1 — Edit. Otherwise apply migrations out of band:
+      #
+      #   npx wrangler d1 migrations apply <db> --remote --env <env>
       - name: Apply D1 migrations (${{ needs.resolve-env.outputs.environment }})
+        if: vars.RUN_D1_MIGRATIONS == 'true'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
