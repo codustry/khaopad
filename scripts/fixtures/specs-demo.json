@@ -1,0 +1,155 @@
+{
+  "_readme": [
+    "Phase 3 spec/attribute demo fixture (#88).",
+    "",
+    "Attaches typed, unit-aware specs to the entities created by",
+    "scripts/fixtures/registry-demo.json. Run `pnpm db:seed:registry`",
+    "first, then `pnpm db:seed:specs`.",
+    "",
+    "NOTE the units are deliberately INCONSISTENT between entities:",
+    "  a100 flow authored in m3/h   (63)",
+    "  a200 flow authored in m3/min (100  -> 6000 m3/h)",
+    "  a100 pressure in mbar        (0.1  -> 10 Pa)",
+    "  a200 pressure in Torr        (1    -> 133.32 Pa)",
+    "",
+    "That is the test, not an oversight. Normalization means a facet of",
+    "'flow_rate >= 100 m3/h' correctly returns a200 (6000) and NOT a100",
+    "(63) — even though a100's authored number is smaller and a200's",
+    "authored number happens to equal the threshold. Comparing authored",
+    "numbers naively would get this exactly backwards.",
+    "",
+    "Nothing here is engine knowledge. 'vacuum_pump', 'flow_rate' etc are",
+    "ordinary user-defined attributes, the same as any other catalog's."
+  ],
+
+  "attributes": [
+    {
+      "key": "flow_rate",
+      "dataType": "measurement",
+      "measureFamily": "flow",
+      "groupKey": "performance",
+      "position": 1,
+      "labels": { "en": "Flow rate", "th": "อัตราการไหล" }
+    },
+    {
+      "key": "ultimate_pressure",
+      "dataType": "measurement",
+      "measureFamily": "pressure",
+      "groupKey": "performance",
+      "position": 2,
+      "labels": { "en": "Ultimate pressure", "th": "ความดันสุดท้าย" }
+    },
+    {
+      "key": "motor_power",
+      "dataType": "measurement",
+      "measureFamily": "power",
+      "groupKey": "electrical",
+      "position": 3,
+      "labels": { "en": "Motor power", "th": "กำลังมอเตอร์" }
+    },
+    {
+      "key": "supply_voltage",
+      "dataType": "measurement",
+      "measureFamily": "voltage",
+      "groupKey": "electrical",
+      "position": 4,
+      "labels": { "en": "Supply voltage", "th": "แรงดันไฟฟ้า" }
+    },
+    {
+      "key": "net_weight",
+      "dataType": "measurement",
+      "measureFamily": "mass",
+      "groupKey": "mechanical",
+      "position": 5,
+      "labels": { "en": "Net weight", "th": "น้ำหนักสุทธิ" }
+    },
+    {
+      "key": "inlet_size",
+      "dataType": "measurement",
+      "measureFamily": "length",
+      "groupKey": "mechanical",
+      "position": 6,
+      "labels": { "en": "Inlet size", "th": "ขนาดท่อเข้า" }
+    },
+    {
+      "key": "oil_free",
+      "dataType": "boolean",
+      "groupKey": "mechanical",
+      "position": 7,
+      "labels": { "en": "Oil-free", "th": "ไม่ใช้น้ำมัน" }
+    },
+    {
+      "key": "pump_type",
+      "dataType": "select",
+      "options": ["rotary_vane", "dry_screw", "diaphragm"],
+      "groupKey": "mechanical",
+      "position": 8,
+      "labels": { "en": "Pump type", "th": "ชนิดปั๊ม" }
+    },
+    {
+      "key": "certifications",
+      "dataType": "multiselect",
+      "options": ["ce", "iso9001", "ul"],
+      "groupKey": "compliance",
+      "position": 9,
+      "labels": { "en": "Certifications", "th": "การรับรอง" }
+    }
+  ],
+
+  "families": [
+    {
+      "key": "vacuum_pump",
+      "attributes": [
+        {
+          "key": "flow_rate",
+          "required": true,
+          "sortOrder": 1,
+          "isVariantAxis": true
+        },
+        { "key": "ultimate_pressure", "required": true, "sortOrder": 2 },
+        { "key": "motor_power", "sortOrder": 3 },
+        { "key": "supply_voltage", "sortOrder": 4 },
+        { "key": "net_weight", "sortOrder": 5 },
+        { "key": "inlet_size", "sortOrder": 6 },
+        { "key": "oil_free", "sortOrder": 7 },
+        { "key": "pump_type", "sortOrder": 8 },
+        { "key": "certifications", "sortOrder": 9 }
+      ]
+    }
+  ],
+
+  "entities": [
+    {
+      "entityType": "entry",
+      "entityId": "seed_ent_variant_a100",
+      "family": "vacuum_pump",
+      "values": {
+        "flow_rate": { "value": 63, "unit": "m3/h" },
+        "ultimate_pressure": { "value": 0.1, "unit": "mbar" },
+        "motor_power": { "value": 1.5, "unit": "kW" },
+        "supply_voltage": { "value": 380, "unit": "V" },
+        "net_weight": { "value": 12.5, "unit": "kg" },
+        "inlet_size": { "value": 40, "unit": "mm" },
+        "oil_free": false,
+        "pump_type": "rotary_vane",
+        "certifications": ["ce", "iso9001"]
+      }
+    },
+    {
+      "entityType": "entry",
+      "entityId": "seed_ent_variant_a200",
+      "family": "vacuum_pump",
+      "values": {
+        "flow_rate": { "value": 100, "unit": "m3/min" },
+        "ultimate_pressure": { "value": 1, "unit": "Torr" },
+        "motor_power": { "value": 15, "unit": "hp" },
+        "supply_voltage": { "value": 380, "unit": "V" },
+        "net_weight": { "value": 18, "unit": "kg" },
+        "inlet_size": { "value": 2, "unit": "in" },
+        "oil_free": true,
+        "pump_type": "dry_screw",
+        "certifications": ["ce"]
+      }
+    }
+  ]
+}

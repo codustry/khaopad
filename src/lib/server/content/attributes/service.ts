@@ -14,7 +14,7 @@
  * so they don't reintroduce the N+1 that Phase 1 removed.
  */
 import { drizzle } from "drizzle-orm/d1";
-import { and, asc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import {
   attributeDefinitionLocalizations,
@@ -24,6 +24,7 @@ import {
   entityFamilies,
   familyAttributes,
   ATTRIBUTE_DATA_TYPES,
+  NON_LOCALIZED_SENTINEL,
   type AttributeDataType,
   type AttributeDefinition,
 } from "./schema";
@@ -477,7 +478,9 @@ export class AttributeService {
     }
 
     const row = this.buildValueRow(attr, input);
-    const locale = row.locale ?? null;
+    // Never NULL — see NON_LOCALIZED_SENTINEL. A NULL here would make the
+    // (entity, attribute, locale) unique index inert in SQLite.
+    const locale = row.locale ?? NON_LOCALIZED_SENTINEL;
     const now = this.now();
 
     const existing = await this.db
@@ -488,9 +491,7 @@ export class AttributeService {
           eq(attributeValues.entityType, entityType),
           eq(attributeValues.entityId, entityId),
           eq(attributeValues.attributeId, attr.id),
-          locale === null
-            ? isNull(attributeValues.locale)
-            : eq(attributeValues.locale, locale),
+          eq(attributeValues.locale, locale),
         ),
       )
       .limit(1)
@@ -499,7 +500,7 @@ export class AttributeService {
     if (existing) {
       await this.db
         .update(attributeValues)
-        .set({ ...row, updatedAt: now })
+        .set({ ...row, locale, updatedAt: now })
         .where(eq(attributeValues.id, existing.id));
       return;
     }
@@ -510,6 +511,7 @@ export class AttributeService {
       entityId,
       attributeId: attr.id,
       ...row,
+      locale,
       createdAt: now,
       updatedAt: now,
     });
@@ -787,17 +789,39 @@ export class AttributeService {
       }
       // Normalize the bounds into the standard unit so a caller can
       // express the range in whatever unit they think in.
-      const toStandard = (v: number): number => {
-        if (
-          attr.dataType !== "measurement" ||
-          !filter.unit ||
-          !attr.measureFamily ||
-          !isMeasureFamily(attr.measureFamily)
-        ) {
-          return v;
-        }
-        return normalize(attr.measureFamily, v, filter.unit).standardValue;
-      };
+      //
+      // A measurement REQUIRES an explicit unit. Silently treating a bare
+      // bound as already-canonical is a wrong-results bug, not a
+      // convenience: `min=0.1` on a pressure attribute almost certainly
+      // means 0.1 mbar, but stored values are pascals, so it would match
+      // nothing and report "no results" rather than an error. Demanding
+      // the unit makes the caller's intent explicit.
+      const isMeasurement =
+        attr.dataType === "measurement" &&
+        !!attr.measureFamily &&
+        isMeasureFamily(attr.measureFamily);
+
+      if (isMeasurement && !filter.unit) {
+        throw new AttributeError(
+          `Attribute "${attributeKey}" is a measurement (${attr.measureFamily}); a range filter must specify the unit its bounds are in`,
+          "MISSING_UNIT",
+        );
+      }
+      if (!isMeasurement && filter.unit) {
+        throw new AttributeError(
+          `Attribute "${attributeKey}" is a plain ${attr.dataType} and has no units — drop the unit parameter`,
+          "INVALID_VALUE",
+        );
+      }
+
+      const toStandard = (v: number): number =>
+        isMeasurement
+          ? normalize(
+              attr.measureFamily as MeasureFamily,
+              v,
+              filter.unit as string,
+            ).standardValue
+          : v;
       if (filter.min !== undefined) {
         conditions.push(
           gte(attributeValues.valueNumber, toStandard(filter.min)),

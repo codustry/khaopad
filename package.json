@@ -19,7 +19,8 @@
     "setup": "tsx scripts/setup.ts",
     "wrangler:dev": "wrangler dev",
     "deploy": "pnpm build && wrangler deploy",
-    "db:seed:registry": "tsx scripts/seed-registry-demo.ts"
+    "db:seed:registry": "tsx scripts/seed-registry-demo.ts",
+    "db:seed:specs": "tsx scripts/seed-specs-demo.ts"
   },
   "dependencies": {
     "@inlang/paraglide-js": "^2.0.0",

@@ -116,7 +116,13 @@ CREATE TABLE `attribute_values` (
   `entity_type` text NOT NULL,
   `entity_id` text NOT NULL,
   `attribute_id` text NOT NULL,
-  `locale` text,
+  -- NOT NULL with a '*' sentinel for non-localized values, NOT nullable.
+  -- SQLite treats NULLs as distinct in a UNIQUE index, so a nullable
+  -- locale would make the (entity, attribute, locale) constraint below
+  -- silently unenforceable for the common non-localized case: two rows
+  -- for the same entity+attribute would both be accepted, and a
+  -- datasheet would render the attribute twice.
+  `locale` text DEFAULT '*' NOT NULL,
   `value_number` real,
   `value_unit` text,
   `value_text` text,

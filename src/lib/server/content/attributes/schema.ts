@@ -74,6 +74,18 @@ export const ATTRIBUTE_DATA_TYPES = [
 
 export type AttributeDataType = (typeof ATTRIBUTE_DATA_TYPES)[number];
 
+/**
+ * Stand-in for "this value is not per-locale", used instead of NULL in
+ * `attribute_values.locale`.
+ *
+ * SQLite considers NULLs distinct in a UNIQUE index, so a nullable
+ * locale would make the (entity, attribute, locale) constraint
+ * unenforceable for the common non-localized case. `*` cannot collide
+ * with a real locale tag, which are validated against the runtime
+ * supported-locale list.
+ */
+export const NON_LOCALIZED_SENTINEL = "*";
+
 // ─── Definitions (the registry) ─────────────────────────────
 
 export const attributeDefinitions = sqliteTable(
@@ -261,11 +273,20 @@ export const attributeValues = sqliteTable(
       .notNull()
       .references(() => attributeDefinitions.id, { onDelete: "cascade" }),
     /**
-     * Null for non-localized attributes (the common case — a flow rate
-     * is a number in every language). Set only for `text` attributes
-     * that genuinely differ per locale.
+     * Locale for `text` attributes that genuinely differ per language.
+     *
+     * Non-localized attributes (the common case — a flow rate is the same
+     * number in every language) use the sentinel `NON_LOCALIZED_SENTINEL`
+     * rather than NULL, and the column is NOT NULL to enforce it.
+     *
+     * This is not cosmetic. SQLite treats NULLs as distinct in a UNIQUE
+     * index, so with a nullable locale the uniqueness constraint below
+     * silently does not apply to non-localized values — two rows for the
+     * same (entity, attribute) both pass. A datasheet then renders the
+     * attribute twice and `compare()` picks whichever row it finds first.
+     * Verified: inserting a second row with locale=NULL was accepted.
      */
-    locale: text("locale"),
+    locale: text("locale").notNull().default(NON_LOCALIZED_SENTINEL),
     /**
      * Numeric magnitude IN THE STANDARD UNIT. `real`, not integer:
      * pressures like 1e-3 mbar and flows like 0.06 m³/h need fractions.
