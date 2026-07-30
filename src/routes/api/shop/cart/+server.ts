@@ -74,14 +74,21 @@ export const GET: RequestHandler = async ({ platform, cookies, locals }) => {
   });
 };
 
-export const POST: RequestHandler = async ({ request, platform, cookies, locals, url }) => {
+export const POST: RequestHandler = async ({
+  request,
+  platform,
+  cookies,
+  locals,
+  url,
+}) => {
   const originGuard = requireSameOrigin(request, url);
   if (originGuard) return originGuard;
   const env = platform?.env;
   if (!env) throw error(503, "Platform not ready");
-  const body = (await request.json().catch(() => null)) as
-    | { variantId?: string; quantity?: number }
-    | null;
+  const body = (await request.json().catch(() => null)) as {
+    variantId?: string;
+    quantity?: number;
+  } | null;
   if (!body?.variantId || typeof body.variantId !== "string") {
     throw error(400, "variantId required");
   }
@@ -151,14 +158,21 @@ export const POST: RequestHandler = async ({ request, platform, cookies, locals,
   }
 };
 
-export const PATCH: RequestHandler = async ({ request, platform, cookies, locals, url }) => {
+export const PATCH: RequestHandler = async ({
+  request,
+  platform,
+  cookies,
+  locals,
+  url,
+}) => {
   const originGuard = requireSameOrigin(request, url);
   if (originGuard) return originGuard;
   const env = platform?.env;
   if (!env) throw error(503, "Platform not ready");
-  const body = (await request.json().catch(() => null)) as
-    | { cartItemId?: string; quantity?: number }
-    | null;
+  const body = (await request.json().catch(() => null)) as {
+    cartItemId?: string;
+    quantity?: number;
+  } | null;
   if (!body?.cartItemId || typeof body.quantity !== "number") {
     throw error(400, "cartItemId + quantity required");
   }
@@ -178,7 +192,11 @@ export const PATCH: RequestHandler = async ({ request, platform, cookies, locals
   } catch (err) {
     if (err instanceof CartError || err instanceof ShopValidationError) {
       return json(
-        { ok: false, code: (err as CartError).reason ?? (err as ShopValidationError).code, message: err.message },
+        {
+          ok: false,
+          code: (err as CartError).reason ?? (err as ShopValidationError).code,
+          message: err.message,
+        },
         { status: 400 },
       );
     }
@@ -186,14 +204,20 @@ export const PATCH: RequestHandler = async ({ request, platform, cookies, locals
   }
 };
 
-export const DELETE: RequestHandler = async ({ request, platform, cookies, locals, url }) => {
+export const DELETE: RequestHandler = async ({
+  request,
+  platform,
+  cookies,
+  locals,
+  url,
+}) => {
   const originGuard = requireSameOrigin(request, url);
   if (originGuard) return originGuard;
   const env = platform?.env;
   if (!env) throw error(503, "Platform not ready");
-  const body = (await request.json().catch(() => null)) as
-    | { cartItemId?: string }
-    | null;
+  const body = (await request.json().catch(() => null)) as {
+    cartItemId?: string;
+  } | null;
   if (!body?.cartItemId) throw error(400, "cartItemId required");
   const sessionId = ensureCartSession(cookies);
   const svc = new CartService(env.DB);

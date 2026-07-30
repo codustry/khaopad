@@ -90,9 +90,7 @@ export async function loadNavigation(
     return {
       menus,
       pageSlugById: new Map(pages.map((p) => [p.id, p.slug])),
-      articleSlugById: new Map(
-        articleResult.items.map((a) => [a.id, a.slug]),
-      ),
+      articleSlugById: new Map(articleResult.items.map((a) => [a.id, a.slug])),
       categorySlugById: new Map(categories.map((c) => [c.id, c.slug])),
       tagSlugById: new Map(tags.map((t) => [t.id, t.slug])),
     };

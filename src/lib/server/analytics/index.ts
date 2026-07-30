@@ -150,7 +150,11 @@ export class AnalyticsService {
       })
       .from(schema.pageViews)
       .where(gte(schema.pageViews.date, since))
-      .groupBy(schema.pageViews.path, schema.pageViews.kind, schema.pageViews.refId)
+      .groupBy(
+        schema.pageViews.path,
+        schema.pageViews.kind,
+        schema.pageViews.refId,
+      )
       .orderBy(sql`SUM(${schema.pageViews.count}) DESC`)
       .limit(limit)
       .all();
@@ -179,7 +183,11 @@ export class AnalyticsService {
           eq(schema.pageViews.kind, "article"),
         ),
       )
-      .groupBy(schema.pageViews.path, schema.pageViews.kind, schema.pageViews.refId)
+      .groupBy(
+        schema.pageViews.path,
+        schema.pageViews.kind,
+        schema.pageViews.refId,
+      )
       .orderBy(sql`SUM(${schema.pageViews.count}) DESC`)
       .limit(limit)
       .all();
@@ -253,10 +261,7 @@ export class AnalyticsService {
       })
       .from(schema.pageViews)
       .where(
-        and(
-          gte(schema.pageViews.date, since),
-          eq(schema.pageViews.path, path),
-        ),
+        and(gte(schema.pageViews.date, since), eq(schema.pageViews.path, path)),
       )
       .groupBy(schema.pageViews.date)
       .orderBy(desc(schema.pageViews.date))
@@ -279,10 +284,7 @@ export class AnalyticsService {
       })
       .from(schema.pageViews)
       .where(
-        and(
-          gte(schema.pageViews.date, since),
-          eq(schema.pageViews.path, path),
-        ),
+        and(gte(schema.pageViews.date, since), eq(schema.pageViews.path, path)),
       )
       .get();
     return Number(row?.total ?? 0);

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import * as m from '$lib/paraglide/messages';
 	import { Badge } from '$lib/components/ui';
 	import type { FormRecord } from '$lib/server/content/types';
@@ -17,7 +18,7 @@
 			<p class="text-sm text-muted-foreground">{m.cms_forms_help()}</p>
 		</div>
 		<a
-			href="/admin/forms/new"
+			href={resolve('/(admin)/admin/forms/new')}
 			class="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm hover:opacity-90"
 		>
 			{m.cms_forms_new()}
@@ -43,7 +44,7 @@
 					{#each data.forms as f (f.id)}
 						<tr class="hover:bg-muted/20">
 							<td class="px-4 py-3">
-								<a href={`/admin/forms/${f.id}`} class="font-medium hover:underline">
+								<a href={resolve('/(admin)/admin/forms/[id]', { id: f.id })} class="font-medium hover:underline">
 									{f.label}
 								</a>
 							</td>

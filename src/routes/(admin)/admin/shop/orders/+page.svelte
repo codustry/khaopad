@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { ShoppingCart } from 'lucide-svelte';
 	import { Badge } from '$lib/components/ui';
 	import { formatSatang, type Satang } from '$plugins/shop/money';
@@ -17,7 +18,7 @@
 
 	<nav class="flex flex-wrap gap-2 text-sm">
 		<a
-			href="/admin/shop/orders"
+			href={resolve('/(admin)/admin/shop/orders')}
 			class="rounded px-3 py-1 {!data.statusFilter
 				? 'bg-muted font-medium'
 				: 'text-muted-foreground hover:text-foreground'}"
@@ -26,7 +27,7 @@
 		</a>
 		{#each statuses as status (status)}
 			<a
-				href="/admin/shop/orders?status={status}"
+				href={resolve(`/(admin)/admin/shop/orders?status=${status}`)}
 				class="rounded px-3 py-1 {data.statusFilter === status
 					? 'bg-muted font-medium'
 					: 'text-muted-foreground hover:text-foreground'}"
@@ -57,7 +58,7 @@
 						<tr>
 							<td class="px-4 py-3">
 								<a
-									href="/admin/shop/orders/{order.id}"
+									href={resolve('/(admin)/admin/shop/orders/[id]', { id: order.id })}
 									class="font-medium hover:underline"
 								>
 									{order.orderNumber}

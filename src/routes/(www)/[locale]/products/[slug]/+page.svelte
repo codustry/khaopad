@@ -22,6 +22,7 @@
 		selectedId = id;
 		const variant = product.variants.find((v) => v.id === id);
 		if (!variant?.sku) return;
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- local throwaway used only to build a query string for goto(); never held as reactive state, so SvelteURLSearchParams buys nothing.
 		const params = new URLSearchParams(page.url.searchParams);
 		params.set('variant', variant.sku);
 		goto(`?${params}`, { replaceState: true, noScroll: true, keepFocus: true });
@@ -67,7 +68,11 @@
 <!-- SEO is rendered by the layout via page.data.seo. Only the Product
      JSON-LD is injected inline — schema.org rich results validation. -->
 <svelte:head>
-	{@html `<script type="application/ld+json">${data.jsonLd}</script>`}
+	<!-- Closing tag split — see the note in collections/[slug]. A literal
+	     `</script>` inside a template string terminates this component's
+	     script block as far as the parser is concerned. -->
+	<!-- eslint-disable-next-line svelte/no-at-html-tags -- trusted: server-built JSON-LD, `<` escaped in jsonld.ts -->
+	{@html '<script type="application/ld+json">' + data.jsonLd + '<' + '/script>'}
 </svelte:head>
 
 <article class="mx-auto max-w-3xl px-6 py-10">
@@ -130,6 +135,7 @@
 
 	{#if data.descriptionHtml}
 		<section class="prose prose-sm max-w-none dark:prose-invert">
+			<!-- eslint-disable-next-line svelte/no-at-html-tags -- admin-authored markdown rendered server-side by marked; same trust model as blog/pages bodies (authoring is role-gated). Not visitor input. -->
 			{@html data.descriptionHtml}
 		</section>
 	{/if}

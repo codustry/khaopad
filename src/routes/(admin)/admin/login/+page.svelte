@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import * as m from '$lib/paraglide/messages';
 	import { submitEmailLogin } from './login-submit';
 	import { Button, Input, Label, Card, CardContent } from '$lib/components/ui';
@@ -51,7 +52,7 @@
 			class="pointer-events-none absolute -bottom-24 -right-24 h-80 w-80 rounded-full bg-primary/10 blur-3xl"
 		></div>
 
-		<a href="/" class="relative flex items-center gap-2.5">
+		<a href={resolve('/')} class="relative flex items-center gap-2.5">
 			<span
 				class="grid h-9 w-9 place-items-center rounded-md bg-primary font-bold text-primary-foreground"
 			>
@@ -101,7 +102,7 @@
 					<CardContent class="p-4">
 						<p class="text-sm">
 							No admin exists yet.
-							<a href="/admin/signup" class="font-medium text-primary underline-offset-4 hover:underline"
+							<a href={resolve('/(admin)/admin/signup')} class="font-medium text-primary underline-offset-4 hover:underline"
 								>{m.cms_sign_up()}</a
 							>
 						</p>

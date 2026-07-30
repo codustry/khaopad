@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
 	import * as m from '$lib/paraglide/messages';
 	import { Badge } from '$lib/components/ui';
@@ -31,7 +32,7 @@
 			<p class="text-sm text-muted-foreground">{m.cms_pages_help()}</p>
 		</div>
 		<a
-			href="/admin/pages/new"
+			href={resolve('/(admin)/admin/pages/new')}
 			class="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm hover:opacity-90"
 		>
 			{m.cms_pages_new()}
@@ -46,7 +47,7 @@
 			<ul class="mt-1 list-disc list-inside text-emerald-800 dark:text-emerald-200">
 				{#each form.seeded as s (s.id)}
 					<li>
-						<a href={`/admin/pages/${s.id}`} class="underline hover:no-underline">/{s.slug}</a>
+						<a href={resolve('/(admin)/admin/pages/[id]', { id: s.id })} class="underline hover:no-underline">/{s.slug}</a>
 					</li>
 				{/each}
 			</ul>
@@ -80,7 +81,7 @@
 					{#each data.pages as p (p.id)}
 						<tr class="hover:bg-muted/20">
 							<td class="px-4 py-3">
-								<a href={`/admin/pages/${p.id}`} class="font-medium hover:underline">
+								<a href={resolve('/(admin)/admin/pages/[id]', { id: p.id })} class="font-medium hover:underline">
 									{p.localizations.en?.title ?? p.localizations.th?.title ?? '(untitled)'}
 								</a>
 							</td>

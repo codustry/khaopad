@@ -33,11 +33,7 @@ import type { RequestHandler } from "./$types";
  * weekly with a wrangler-secret bearer token. Not wired in this PR
  * because the cron config belongs to the operator's wrangler.toml.
  */
-export const POST: RequestHandler = async ({
-  url,
-  locals,
-  platform,
-}) => {
+export const POST: RequestHandler = async ({ url, locals, platform }) => {
   if (!locals.user) throw error(401, "Not authenticated");
   if (!hasRole(locals.user, "admin")) throw error(403, "Forbidden");
 
@@ -50,7 +46,10 @@ export const POST: RequestHandler = async ({
     );
   }
 
-  const days = Math.max(1, Math.min(30, Number(url.searchParams.get("days") ?? "7")));
+  const days = Math.max(
+    1,
+    Math.min(30, Number(url.searchParams.get("days") ?? "7")),
+  );
   const dryRun = url.searchParams.get("dryRun") === "1";
 
   const subscribers = await locals.content.listSubscribers({
@@ -65,7 +64,9 @@ export const POST: RequestHandler = async ({
     Array<{ slug: string; title: string; excerpt: string | null }>
   >();
   for (const locale of SUPPORTED_LOCALES) {
-    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const cutoff = new Date(
+      Date.now() - days * 24 * 60 * 60 * 1000,
+    ).toISOString();
     const result = await locals.content.listArticles({
       status: "published",
       onlyPublished: true,

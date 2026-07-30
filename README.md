@@ -10,11 +10,11 @@
 
 The demo's admin panel is open with an editor account — sign in and click around:
 
-| | |
-| --- | --- |
-| **URL** | [khaopad-example.codustry.workers.dev/admin](https://khaopad-example.codustry.workers.dev/admin) |
-| **Email** | `demo@khaopad.dev` |
-| **Password** | `KhaoPadDemo!2026` |
+|              |                                                                                                  |
+| ------------ | ------------------------------------------------------------------------------------------------ |
+| **URL**      | [khaopad-example.codustry.workers.dev/admin](https://khaopad-example.codustry.workers.dev/admin) |
+| **Email**    | `demo@khaopad.dev`                                                                               |
+| **Password** | `KhaoPadDemo!2026`                                                                               |
 
 Every plugin is enabled, so the sidebar shows the full surface: articles, pages, media, navigation, forms, newsletter, comments, webhooks, API keys — and the shop's products, collections, orders, and discounts.
 
@@ -371,19 +371,19 @@ BETTER_AUTH_SECRET=dev-local-only-not-a-real-secret
 
 Khao Pad started as a CMS. Through v1.5 it became a complete content layer (write, schedule, search, version, audit). v1.6 onward turns it into the **driver of a non-ecommerce website** — meaning a site owner installs Khao Pad and gets the content layer **plus** the surrounding machinery a real website needs (SEO, analytics, IA, performance, engagement).
 
-| Version  | Theme                       | Status       | Highlights                                                                                          |
-| -------- | --------------------------- | ------------ | --------------------------------------------------------------------------------------------------- |
-| **v1.0** | MVP                         | ✅ Shipped    | M1–M7: scaffold, D1 migrations, Better Auth, media library, taxonomy, deploy pipeline, MD editor    |
-| **v1.1** | Path-prefix routing         | ✅ Shipped    | `/admin/*` instead of `cms.` subdomain, shadcn admin reskin, D1+Date binding fix, scope tightening    |
-| **v1.2** | Users & settings UIs        | ✅ Shipped    | `/admin/users` (roles, last-super-admin guard), `/admin/settings`, `canManageUser` permission helper    |
-| **v1.3** | Workflow trio               | ✅ Shipped    | Token invitations, audit-log viewer, scheduled publishing                                           |
-| **v1.4** | Full-text search            | ✅ Shipped    | SQLite FTS5 over per-locale localizations, public `/blog?q=`, CMS list filter                       |
-| **v1.5** | Content versioning          | ✅ Shipped    | Per-article revision history, line diff, one-click restore, attribution                             |
-| **v1.6** | SEO foundations             | ✅ Shipped    | Per-page meta, sitemap, robots, JSON-LD, RSS/Atom, slug redirects, SEO scoring hint                 |
-| **v1.7** | Pages, navigation, IA       | ✅ Shipped    | Media folders, reusable blocks, cookie consent, static pages, navigation manager, seed:legal |
-| **v1.8** | Analytics & insight         | ✅ Shipped    | Privacy-friendly D1 page-views, top articles, search-term insights, per-article sparkline, optional CWA |
-| **v1.9** | Performance & trust         | ✅ Shipped    | Responsive `srcset` via /cdn-cgi/image, edge cache-control hook, branded 404/500, /api/health endpoint |
-| **v2.0** | Engagement & growth         | ✅ Shipped    | a Forms · b Newsletter (optional) · c Comments · d Webhooks + Public REST API                       |
+| Version  | Theme                 | Status     | Highlights                                                                                              |
+| -------- | --------------------- | ---------- | ------------------------------------------------------------------------------------------------------- |
+| **v1.0** | MVP                   | ✅ Shipped | M1–M7: scaffold, D1 migrations, Better Auth, media library, taxonomy, deploy pipeline, MD editor        |
+| **v1.1** | Path-prefix routing   | ✅ Shipped | `/admin/*` instead of `cms.` subdomain, shadcn admin reskin, D1+Date binding fix, scope tightening      |
+| **v1.2** | Users & settings UIs  | ✅ Shipped | `/admin/users` (roles, last-super-admin guard), `/admin/settings`, `canManageUser` permission helper    |
+| **v1.3** | Workflow trio         | ✅ Shipped | Token invitations, audit-log viewer, scheduled publishing                                               |
+| **v1.4** | Full-text search      | ✅ Shipped | SQLite FTS5 over per-locale localizations, public `/blog?q=`, CMS list filter                           |
+| **v1.5** | Content versioning    | ✅ Shipped | Per-article revision history, line diff, one-click restore, attribution                                 |
+| **v1.6** | SEO foundations       | ✅ Shipped | Per-page meta, sitemap, robots, JSON-LD, RSS/Atom, slug redirects, SEO scoring hint                     |
+| **v1.7** | Pages, navigation, IA | ✅ Shipped | Media folders, reusable blocks, cookie consent, static pages, navigation manager, seed:legal            |
+| **v1.8** | Analytics & insight   | ✅ Shipped | Privacy-friendly D1 page-views, top articles, search-term insights, per-article sparkline, optional CWA |
+| **v1.9** | Performance & trust   | ✅ Shipped | Responsive `srcset` via /cdn-cgi/image, edge cache-control hook, branded 404/500, /api/health endpoint  |
+| **v2.0** | Engagement & growth   | ✅ Shipped | a Forms · b Newsletter (optional) · c Comments · d Webhooks + Public REST API                           |
 
 **Backlog** (not committed): OAuth providers, block-based editor, AI-assisted authoring, multi-site / workspaces, A/B testing, member-only / paid content.
 

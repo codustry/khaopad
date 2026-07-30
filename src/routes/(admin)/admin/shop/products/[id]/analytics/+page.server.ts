@@ -18,8 +18,7 @@ export const load: PageServerLoad = async ({ locals, platform, params }) => {
   const svc = new ShopService(env.DB);
   const product = await svc.getProduct(params.id);
   if (!product) throw error(404, "Product not found");
-  const enTitle =
-    product.localizations?.en?.title ?? product.slug ?? params.id;
+  const enTitle = product.localizations?.en?.title ?? product.slug ?? params.id;
   const analytics = await getProductAnalytics(env.DB, params.id, 30);
   return {
     productId: params.id,

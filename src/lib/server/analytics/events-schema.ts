@@ -15,7 +15,7 @@
  * fast path for "how many pageviews yesterday", the new table is
  * for anything more granular.
  */
-import { integer, sqliteTable, text, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, index } from "drizzle-orm/sqlite-core";
 
 export const events = sqliteTable(
   "events",

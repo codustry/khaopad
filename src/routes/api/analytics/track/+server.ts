@@ -14,19 +14,23 @@
  */
 import { json } from "@sveltejs/kit";
 import { EVENT_METADATA } from "$lib/analytics/events";
-import {
-  buildEventContext,
-  trackDynamic,
-} from "$lib/server/analytics/track";
+import { buildEventContext, trackDynamic } from "$lib/server/analytics/track";
 import { ensureCartSession } from "$plugins/shop/cart-cookie";
 import { toLocale } from "$lib/i18n";
 import type { RequestHandler } from "./$types";
 
 const KNOWN_EVENTS = new Set(Object.keys(EVENT_METADATA));
 
-export const POST: RequestHandler = async ({ request, url, cookies, locals, platform }) => {
+export const POST: RequestHandler = async ({
+  request,
+  url,
+  cookies,
+  locals,
+  platform,
+}) => {
   const env = platform?.env;
-  if (!env) return json({ ok: false, code: "PLATFORM_NOT_READY" }, { status: 503 });
+  if (!env)
+    return json({ ok: false, code: "PLATFORM_NOT_READY" }, { status: 503 });
 
   let body: { name?: unknown; properties?: unknown } | null;
   try {

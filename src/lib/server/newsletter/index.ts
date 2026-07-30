@@ -88,7 +88,10 @@ export async function sendEmail(
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      return { ok: false, reason: `resend ${res.status}: ${body.slice(0, 200)}` };
+      return {
+        ok: false,
+        reason: `resend ${res.status}: ${body.slice(0, 200)}`,
+      };
     }
     const data = (await res.json().catch(() => null)) as { id?: string } | null;
     return { ok: true, id: data?.id };
@@ -164,10 +167,7 @@ export function buildDigestEmail(args: {
 }
 
 function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 function escapeAttr(s: string): string {
   return escapeHtml(s).replace(/"/g, "&quot;");

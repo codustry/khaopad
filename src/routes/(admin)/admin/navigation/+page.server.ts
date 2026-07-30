@@ -67,12 +67,14 @@ export const load: PageServerLoad = async ({ locals }) => {
 export const actions: Actions = {
   createMenu: async ({ request, locals, platform }) => {
     if (!locals.user) throw redirect(302, "/admin/login");
-    if (!canManageTaxonomy(locals.user)) return fail(403, { error: "Forbidden" });
+    if (!canManageTaxonomy(locals.user))
+      return fail(403, { error: "Forbidden" });
     const form = await request.formData();
     const label = String(form.get("label") ?? "").trim();
     const keyRaw = String(form.get("key") ?? "").trim();
     const key = slugify(keyRaw || label);
-    if (!key || !label) return fail(400, { error: "Key and label are required" });
+    if (!key || !label)
+      return fail(400, { error: "Key and label are required" });
     const existing = await locals.content.getMenuByKey(key);
     if (existing) return fail(400, { error: `Menu "${key}" already exists` });
     const menu = await locals.content.createMenu({ key, label });
@@ -90,26 +92,24 @@ export const actions: Actions = {
 
   deleteMenu: async ({ request, locals, platform }) => {
     if (!locals.user) throw redirect(302, "/admin/login");
-    if (!canManageTaxonomy(locals.user)) return fail(403, { error: "Forbidden" });
+    if (!canManageTaxonomy(locals.user))
+      return fail(403, { error: "Forbidden" });
     const form = await request.formData();
     const id = String(form.get("id") ?? "").trim();
     if (!id) return fail(400, { error: "Missing menu id" });
     await locals.content.deleteMenu(id);
     if (platform?.env?.DB) {
-      await logAudit(
-        platform.env.DB,
-        locals.user.id,
-        "settings.update",
-        id,
-        { kind: "menu.delete" },
-      );
+      await logAudit(platform.env.DB, locals.user.id, "settings.update", id, {
+        kind: "menu.delete",
+      });
     }
     return { ok: true };
   },
 
   addItem: async ({ request, locals, platform }) => {
     if (!locals.user) throw redirect(302, "/admin/login");
-    if (!canManageTaxonomy(locals.user)) return fail(403, { error: "Forbidden" });
+    if (!canManageTaxonomy(locals.user))
+      return fail(403, { error: "Forbidden" });
     const form = await request.formData();
     const menuId = String(form.get("menu_id") ?? "").trim();
     const labelEn = String(form.get("label_en") ?? "").trim();
@@ -153,26 +153,24 @@ export const actions: Actions = {
 
   deleteItem: async ({ request, locals, platform }) => {
     if (!locals.user) throw redirect(302, "/admin/login");
-    if (!canManageTaxonomy(locals.user)) return fail(403, { error: "Forbidden" });
+    if (!canManageTaxonomy(locals.user))
+      return fail(403, { error: "Forbidden" });
     const form = await request.formData();
     const id = String(form.get("id") ?? "").trim();
     if (!id) return fail(400, { error: "Missing item id" });
     await locals.content.deleteNavigationItem(id);
     if (platform?.env?.DB) {
-      await logAudit(
-        platform.env.DB,
-        locals.user.id,
-        "settings.update",
-        id,
-        { kind: "nav_item.delete" },
-      );
+      await logAudit(platform.env.DB, locals.user.id, "settings.update", id, {
+        kind: "nav_item.delete",
+      });
     }
     return { ok: true };
   },
 
   moveItem: async ({ request, locals }) => {
     if (!locals.user) throw redirect(302, "/admin/login");
-    if (!canManageTaxonomy(locals.user)) return fail(403, { error: "Forbidden" });
+    if (!canManageTaxonomy(locals.user))
+      return fail(403, { error: "Forbidden" });
     const form = await request.formData();
     const id = String(form.get("id") ?? "").trim();
     const direction = String(form.get("direction") ?? "");

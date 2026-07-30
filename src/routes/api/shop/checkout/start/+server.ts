@@ -17,26 +17,30 @@ import { ShopValidationError } from "$plugins/shop/service";
 import { track, buildEventContext } from "$lib/server/analytics/track";
 import type { RequestHandler } from "./$types";
 
-export const POST: RequestHandler = async ({ request, platform, cookies, locals, url }) => {
+export const POST: RequestHandler = async ({
+  request,
+  platform,
+  cookies,
+  locals,
+  url,
+}) => {
   const env = platform?.env;
   if (!env) throw error(503, "Platform not ready");
 
-  const body = (await request.json().catch(() => null)) as
-    | {
-        email?: string;
-        shippingAddress?: unknown;
-        billingAddress?: unknown;
-        /**
-         * v3.4 federation: article slug the visitor came from before
-         * they entered the funnel. Client reads this from
-         * sessionStorage (stashed by the product page). Resolved to
-         * an article id server-side and included in the analytics
-         * purchase event so per-article dashboards can show
-         * "products this article drove" with accurate revenue.
-         */
-        attributedArticleSlug?: string;
-      }
-    | null;
+  const body = (await request.json().catch(() => null)) as {
+    email?: string;
+    shippingAddress?: unknown;
+    billingAddress?: unknown;
+    /**
+     * v3.4 federation: article slug the visitor came from before
+     * they entered the funnel. Client reads this from
+     * sessionStorage (stashed by the product page). Resolved to
+     * an article id server-side and included in the analytics
+     * purchase event so per-article dashboards can show
+     * "products this article drove" with accurate revenue.
+     */
+    attributedArticleSlug?: string;
+  } | null;
   const email = String(body?.email ?? "").trim();
   if (!email || !email.includes("@")) {
     return json(
@@ -61,16 +65,14 @@ export const POST: RequestHandler = async ({ request, platform, cookies, locals,
     let discountSatang = 0;
     let discountCodeSnapshot: string | null = null;
     let discountId: string | null = null;
-    if (
-      cart.discountCode &&
-      !cart.discountCode.startsWith("attribution:")
-    ) {
+    if (cart.discountCode && !cart.discountCode.startsWith("attribution:")) {
       const items = await cartSvc.listCartItems(cart.id);
       const subtotal = items.reduce(
         (sum, i) => sum + i.priceSatangAtAdd * i.quantity,
         0,
       );
-      const { validateDiscount } = await import("$plugins/shop/discount-service");
+      const { validateDiscount } =
+        await import("$plugins/shop/discount-service");
       const outcome = await validateDiscount(env.DB, {
         code: cart.discountCode,
         subtotalSatang: subtotal,

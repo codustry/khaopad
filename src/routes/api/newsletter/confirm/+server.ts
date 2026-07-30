@@ -27,13 +27,9 @@ export const GET: RequestHandler = async ({ url, locals, platform }) => {
   if (!subscriber) throw error(404, "Invalid token");
 
   if (platform?.env?.DB) {
-    await logAudit(
-      platform.env.DB,
-      null,
-      "newsletter.confirm",
-      subscriber.id,
-      { email: subscriber.email },
-    );
+    await logAudit(platform.env.DB, null, "newsletter.confirm", subscriber.id, {
+      email: subscriber.email,
+    });
   }
 
   // v2.0d webhook fan-out. Receivers can mirror to a CRM or trigger
@@ -52,8 +48,5 @@ export const GET: RequestHandler = async ({ url, locals, platform }) => {
   // Redirect back to the locale home with a flash. Locale comes from
   // the subscriber record so we land them in their language.
   const locale = (subscriber.locale as Locale) ?? DEFAULT_LOCALE;
-  throw redirect(
-    302,
-    `${localePath(locale, "/")}?newsletter=confirmed`,
-  );
+  throw redirect(302, `${localePath(locale, "/")}?newsletter=confirmed`);
 };

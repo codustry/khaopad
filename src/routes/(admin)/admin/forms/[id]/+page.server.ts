@@ -111,7 +111,10 @@ export const actions: Actions = {
     const fd = await request.formData();
     const submissionId = String(fd.get("submission_id") ?? "").trim();
     const status = String(fd.get("status") ?? "") as FormSubmissionStatus;
-    if (!submissionId || !["new", "read", "spam", "archived"].includes(status)) {
+    if (
+      !submissionId ||
+      !["new", "read", "spam", "archived"].includes(status)
+    ) {
       return fail(400, { error: "Bad request" });
     }
     // Confirm this submission belongs to the form on this page (defense

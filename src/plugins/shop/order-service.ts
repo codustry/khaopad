@@ -31,10 +31,7 @@ import {
   type ShopOrder,
   type ShopOrderItem,
 } from "./schema-cart";
-import {
-  commitVariantSale,
-  releaseVariant,
-} from "./inventory";
+import { commitVariantSale, releaseVariant } from "./inventory";
 import { ShopValidationError } from "./service";
 
 // ─── Types ──────────────────────────────────────────────────
@@ -549,11 +546,13 @@ export class OrderService {
     return row ? this.hydrate(row) : null;
   }
 
-  async listOrders(opts: {
-    status?: ShopOrder["status"];
-    limit?: number;
-    offset?: number;
-  } = {}): Promise<ShopOrder[]> {
+  async listOrders(
+    opts: {
+      status?: ShopOrder["status"];
+      limit?: number;
+      offset?: number;
+    } = {},
+  ): Promise<ShopOrder[]> {
     const limit = Math.min(opts.limit ?? 50, 200);
     const offset = opts.offset ?? 0;
     return opts.status

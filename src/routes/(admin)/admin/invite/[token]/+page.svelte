@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
 	import * as m from '$lib/paraglide/messages';
 	import { Button, Card, CardContent, Input, Label } from '$lib/components/ui';
@@ -29,7 +30,7 @@
 					{m.cms_invite_accept_unavailable()}
 				</h1>
 				<p class="text-sm text-muted-foreground">{data.reason}</p>
-				<a href="/admin/login" class="text-sm font-medium text-primary underline-offset-4 hover:underline">
+				<a href={resolve('/(admin)/admin/login')} class="text-sm font-medium text-primary underline-offset-4 hover:underline">
 					{m.cms_sign_in()}
 				</a>
 			</CardContent>

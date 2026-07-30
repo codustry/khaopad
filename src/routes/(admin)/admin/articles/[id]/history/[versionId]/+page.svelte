@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
 	import * as m from '$lib/paraglide/messages';
 	import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui';
@@ -29,7 +30,7 @@
 	<header class="mb-6 flex flex-wrap items-center justify-between gap-3">
 		<div>
 			<a
-				href={`/admin/articles/${data.article.id}/history`}
+				href={resolve('/(admin)/admin/articles/[id]/history', { id: data.article.id })}
 				class="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
 			>
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import * as m from '$lib/paraglide/messages';
 	import { Avatar, Badge, Card } from '$lib/components/ui';
 	import type { PageData } from './$types';
@@ -19,7 +20,7 @@
 <section class="mx-auto w-full max-w-4xl">
 	<header class="mb-6">
 		<a
-			href={`/admin/articles/${data.article.id}`}
+			href={resolve('/(admin)/admin/articles/[id]', { id: data.article.id })}
 			class="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
 		>
 			<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
@@ -55,7 +56,10 @@
 							</div>
 						</div>
 						<a
-							href={`/admin/articles/${data.article.id}/history/${v.id}`}
+							href={resolve('/(admin)/admin/articles/[id]/history/[versionId]', {
+									id: data.article.id,
+									versionId: v.id,
+								})}
 							class="text-sm font-medium text-primary underline-offset-4 hover:underline"
 						>
 							{m.cms_history_view()}

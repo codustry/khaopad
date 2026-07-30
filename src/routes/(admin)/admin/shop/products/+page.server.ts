@@ -34,7 +34,8 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 export const actions: Actions = {
   archive: async ({ request, locals, platform }) => {
     if (!locals.user) throw redirect(302, "/admin/login");
-    if (!hasRole(locals.user, "admin")) return fail(403, { error: "Forbidden" });
+    if (!hasRole(locals.user, "admin"))
+      return fail(403, { error: "Forbidden" });
     const env = platform?.env;
     if (!env) return fail(503, { error: "Platform not ready" });
     const fd = await request.formData();
@@ -49,7 +50,8 @@ export const actions: Actions = {
   },
   delete: async ({ request, locals, platform }) => {
     if (!locals.user) throw redirect(302, "/admin/login");
-    if (!hasRole(locals.user, "admin")) return fail(403, { error: "Forbidden" });
+    if (!hasRole(locals.user, "admin"))
+      return fail(403, { error: "Forbidden" });
     const env = platform?.env;
     if (!env) return fail(503, { error: "Platform not ready" });
     const fd = await request.formData();

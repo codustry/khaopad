@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import '../../../app.css';
 	import { goto } from '$app/navigation';
 	import { Menu, X } from 'lucide-svelte';
@@ -23,7 +24,7 @@
 		} catch {
 			// network failure: still try to leave
 		}
-		goto('/admin/login', { invalidateAll: true });
+		goto(resolve('/(admin)/admin/login'), { invalidateAll: true });
 	}
 
 	// Re-derived per page so the sidebar sees route changes for active state.

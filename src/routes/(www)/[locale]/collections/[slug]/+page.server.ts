@@ -116,9 +116,7 @@ export const load: PageServerLoad = async ({ params, url, platform }) => {
     .map((product) => {
       const locsMap = locsByProduct.get(product.id) ?? new Map();
       const title =
-        locsMap.get(locale)?.title ??
-        locsMap.get("en")?.title ??
-        product.slug;
+        locsMap.get(locale)?.title ?? locsMap.get("en")?.title ?? product.slug;
       const prices = (variantsByProduct.get(product.id) ?? []).map(
         (v) => v.priceSatang,
       );

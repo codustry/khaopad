@@ -62,8 +62,11 @@ export const POST: RequestHandler = async ({
     return json({ ok: true, mode: "honeypot" }, { status: 200 });
   }
 
-  const emailRaw = String(payload.email ?? "").trim().toLowerCase();
-  const locale = (String(payload.locale ?? "en") as Locale) === "th" ? "th" : "en";
+  const emailRaw = String(payload.email ?? "")
+    .trim()
+    .toLowerCase();
+  const locale =
+    (String(payload.locale ?? "en") as Locale) === "th" ? "th" : "en";
 
   if (!emailRaw || !/.+@.+\..+/.test(emailRaw)) {
     throw error(400, "Email is required.");
@@ -113,10 +116,16 @@ export const POST: RequestHandler = async ({
   }
 
   if (platform?.env?.DB && subscriber) {
-    await logAudit(platform.env.DB, null, "newsletter.subscribe", subscriber.id, {
-      email: subscriber.email,
-      mode: providerOn ? "double-opt-in" : "single-opt-in",
-    });
+    await logAudit(
+      platform.env.DB,
+      null,
+      "newsletter.subscribe",
+      subscriber.id,
+      {
+        email: subscriber.email,
+        mode: providerOn ? "double-opt-in" : "single-opt-in",
+      },
+    );
   }
 
   // Suppress any IP-side lint complaint.

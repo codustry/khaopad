@@ -383,10 +383,7 @@ export async function hydrateProductEmbeds(
     .select({ id: shopProducts.id })
     .from(shopProducts)
     .where(
-      and(
-        inArray(shopProducts.slug, slugs),
-        eq(shopProducts.status, "active"),
-      ),
+      and(inArray(shopProducts.slug, slugs), eq(shopProducts.status, "active")),
     )
     .all();
   const summaries = await hydrateProductSummaries(

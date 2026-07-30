@@ -28,19 +28,23 @@ export const actions: Actions = {
     const titleEn = String(form.get("title_en") ?? "").trim();
     const bodyEn = String(form.get("body_en") ?? "");
     const seoTitleEn = String(form.get("seo_title_en") ?? "").trim();
-    const seoDescriptionEn = String(form.get("seo_description_en") ?? "").trim();
+    const seoDescriptionEn = String(
+      form.get("seo_description_en") ?? "",
+    ).trim();
     const titleTh = String(form.get("title_th") ?? "").trim();
     const bodyTh = String(form.get("body_th") ?? "");
     const seoTitleTh = String(form.get("seo_title_th") ?? "").trim();
-    const seoDescriptionTh = String(form.get("seo_description_th") ?? "").trim();
+    const seoDescriptionTh = String(
+      form.get("seo_description_th") ?? "",
+    ).trim();
     const slugInput = String(form.get("slug") ?? "").trim();
-    const template = (String(form.get("template") ?? "default") as
+    const template = String(form.get("template") ?? "default") as
       | "default"
       | "landing"
-      | "legal");
-    const status = (String(form.get("status") ?? "draft") as
+      | "legal";
+    const status = String(form.get("status") ?? "draft") as
       | "draft"
-      | "published");
+      | "published";
     const publishedAtLocal = String(
       form.get("published_at_local") ?? "",
     ).trim();

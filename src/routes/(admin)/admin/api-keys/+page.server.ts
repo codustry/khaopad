@@ -37,9 +37,7 @@ export const actions: Actions = {
     const scopes = fd
       .getAll("scopes")
       .map((v) => String(v))
-      .filter((v): v is ApiKeyScope =>
-        (KNOWN_SCOPES as string[]).includes(v),
-      );
+      .filter((v): v is ApiKeyScope => (KNOWN_SCOPES as string[]).includes(v));
     const expiresAtRaw = String(fd.get("expires_at") ?? "").trim();
     const expiresAt = expiresAtRaw
       ? new Date(expiresAtRaw).toISOString()
@@ -86,13 +84,9 @@ export const actions: Actions = {
     if (!id) return fail(400, { error: "Missing id" });
     await locals.content.revokeApiKey(id);
     if (platform?.env?.DB) {
-      await logAudit(
-        platform.env.DB,
-        locals.user.id,
-        "settings.update",
-        id,
-        { kind: "api_key.revoke" },
-      );
+      await logAudit(platform.env.DB, locals.user.id, "settings.update", id, {
+        kind: "api_key.revoke",
+      });
     }
     return { ok: true };
   },
@@ -105,13 +99,9 @@ export const actions: Actions = {
     if (!id) return fail(400, { error: "Missing id" });
     await locals.content.deleteApiKey(id);
     if (platform?.env?.DB) {
-      await logAudit(
-        platform.env.DB,
-        locals.user.id,
-        "settings.update",
-        id,
-        { kind: "api_key.delete" },
-      );
+      await logAudit(platform.env.DB, locals.user.id, "settings.update", id, {
+        kind: "api_key.delete",
+      });
     }
     return { ok: true };
   },

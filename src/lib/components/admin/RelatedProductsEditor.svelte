@@ -13,7 +13,6 @@
 	import { Button } from '$lib/components/ui';
 
 	type RefKind = 'featured' | 'mentioned' | 'promoted';
-	type Ref = { productId: string; refKind: RefKind };
 	type ProductChoice = { id: string; title: string; slug: string };
 
 	let {
@@ -35,15 +34,20 @@
 			}),
 		),
 	);
-	let selection = $state<Map<string, Selection>>(new Map(initial));
+	// Writable $derived: reads through to `initial` (so a route nav
+	// resets the editor to the new article's refs) but stays locally
+	// assignable when the user picks a kind. Replaces the older
+	// $state + $effect pair, which did the same thing less directly and
+	// re-ran on every dependency change.
+	let selection = $derived(new Map(initial));
 	let submitting = $state(false);
 
-	// Recompute selection when the source data changes (route nav).
-	$effect(() => {
-		selection = new Map(initial);
-	});
-
 	function setKind(productId: string, kind: Selection) {
+		// Copy-then-assign rather than mutating in place: `selection` is a
+		// $derived, so reassignment is what marks it dirty. The copy is a
+		// plain Map because it's a throwaway that never itself needs to be
+		// reactive — the assignment on the next line is the reactive step.
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- local throwaway; reactivity comes from reassigning the $derived below
 		const next = new Map(selection);
 		next.set(productId, kind);
 		selection = next;
@@ -121,7 +125,10 @@
 				at the bottom of the article page.
 			</p>
 			<p class="text-xs text-muted-foreground">
-				Tip: use <code>:::product{'{'}slug=your-product{'}'}</code> in the
+				<!-- &lbrace;/&rbrace; entities rather than {'{'} mustaches: Svelte
+				     treats a bare { as an expression delimiter, and the entity
+				     form renders identically without a useless interpolation. -->
+				Tip: use <code>:::product&lbrace;slug=your-product&rbrace;</code> in the
 				article body to embed an inline product card in the middle of
 				the content.
 			</p>

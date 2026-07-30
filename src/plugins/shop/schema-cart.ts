@@ -40,7 +40,6 @@
  */
 import {
   integer,
-  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
@@ -146,65 +145,62 @@ export const shopInventoryReservations = sqliteTable(
 
 // ─── Orders ─────────────────────────────────────────────────
 
-export const shopOrders = sqliteTable(
-  "shop_orders",
-  {
-    id: text("id").primaryKey(),
-    // Human-readable — `KHP-YYYY-NNNNN`. Shown to customers, used in
-    // support requests, printed on receipts.
-    orderNumber: text("order_number").notNull().unique(),
-    // Set when the customer was signed in at checkout; null for guests.
-    userId: text("user_id"),
-    // Always populated — collected during checkout.
-    email: text("email").notNull(),
-    // 'pending' | 'paid' | 'fulfilled' | 'delivered' | 'refunded' | 'cancelled'
-    status: text("status", {
-      enum: [
-        "pending",
-        "paid",
-        "fulfilled",
-        "delivered",
-        "refunded",
-        "cancelled",
-      ],
-    })
-      .notNull()
-      .default("pending"),
-    // Payment provider that handled the charge. `beam` for v3.2;
-    // `stripe` / `omise` land in #61.
-    providerName: text("provider_name"),
-    // Opaque charge id from the provider (Beam's chargeId, Stripe's
-    // pi_..., etc.). Used to look up the charge for refunds.
-    providerChargeId: text("provider_charge_id"),
-    // Monetary totals, all in satang. Computed at checkout, frozen
-    // into the order row — subsequent variant/price/tax changes do
-    // not affect the historical order.
-    subtotalSatang: integer("subtotal_satang").notNull(),
-    shippingSatang: integer("shipping_satang").notNull().default(0),
-    taxSatang: integer("tax_satang").notNull().default(0),
-    discountSatang: integer("discount_satang").notNull().default(0),
-    totalSatang: integer("total_satang").notNull(),
-    // Shipping address (JSON blob — the shipping-zone matcher parses
-    // country_code; the rest is opaque to the shop plugin).
-    shippingAddressJson: text("shipping_address_json"),
-    // Billing address — often same as shipping. Nullable for digital-
-    // only orders (variant.requiresShipping=false for all lines).
-    billingAddressJson: text("billing_address_json"),
-    // Applied at checkout — snapshot the discount code even though
-    // shop_discount_codes table doesn't exist until v3.4. Text is
-    // fine, we're just recording what was used.
-    discountCodeSnapshot: text("discount_code_snapshot"),
-    createdAt: text("created_at").notNull(),
-    updatedAt: text("updated_at").notNull(),
-    // Set when status flips to `paid` — the moment inventory was
-    // committed and the customer got the receipt.
-    paidAt: text("paid_at"),
-    fulfilledAt: text("fulfilled_at"),
-    deliveredAt: text("delivered_at"),
-    refundedAt: text("refunded_at"),
-    cancelledAt: text("cancelled_at"),
-  },
-);
+export const shopOrders = sqliteTable("shop_orders", {
+  id: text("id").primaryKey(),
+  // Human-readable — `KHP-YYYY-NNNNN`. Shown to customers, used in
+  // support requests, printed on receipts.
+  orderNumber: text("order_number").notNull().unique(),
+  // Set when the customer was signed in at checkout; null for guests.
+  userId: text("user_id"),
+  // Always populated — collected during checkout.
+  email: text("email").notNull(),
+  // 'pending' | 'paid' | 'fulfilled' | 'delivered' | 'refunded' | 'cancelled'
+  status: text("status", {
+    enum: [
+      "pending",
+      "paid",
+      "fulfilled",
+      "delivered",
+      "refunded",
+      "cancelled",
+    ],
+  })
+    .notNull()
+    .default("pending"),
+  // Payment provider that handled the charge. `beam` for v3.2;
+  // `stripe` / `omise` land in #61.
+  providerName: text("provider_name"),
+  // Opaque charge id from the provider (Beam's chargeId, Stripe's
+  // pi_..., etc.). Used to look up the charge for refunds.
+  providerChargeId: text("provider_charge_id"),
+  // Monetary totals, all in satang. Computed at checkout, frozen
+  // into the order row — subsequent variant/price/tax changes do
+  // not affect the historical order.
+  subtotalSatang: integer("subtotal_satang").notNull(),
+  shippingSatang: integer("shipping_satang").notNull().default(0),
+  taxSatang: integer("tax_satang").notNull().default(0),
+  discountSatang: integer("discount_satang").notNull().default(0),
+  totalSatang: integer("total_satang").notNull(),
+  // Shipping address (JSON blob — the shipping-zone matcher parses
+  // country_code; the rest is opaque to the shop plugin).
+  shippingAddressJson: text("shipping_address_json"),
+  // Billing address — often same as shipping. Nullable for digital-
+  // only orders (variant.requiresShipping=false for all lines).
+  billingAddressJson: text("billing_address_json"),
+  // Applied at checkout — snapshot the discount code even though
+  // shop_discount_codes table doesn't exist until v3.4. Text is
+  // fine, we're just recording what was used.
+  discountCodeSnapshot: text("discount_code_snapshot"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  // Set when status flips to `paid` — the moment inventory was
+  // committed and the customer got the receipt.
+  paidAt: text("paid_at"),
+  fulfilledAt: text("fulfilled_at"),
+  deliveredAt: text("delivered_at"),
+  refundedAt: text("refunded_at"),
+  cancelledAt: text("cancelled_at"),
+});
 
 // ─── Order line items ───────────────────────────────────────
 

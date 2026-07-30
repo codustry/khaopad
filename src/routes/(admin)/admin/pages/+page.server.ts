@@ -16,7 +16,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 export const actions: Actions = {
   seedLegal: async ({ locals, platform }) => {
     if (!locals.user) throw redirect(302, "/admin/login");
-    if (!canManageTaxonomy(locals.user)) return fail(403, { error: "Forbidden" });
+    if (!canManageTaxonomy(locals.user))
+      return fail(403, { error: "Forbidden" });
     const result = await seedLegalPages(locals.content, locals.user.id);
     if (platform?.env?.DB) {
       for (const p of result.created) {

@@ -1,4 +1,5 @@
 import type { ComponentType } from "svelte";
+import type { Pathname } from "$app/types";
 import {
   LayoutDashboard,
   FileText,
@@ -20,7 +21,7 @@ import {
 import * as m from "$lib/paraglide/messages";
 
 export type NavItem = {
-  href: string;
+  href: Pathname;
   /** Localized label (called at render time) */
   label: () => string;
   icon: ComponentType;

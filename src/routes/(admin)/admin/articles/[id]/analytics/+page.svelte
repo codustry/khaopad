@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { ArrowLeft, BarChart3 } from 'lucide-svelte';
 	import { Badge } from '$lib/components/ui';
 	import type { PageData } from './$types';
@@ -19,7 +20,7 @@
 
 <div class="max-w-4xl space-y-6 p-6">
 	<a
-		href="/admin/articles/{data.articleId}"
+		href={resolve('/(admin)/admin/articles/[id]', { id: data.articleId })}
 		class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
 	>
 		<ArrowLeft class="h-4 w-4" />

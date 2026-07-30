@@ -8,7 +8,10 @@ export const GET: RequestHandler = async ({ request, locals }) => {
     return json({ error: "Unauthorized" }, { status: 401 });
   }
   if (!hasScope(auth.key, "categories:read")) {
-    return json({ error: "Forbidden — categories:read scope required" }, { status: 403 });
+    return json(
+      { error: "Forbidden — categories:read scope required" },
+      { status: 403 },
+    );
   }
   const categories = await locals.content.listCategories();
   return json(

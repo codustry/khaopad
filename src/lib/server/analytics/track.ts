@@ -17,7 +17,6 @@ import { drizzle } from "drizzle-orm/d1";
 import { nanoid } from "nanoid";
 import { events, type EventRow } from "./events-schema";
 import type {
-  CanonicalEvent,
   CanonicalEventName,
   EventContext,
   EventProperties,
@@ -110,7 +109,13 @@ export function buildEventContext(input: {
 }): EventContext {
   // Extract utm inline to avoid the client-safe events module dep here.
   const utm: Record<string, string> = {};
-  for (const key of ["source", "medium", "campaign", "term", "content"] as const) {
+  for (const key of [
+    "source",
+    "medium",
+    "campaign",
+    "term",
+    "content",
+  ] as const) {
     const v = input.url.searchParams.get(`utm_${key}`);
     if (v) utm[key] = v.slice(0, 200);
   }

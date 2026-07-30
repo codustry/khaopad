@@ -385,7 +385,9 @@ export const navigationItems = sqliteTable("navigation_items", {
   /** Self-reference for nested menus. Null = top-level. */
   parentId: text("parent_id"),
   /** Position in the parent's children — lower comes first. */
-  position: integer("position").notNull().$defaultFn(() => 0),
+  position: integer("position")
+    .notNull()
+    .$defaultFn(() => 0),
   /** Per-locale label JSON (`{"en":"About","th":"เกี่ยวกับ"}`). */
   labels: text("labels").notNull(),
   /** Either an internal target (`article:<id>`, `category:<id>`,
@@ -456,7 +458,9 @@ export const pageViews = sqliteTable(
     }).notNull(),
     /** Article id, page id, or null when not entity-bound. */
     refId: text("ref_id"),
-    count: integer("count").notNull().$defaultFn(() => 0),
+    count: integer("count")
+      .notNull()
+      .$defaultFn(() => 0),
   },
   (table) => ({
     pk: primaryKey({ columns: [table.date, table.path] }),
@@ -557,7 +561,9 @@ export const subscribers = sqliteTable("subscribers", {
   /** ISO timestamp once the subscriber unsubscribed. */
   unsubscribedAt: text("unsubscribed_at"),
   /** Where the subscriber came from: 'form' (default), 'import', etc. */
-  source: text("source").notNull().$defaultFn(() => "form"),
+  source: text("source")
+    .notNull()
+    .$defaultFn(() => "form"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -572,40 +578,37 @@ export const subscribers = sqliteTable("subscribers", {
 // `parentId` ships in the schema as forward-compat for threaded
 // replies; the v2.0c UI is single-level only.
 
-export const comments = sqliteTable(
-  "comments",
-  {
-    id: text("id").primaryKey(),
-    articleId: text("article_id")
-      .notNull()
-      .references(() => articles.id, { onDelete: "cascade" }),
-    parentId: text("parent_id"),
-    authorName: text("author_name").notNull(),
-    /**
-     * Always collected, never displayed publicly. Useful for reply-via
-     * -email and future gravatar lookup.
-     */
-    authorEmail: text("author_email").notNull(),
-    /** Plain text — never markdown. Renderer escapes on output. */
-    body: text("body").notNull(),
-    status: text("status", {
-      enum: ["pending", "approved", "spam", "archived"],
-    })
-      .notNull()
-      .default("pending"),
-    /** 16-char SHA-256 truncate; never the raw IP. Cluster key for rate
-     *  limit + spam clustering, never an identifier. */
-    ipHash: text("ip_hash"),
-    submittedAt: text("submitted_at")
-      .notNull()
-      .$defaultFn(() => new Date().toISOString()),
-    /** Editor who flipped status. Null for un-moderated. */
-    moderatedBy: text("moderated_by").references(() => users.id, {
-      onDelete: "set null",
-    }),
-    moderatedAt: text("moderated_at"),
-  },
-);
+export const comments = sqliteTable("comments", {
+  id: text("id").primaryKey(),
+  articleId: text("article_id")
+    .notNull()
+    .references(() => articles.id, { onDelete: "cascade" }),
+  parentId: text("parent_id"),
+  authorName: text("author_name").notNull(),
+  /**
+   * Always collected, never displayed publicly. Useful for reply-via
+   * -email and future gravatar lookup.
+   */
+  authorEmail: text("author_email").notNull(),
+  /** Plain text — never markdown. Renderer escapes on output. */
+  body: text("body").notNull(),
+  status: text("status", {
+    enum: ["pending", "approved", "spam", "archived"],
+  })
+    .notNull()
+    .default("pending"),
+  /** 16-char SHA-256 truncate; never the raw IP. Cluster key for rate
+   *  limit + spam clustering, never an identifier. */
+  ipHash: text("ip_hash"),
+  submittedAt: text("submitted_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  /** Editor who flipped status. Null for un-moderated. */
+  moderatedBy: text("moderated_by").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  moderatedAt: text("moderated_at"),
+});
 
 // ─── Webhooks (v2.0d) ────────────────────────────────────
 // Editor-registered URLs that get pinged on platform events.

@@ -132,7 +132,8 @@ export class BeamPaymentProvider implements PaymentProvider {
         return {
           ok: false,
           code: `HTTP_${res.status}`,
-          message: text.slice(0, 500) || `Beam charge creation failed (${res.status})`,
+          message:
+            text.slice(0, 500) || `Beam charge creation failed (${res.status})`,
         };
       }
 
@@ -192,7 +193,11 @@ export class BeamPaymentProvider implements PaymentProvider {
     signature: string,
   ): Promise<WebhookVerifyResult> {
     if (!signature) {
-      return { ok: false, code: "MISSING_SIGNATURE", message: "X-Beam-Signature header absent" };
+      return {
+        ok: false,
+        code: "MISSING_SIGNATURE",
+        message: "X-Beam-Signature header absent",
+      };
     }
     // Strip optional `sha256=` scheme prefix (Stripe convention that
     // Beam MAY adopt) so we compare hex-to-hex regardless of format.

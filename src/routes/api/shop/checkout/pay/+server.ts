@@ -16,9 +16,9 @@ export const POST: RequestHandler = async ({ request, platform, url }) => {
   const env = platform?.env;
   if (!env) throw error(503, "Platform not ready");
 
-  const body = (await request.json().catch(() => null)) as
-    | { orderId?: string }
-    | null;
+  const body = (await request.json().catch(() => null)) as {
+    orderId?: string;
+  } | null;
   if (!body?.orderId) throw error(400, "orderId required");
 
   const orderSvc = new OrderService(env.DB);

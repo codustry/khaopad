@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
 	import { ArrowLeft, Package, RefreshCw } from 'lucide-svelte';
 	import { Button, Badge, Input, Label } from '$lib/components/ui';
@@ -14,7 +15,7 @@
 
 <div class="max-w-4xl space-y-6 p-6">
 	<a
-		href="/admin/shop/orders"
+		href={resolve('/(admin)/admin/shop/orders')}
 		class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
 	>
 		<ArrowLeft class="h-4 w-4" />

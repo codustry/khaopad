@@ -61,10 +61,7 @@ export const POST: RequestHandler = async ({ request, platform, url }) => {
     // event and leave the order pending forever with the customer
     // charged. Beam's retry cadence (a few minutes) gives
     // attachProviderCharge time to land.
-    return json(
-      { ok: false, code: "ORDER_NOT_FOUND_YET" },
-      { status: 503 },
-    );
+    return json({ ok: false, code: "ORDER_NOT_FOUND_YET" }, { status: 503 });
   }
 
   const orderSvc = new OrderService(env.DB);
@@ -95,19 +92,14 @@ export const POST: RequestHandler = async ({ request, platform, url }) => {
         })
         .from(shopCarts)
         .where(
-          and(
-            eq(shopCarts.email, paid.email),
-            eq(shopCarts.status, "ordered"),
-          ),
+          and(eq(shopCarts.email, paid.email), eq(shopCarts.status, "ordered")),
         )
         .orderBy(desc(shopCarts.updatedAt))
         .limit(1)
         .get();
       const sessionIdForFunnel = cartRow?.sessionId ?? paid.id;
       let attributedArticleId: string | undefined;
-      let discountRedemption:
-        | { discountId: string; code: string }
-        | undefined;
+      let discountRedemption: { discountId: string; code: string } | undefined;
       if (cartRow?.discountCode?.startsWith("attribution:")) {
         attributedArticleId = cartRow.discountCode.slice("attribution:".length);
       } else if (cartRow?.discountCode?.includes(":")) {
@@ -121,9 +113,8 @@ export const POST: RequestHandler = async ({ request, platform, url }) => {
       // via composite PK — webhook retries insert nothing new.
       if (discountRedemption && paid.discountSatang > 0) {
         try {
-          const { recordRedemption } = await import(
-            "$plugins/shop/discount-service"
-          );
+          const { recordRedemption } =
+            await import("$plugins/shop/discount-service");
           await recordRedemption(env.DB, {
             discountId: discountRedemption.discountId,
             orderId: paid.id,

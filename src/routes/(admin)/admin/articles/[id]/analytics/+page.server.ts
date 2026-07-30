@@ -19,7 +19,6 @@ export const load: PageServerLoad = async ({ locals, platform, params }) => {
   const article = await locals.content.getArticle(params.id);
   if (!article) throw error(404, "Article not found");
   const analytics = await getArticleAnalytics(env.DB, params.id, 30);
-  const enTitle =
-    article.localizations?.en?.title ?? article.slug ?? params.id;
+  const enTitle = article.localizations?.en?.title ?? article.slug ?? params.id;
   return { articleId: params.id, articleTitle: enTitle, analytics };
 };

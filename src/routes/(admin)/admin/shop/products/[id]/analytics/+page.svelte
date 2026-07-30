@@ -1,6 +1,6 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { ArrowLeft, BarChart3 } from 'lucide-svelte';
-	import { formatSatang, type Satang } from '$plugins/shop/money';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -12,7 +12,7 @@
 
 <div class="max-w-4xl space-y-6 p-6">
 	<a
-		href="/admin/shop/products/{data.productId}"
+		href={resolve('/(admin)/admin/shop/products/[id]', { id: data.productId })}
 		class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
 	>
 		<ArrowLeft class="h-4 w-4" />

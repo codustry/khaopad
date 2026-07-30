@@ -104,4 +104,5 @@ export const shopDiscountRedemptions = sqliteTable(
 );
 
 export type ShopDiscountCode = typeof shopDiscountCodes.$inferSelect;
-export type ShopDiscountRedemption = typeof shopDiscountRedemptions.$inferSelect;
+export type ShopDiscountRedemption =
+  typeof shopDiscountRedemptions.$inferSelect;

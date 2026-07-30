@@ -65,7 +65,6 @@
 import {
   integer,
   primaryKey,
-  real,
   sqliteTable,
   text,
   uniqueIndex,
@@ -92,7 +91,10 @@ export const shopProducts = sqliteTable(
     publishedAt: text("published_at"),
   },
   (t) => ({
-    statusIdx: uniqueIndex("shop_products_status_slug_idx").on(t.status, t.slug),
+    statusIdx: uniqueIndex("shop_products_status_slug_idx").on(
+      t.status,
+      t.slug,
+    ),
   }),
 );
 
@@ -137,38 +139,35 @@ export const shopProductOptionValues = sqliteTable(
 
 // ─── Variants ───────────────────────────────────────────────
 
-export const shopProductVariants = sqliteTable(
-  "shop_product_variants",
-  {
-    id: text("id").primaryKey(),
-    productId: text("product_id")
-      .notNull()
-      .references(() => shopProducts.id, { onDelete: "cascade" }),
-    // Must-fix: SKU is UNIQUE (nullable — SQLite allows multiple NULLs,
-    // real values must be unique). Retrofitting uniqueness after
-    // duplicates land is painful; lock it down day one.
-    sku: text("sku").unique(),
-    barcode: text("barcode"),
-    // Must-fix: variant status — never hard-delete. Cart/order rows
-    // can still reference an archived variant.
-    status: text("status", { enum: ["active", "archived"] })
-      .notNull()
-      .default("active"),
-    // Cached derived title ("Red / M"). Refreshed via db.batch() when
-    // option values are edited; storefront rendering never pays for
-    // the join across variant_options → option_values → options.
-    titleCached: text("title_cached").notNull(),
-    priceSatang: integer("price_satang").notNull(),
-    compareAtSatang: integer("compare_at_satang"), // strike-through / MSRP
-    weightGrams: integer("weight_grams"),
-    requiresShipping: integer("requires_shipping", { mode: "boolean" })
-      .notNull()
-      .default(true),
-    taxable: integer("taxable", { mode: "boolean" }).notNull().default(true),
-    position: integer("position").notNull().default(1),
-    mediaId: text("media_id"), // variant-specific media override
-  },
-);
+export const shopProductVariants = sqliteTable("shop_product_variants", {
+  id: text("id").primaryKey(),
+  productId: text("product_id")
+    .notNull()
+    .references(() => shopProducts.id, { onDelete: "cascade" }),
+  // Must-fix: SKU is UNIQUE (nullable — SQLite allows multiple NULLs,
+  // real values must be unique). Retrofitting uniqueness after
+  // duplicates land is painful; lock it down day one.
+  sku: text("sku").unique(),
+  barcode: text("barcode"),
+  // Must-fix: variant status — never hard-delete. Cart/order rows
+  // can still reference an archived variant.
+  status: text("status", { enum: ["active", "archived"] })
+    .notNull()
+    .default("active"),
+  // Cached derived title ("Red / M"). Refreshed via db.batch() when
+  // option values are edited; storefront rendering never pays for
+  // the join across variant_options → option_values → options.
+  titleCached: text("title_cached").notNull(),
+  priceSatang: integer("price_satang").notNull(),
+  compareAtSatang: integer("compare_at_satang"), // strike-through / MSRP
+  weightGrams: integer("weight_grams"),
+  requiresShipping: integer("requires_shipping", { mode: "boolean" })
+    .notNull()
+    .default(true),
+  taxable: integer("taxable", { mode: "boolean" }).notNull().default(true),
+  position: integer("position").notNull().default(1),
+  mediaId: text("media_id"), // variant-specific media override
+});
 
 export const shopProductVariantOptions = sqliteTable(
   "shop_product_variant_options",
@@ -197,10 +196,9 @@ export const shopInventoryItems = sqliteTable("shop_inventory_items", {
   // costSatang is never shown to customers — for margin reporting only.
   costSatang: integer("cost_satang"),
   // Overselling policy — pre-orders + made-to-order need this to stay true.
-  continueSellingWhenOutOfStock: integer(
-    "continue_selling_when_out_of_stock",
-    { mode: "boolean" },
-  )
+  continueSellingWhenOutOfStock: integer("continue_selling_when_out_of_stock", {
+    mode: "boolean",
+  })
     .notNull()
     .default(false),
 });
@@ -281,9 +279,11 @@ export const shopCollectionProducts = sqliteTable(
 // ─── Type exports ───────────────────────────────────────────
 
 export type ShopProduct = typeof shopProducts.$inferSelect;
-export type ShopProductLocalization = typeof shopProductLocalizations.$inferSelect;
+export type ShopProductLocalization =
+  typeof shopProductLocalizations.$inferSelect;
 export type ShopProductOption = typeof shopProductOptions.$inferSelect;
-export type ShopProductOptionValue = typeof shopProductOptionValues.$inferSelect;
+export type ShopProductOptionValue =
+  typeof shopProductOptionValues.$inferSelect;
 export type ShopProductVariant = typeof shopProductVariants.$inferSelect;
 export type ShopInventoryItem = typeof shopInventoryItems.$inferSelect;
 export type ShopInventoryLevel = typeof shopInventoryLevels.$inferSelect;

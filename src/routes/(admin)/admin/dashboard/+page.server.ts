@@ -80,10 +80,7 @@ export const load: PageServerLoad = async ({ locals, platform }) => {
             actorEmail: schema.users.email,
           })
           .from(schema.auditLog)
-          .leftJoin(
-            schema.users,
-            eq(schema.users.id, schema.auditLog.userId),
-          )
+          .leftJoin(schema.users, eq(schema.users.id, schema.auditLog.userId))
           .orderBy(desc(schema.auditLog.createdAt))
           .limit(ACTIVITY_LIMIT)
           .all()

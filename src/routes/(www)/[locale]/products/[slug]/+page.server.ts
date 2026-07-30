@@ -18,7 +18,7 @@ import { ShopService } from "$plugins/shop/service";
 import { buildProductJsonLd } from "$plugins/shop/jsonld";
 import type { PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = async ({ params, url, platform, locals }) => {
+export const load: PageServerLoad = async ({ params, url, platform }) => {
   const locale = toLocale(params.locale);
   const env = platform?.env;
   if (!env) throw error(503, "Platform not ready");
@@ -39,9 +39,8 @@ export const load: PageServerLoad = async ({ params, url, platform, locals }) =>
   const skuParam = url.searchParams.get("variant");
   const activeVariants = product.variants.filter((v) => v.status === "active");
   const selectedVariant =
-    (skuParam
-      ? activeVariants.find((v) => v.sku === skuParam)
-      : null) ?? activeVariants[0];
+    (skuParam ? activeVariants.find((v) => v.sku === skuParam) : null) ??
+    activeVariants[0];
   if (!selectedVariant) throw error(404, "No purchasable variants");
 
   // Origin used for canonical URL + JSON-LD. Prefer PUBLIC_SITE_URL

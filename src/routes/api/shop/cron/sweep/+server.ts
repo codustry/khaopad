@@ -29,9 +29,8 @@ async function runSweep(env: App.Platform["env"]) {
   // catch-up doesn't burst Resend.
   let recoveryEmailsSent = 0;
   try {
-    const { sendAbandonedCartEmail } = await import(
-      "$plugins/shop/abandoned-cart-email"
-    );
+    const { sendAbandonedCartEmail } =
+      await import("$plugins/shop/abandoned-cart-email");
     const eligible = await svc.listCartsForRecoveryEmail(now);
     for (const cart of eligible) {
       // Mark before sending. If the send fails we've burned this cart's

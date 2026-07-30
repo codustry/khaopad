@@ -65,7 +65,10 @@ async function probeD1(
     await db.prepare("SELECT 1").first();
     return { ok: true, latencyMs: Date.now() - t0 };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
@@ -80,7 +83,10 @@ async function probeR2(
     await bucket.list({ limit: 1 });
     return { ok: true, latencyMs: Date.now() - t0 };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
@@ -93,6 +99,9 @@ async function probeKV(
     await kv.get("__health_probe__");
     return { ok: true, latencyMs: Date.now() - t0 };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }

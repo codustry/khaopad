@@ -18,7 +18,7 @@ Configured in `src/lib/server/auth/index.ts`. In production:
 
 Better Auth's default in production is `__Secure-better-auth.session_token`. `__Secure-` mandates `Secure=true` but permits `Domain` and `Path` variations. `__Host-` additionally forbids `Domain` and mandates `Path=/` — the browser refuses to store the cookie unless those hold.
 
-Practical effect: if someone ever spins up `blog.example.com` next to `example.com`, they *cannot* set a cookie named `__Host-khaopad_session` targeting the admin. This is belt-and-braces against a future architectural change (see [OWASP Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html) and RFC 6265bis §4.1.3.2).
+Practical effect: if someone ever spins up `blog.example.com` next to `example.com`, they _cannot_ set a cookie named `__Host-khaopad_session` targeting the admin. This is belt-and-braces against a future architectural change (see [OWASP Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html) and RFC 6265bis §4.1.3.2).
 
 ## Content Security Policy
 
@@ -69,18 +69,18 @@ HSTS is set by Cloudflare in front of the Worker; not managed here.
 
 ## Threats considered
 
-| Threat | Mitigation |
-|---|---|
-| Stored XSS in comment body → steal admin cookie | `HttpOnly` on cookie + `script-src 'self'` CSP |
-| Stored XSS in article body (author-authored) | Same as above; author trust boundary applies |
-| Sibling-subdomain cookie tossing (if `www.` or `admin.` is ever added) | `__Host-` prefix mandates host-only |
-| Clickjacking of admin actions | `frame-ancestors 'none'` + `X-Frame-Options: DENY` |
-| CSRF against admin form actions | `SameSite=Lax` cookie + same-origin form-action CSP |
-| MIME sniffing (JS-as-HTML) | `X-Content-Type-Options: nosniff` |
-| Referrer leaking session URL params | `Referrer-Policy: strict-origin-when-cross-origin` (and no session-in-URL anyway) |
-| Domain takeover of a forgotten subdomain | Not us to fix, but `__Host-` cookie means the takeover doesn't get the session |
-| Sensor/payment/mic API abuse from injected content | `Permissions-Policy` denies these |
-| SQL injection | Drizzle parameterized queries — never string-interpolate SQL |
+| Threat                                                                 | Mitigation                                                                        |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Stored XSS in comment body → steal admin cookie                        | `HttpOnly` on cookie + `script-src 'self'` CSP                                    |
+| Stored XSS in article body (author-authored)                           | Same as above; author trust boundary applies                                      |
+| Sibling-subdomain cookie tossing (if `www.` or `admin.` is ever added) | `__Host-` prefix mandates host-only                                               |
+| Clickjacking of admin actions                                          | `frame-ancestors 'none'` + `X-Frame-Options: DENY`                                |
+| CSRF against admin form actions                                        | `SameSite=Lax` cookie + same-origin form-action CSP                               |
+| MIME sniffing (JS-as-HTML)                                             | `X-Content-Type-Options: nosniff`                                                 |
+| Referrer leaking session URL params                                    | `Referrer-Policy: strict-origin-when-cross-origin` (and no session-in-URL anyway) |
+| Domain takeover of a forgotten subdomain                               | Not us to fix, but `__Host-` cookie means the takeover doesn't get the session    |
+| Sensor/payment/mic API abuse from injected content                     | `Permissions-Policy` denies these                                                 |
+| SQL injection                                                          | Drizzle parameterized queries — never string-interpolate SQL                      |
 
 ## Verifying in a deployed Worker
 
@@ -91,6 +91,7 @@ curl -sI https://khaopad-example.codustry.workers.dev/admin/login | grep -iE 'cs
 ```
 
 Session cookie inspection (browser devtools → Application → Cookies):
+
 - Name: `__Host-khaopad_session`
 - `HttpOnly` ✓, `Secure` ✓, `SameSite` = Lax
 - Domain column: empty (host-only)

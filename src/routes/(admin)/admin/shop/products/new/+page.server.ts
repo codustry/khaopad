@@ -6,11 +6,11 @@
  * keeps the onboarding path simple; the ADR's variant-matrix editor
  * is more valuable when there's already a product to attach to.
  */
-import { error, fail, redirect } from "@sveltejs/kit";
+import { fail, redirect } from "@sveltejs/kit";
 import { hasRole } from "$lib/server/auth/permissions";
 import { logAudit } from "$lib/server/audit";
 import { ShopService, ShopValidationError } from "$plugins/shop/service";
-import { parseBahtToSatang, satang } from "$plugins/shop/money";
+import { parseBahtToSatang } from "$plugins/shop/money";
 import type { Actions, PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -35,8 +35,7 @@ export const actions: Actions = {
     const descTh = String(fd.get("description_th") ?? "").trim();
     const priceInput = String(fd.get("price") ?? "").trim();
     const skuInput = String(fd.get("sku") ?? "").trim();
-    const status =
-      (fd.get("status") as "draft" | "active") ?? "draft";
+    const status = (fd.get("status") as "draft" | "active") ?? "draft";
 
     if (!titleEn) {
       return fail(400, {

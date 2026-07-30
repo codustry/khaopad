@@ -55,10 +55,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
     if (!a) continue;
     articleById.set(a.id, {
       slug: a.slug,
-      title:
-        a.localizations.en?.title ??
-        a.localizations.th?.title ??
-        a.slug,
+      title: a.localizations.en?.title ?? a.localizations.th?.title ?? a.slug,
     });
   }
 
@@ -137,13 +134,9 @@ export const actions: Actions = {
     if (!before) return fail(404, { error: "Comment not found" });
     await locals.content.deleteComment(id);
     if (platform?.env?.DB) {
-      await logAudit(
-        platform.env.DB,
-        locals.user.id,
-        "comment.delete",
-        id,
-        { articleId: before.articleId },
-      );
+      await logAudit(platform.env.DB, locals.user.id, "comment.delete", id, {
+        articleId: before.articleId,
+      });
     }
     return { ok: true };
   },

@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import * as m from '$lib/paraglide/messages';
+	import { getLocale } from '$lib/paraglide/runtime';
 	import { Badge, Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui';
 	import type { PageData } from './$types';
 
@@ -118,7 +120,7 @@
 	<!-- Quick actions -->
 	<section class="grid gap-3 grid-cols-2 md:grid-cols-4">
 		<a
-			href="/admin/articles/new"
+			href={resolve('/(admin)/admin/articles/new')}
 			class="group rounded-lg border border-border bg-card p-4 hover:border-primary hover:bg-muted/40 transition-colors"
 		>
 			<div class="flex items-center gap-2 text-sm font-medium">
@@ -128,7 +130,7 @@
 			<div class="text-xs text-muted-foreground mt-1">{m.cms_quick_new_article_help()}</div>
 		</a>
 		<a
-			href="/admin/media"
+			href={resolve('/(admin)/admin/media')}
 			class="group rounded-lg border border-border bg-card p-4 hover:border-primary hover:bg-muted/40 transition-colors"
 		>
 			<div class="flex items-center gap-2 text-sm font-medium">
@@ -138,7 +140,7 @@
 			<div class="text-xs text-muted-foreground mt-1">{m.cms_quick_upload_media_help()}</div>
 		</a>
 		<a
-			href="/admin/categories"
+			href={resolve('/(admin)/admin/categories')}
 			class="group rounded-lg border border-border bg-card p-4 hover:border-primary hover:bg-muted/40 transition-colors"
 		>
 			<div class="flex items-center gap-2 text-sm font-medium">
@@ -148,7 +150,7 @@
 			<div class="text-xs text-muted-foreground mt-1">{m.cms_quick_taxonomy_help()}</div>
 		</a>
 		<a
-			href={data.showActivity ? '/admin/users' : '/admin/articles'}
+			href={data.showActivity ? resolve('/(admin)/admin/users') : resolve('/(admin)/admin/articles')}
 			class="group rounded-lg border border-border bg-card p-4 hover:border-primary hover:bg-muted/40 transition-colors"
 		>
 			<div class="flex items-center gap-2 text-sm font-medium">
@@ -180,7 +182,7 @@
 						{#each scheduled as a (a.id)}
 							<li>
 								<a
-									href={`/admin/articles/${a.id}`}
+									href={resolve('/(admin)/admin/articles/[id]', { id: a.id })}
 									class="block px-4 py-3 hover:bg-muted/40 transition-colors"
 								>
 									<div class="text-sm font-medium truncate">{a.title}</div>
@@ -200,7 +202,7 @@
 			<CardHeader>
 				<CardTitle class="text-sm flex items-center justify-between">
 					<span>{m.cms_dashboard_drafts_title()}</span>
-					<a href="/admin/articles?status=draft" class="text-xs text-muted-foreground hover:text-foreground">
+					<a href={resolve('/(admin)/admin/articles?status=draft')} class="text-xs text-muted-foreground hover:text-foreground">
 						{m.cms_dashboard_view_all()}
 					</a>
 				</CardTitle>
@@ -213,7 +215,7 @@
 						{#each drafts as d (d.id)}
 							<li>
 								<a
-									href={`/admin/articles/${d.id}`}
+									href={resolve('/(admin)/admin/articles/[id]', { id: d.id })}
 									class="block px-4 py-3 hover:bg-muted/40 transition-colors"
 								>
 									<div class="text-sm font-medium truncate">{d.title}</div>
@@ -287,7 +289,7 @@
 								<span class="text-xs text-muted-foreground tabular-nums w-5">#{i + 1}</span>
 								<div class="flex-1 min-w-0">
 									{#if r.articleId}
-										<a href={`/admin/articles/${r.articleId}`} class="text-sm font-medium hover:underline truncate block">
+										<a href={resolve('/(admin)/admin/articles/[id]', { id: r.articleId })} class="text-sm font-medium hover:underline truncate block">
 											{r.title}
 										</a>
 									{:else}
@@ -319,7 +321,9 @@
 							{#each data.topSearchTerms as t (t.term)}
 								<li class="flex items-center justify-between text-sm">
 									<a
-										href={`/blog?q=${encodeURIComponent(t.term)}`}
+										href={resolve(
+											`/(www)/${getLocale()}/blog?q=${encodeURIComponent(t.term)}`,
+										)}
 										class="font-medium truncate hover:underline"
 									>
 										{t.term}
@@ -363,7 +367,7 @@
 			<CardHeader>
 				<CardTitle class="text-sm flex items-center justify-between">
 					<span>{m.cms_dashboard_activity_title()}</span>
-					<a href="/admin/audit" class="text-xs text-muted-foreground hover:text-foreground">
+					<a href={resolve('/(admin)/admin/audit')} class="text-xs text-muted-foreground hover:text-foreground">
 						{m.cms_dashboard_view_all()}
 					</a>
 				</CardTitle>

@@ -13,10 +13,7 @@ import { hasRole } from "$lib/server/auth/permissions";
 import { logAudit } from "$lib/server/audit";
 import { drizzle } from "drizzle-orm/d1";
 import { count, eq } from "drizzle-orm";
-import {
-  createDiscount,
-  listDiscounts,
-} from "$plugins/shop/discount-service";
+import { createDiscount, listDiscounts } from "$plugins/shop/discount-service";
 import {
   shopDiscountCodes,
   shopDiscountRedemptions,
@@ -79,8 +76,12 @@ export const actions: Actions = {
       | "free_shipping";
     const valueBaht = String(fd.get("value_baht") ?? "").trim();
     const valuePercent = Number(String(fd.get("value_percent") ?? "").trim());
-    const maxRedemptions = Number(String(fd.get("max_redemptions") ?? "").trim());
-    const maxPerCustomer = Number(String(fd.get("max_per_customer") ?? "").trim());
+    const maxRedemptions = Number(
+      String(fd.get("max_redemptions") ?? "").trim(),
+    );
+    const maxPerCustomer = Number(
+      String(fd.get("max_per_customer") ?? "").trim(),
+    );
     const minOrderBaht = String(fd.get("min_order_baht") ?? "").trim();
     const description = String(fd.get("description") ?? "").trim() || null;
 
@@ -151,7 +152,8 @@ export const actions: Actions = {
 
   toggle: async ({ request, locals, platform }) => {
     if (!locals.user) throw redirect(302, "/admin/login");
-    if (!hasRole(locals.user, "admin")) return fail(403, { error: "Forbidden" });
+    if (!hasRole(locals.user, "admin"))
+      return fail(403, { error: "Forbidden" });
     const env = platform?.env;
     if (!env) return fail(503, { error: "Platform not ready" });
     const fd = await request.formData();

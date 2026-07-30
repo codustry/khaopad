@@ -14,7 +14,10 @@ export const GET: RequestHandler = async ({ request, params, locals }) => {
     return json({ error: "Unauthorized" }, { status: 401 });
   }
   if (!hasScope(auth.key, "articles:read")) {
-    return json({ error: "Forbidden — articles:read scope required" }, { status: 403 });
+    return json(
+      { error: "Forbidden — articles:read scope required" },
+      { status: 403 },
+    );
   }
 
   const article = await locals.content.getArticleBySlug(params.slug);

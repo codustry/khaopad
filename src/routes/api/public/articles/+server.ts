@@ -22,7 +22,10 @@ export const GET: RequestHandler = async ({ request, url, locals }) => {
     return json({ error: "Unauthorized" }, { status: 401 });
   }
   if (!hasScope(auth.key, "articles:read")) {
-    return json({ error: "Forbidden — articles:read scope required" }, { status: 403 });
+    return json(
+      { error: "Forbidden — articles:read scope required" },
+      { status: 403 },
+    );
   }
 
   const localeParam = url.searchParams.get("locale");

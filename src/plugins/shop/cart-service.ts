@@ -211,7 +211,7 @@ export class CartService {
         ...ci,
         variantTitle: v?.titleCached ?? "",
         productSlug: p?.slug ?? "",
-        productTitle: p ? enTitleByProduct.get(p.id) ?? p.slug : "",
+        productTitle: p ? (enTitleByProduct.get(p.id) ?? p.slug) : "",
         currentPriceSatang: v?.priceSatang ?? ci.priceSatangAtAdd,
         availableStock: available,
         mediaId: v?.mediaId ?? p?.featuredMediaId ?? null,
@@ -391,10 +391,7 @@ export class CartService {
    * Returns the reservation records so the checkout page can display
    * "Reservation expires in 14:52" countdowns.
    */
-  async startCheckout(input: {
-    cartId: string;
-    email: string;
-  }): Promise<{
+  async startCheckout(input: { cartId: string; email: string }): Promise<{
     cart: ShopCart;
     reservations: Array<{
       cartItemId: string;
@@ -411,10 +408,7 @@ export class CartService {
       .get();
     if (!cart) throw new CartError("Cart not found", "CART_NOT_FOUND");
     if (cart.status !== "open") {
-      throw new CartError(
-        `Cart is already ${cart.status}`,
-        "CART_LOCKED",
-      );
+      throw new CartError(`Cart is already ${cart.status}`, "CART_LOCKED");
     }
 
     const items = await this.db
@@ -430,7 +424,9 @@ export class CartService {
     // on the first failure — atomic-per-cart even though the underlying
     // reserves are per-line.
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + RESERVATION_TTL_MS).toISOString();
+    const expiresAt = new Date(
+      now.getTime() + RESERVATION_TTL_MS,
+    ).toISOString();
     const reservationInserts: Array<{
       id: string;
       cartItemId: string;
@@ -673,7 +669,10 @@ export class CartService {
   }
 
   /** Mark a cart's recovery email as sent so the sweep skips it next tick. */
-  async markRecoveryEmailSent(cartId: string, sentAt: Date = new Date()): Promise<void> {
+  async markRecoveryEmailSent(
+    cartId: string,
+    sentAt: Date = new Date(),
+  ): Promise<void> {
     await this.db
       .update(shopCarts)
       .set({ recoveryEmailSentAt: sentAt.toISOString() })

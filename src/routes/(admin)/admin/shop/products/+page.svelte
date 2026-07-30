@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
 	import { Package, Plus, Archive, Trash2 } from 'lucide-svelte';
 	import { Button, Badge } from '$lib/components/ui';
@@ -15,7 +16,7 @@
 			<h1 class="text-2xl font-semibold">Products</h1>
 		</div>
 		<a
-			href="/admin/shop/products/new"
+			href={resolve('/(admin)/admin/shop/products/new')}
 			class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
 		>
 			<Plus class="h-4 w-4" />
@@ -25,7 +26,7 @@
 
 	<nav class="flex gap-2 text-sm">
 		<a
-			href="/admin/shop/products"
+			href={resolve('/(admin)/admin/shop/products')}
 			class="rounded px-3 py-1 {!data.statusFilter
 				? 'bg-muted font-medium'
 				: 'text-muted-foreground hover:text-foreground'}"
@@ -34,7 +35,7 @@
 		</a>
 		{#each ['draft', 'active', 'archived'] as status (status)}
 			<a
-				href="/admin/shop/products?status={status}"
+				href={resolve(`/(admin)/admin/shop/products?status=${status}`)}
 				class="rounded px-3 py-1 {data.statusFilter === status
 					? 'bg-muted font-medium'
 					: 'text-muted-foreground hover:text-foreground'}"
@@ -48,7 +49,7 @@
 		<div class="rounded-lg border border-dashed border-border p-12 text-center">
 			<p class="mb-4 text-sm text-muted-foreground">No products yet.</p>
 			<a
-				href="/admin/shop/products/new"
+				href={resolve('/(admin)/admin/shop/products/new')}
 				class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
 			>
 				<Plus class="h-4 w-4" />
@@ -73,7 +74,7 @@
 						<tr>
 							<td class="px-4 py-3">
 								<a
-									href="/admin/shop/products/{product.id}"
+									href={resolve('/(admin)/admin/shop/products/[id]', { id: product.id })}
 									class="font-medium hover:underline"
 								>
 									{product.title}

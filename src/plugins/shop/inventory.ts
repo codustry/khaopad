@@ -23,10 +23,7 @@
  */
 import { drizzle } from "drizzle-orm/d1";
 import { and, eq } from "drizzle-orm";
-import {
-  shopInventoryItems,
-  shopInventoryLevels,
-} from "./schema";
+import { shopInventoryItems, shopInventoryLevels } from "./schema";
 
 export type ReservationOutcome =
   | { ok: true; onHand: number; reserved: number }
@@ -55,7 +52,9 @@ export async function reserveVariant(
   qty: number,
 ): Promise<ReservationOutcome> {
   if (qty <= 0 || !Number.isInteger(qty)) {
-    throw new Error(`reserveVariant: qty must be a positive integer, got ${qty}`);
+    throw new Error(
+      `reserveVariant: qty must be a positive integer, got ${qty}`,
+    );
   }
 
   const db = drizzle(d1);
@@ -132,7 +131,9 @@ export async function releaseVariant(
   qty: number,
 ): Promise<{ onHand: number; reserved: number }> {
   if (qty <= 0 || !Number.isInteger(qty)) {
-    throw new Error(`releaseVariant: qty must be a positive integer, got ${qty}`);
+    throw new Error(
+      `releaseVariant: qty must be a positive integer, got ${qty}`,
+    );
   }
 
   const db = drizzle(d1);

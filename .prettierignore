@@ -3,10 +3,18 @@ node_modules/
 build/
 dist/
 .wrangler/
+# Paraglide compiler output. Both paths are listed: the compiler used to
+# emit to src/lib/paraglide/ and now emits to src/paraglide/, and CI runs
+# the compile BEFORE lint — so a stale ignore path meant every deploy
+# failed the lint gate on hundreds of generated files.
 src/lib/paraglide/
+src/paraglide/
 pnpm-lock.yaml
 project.inlang/.meta.json
 project.inlang/README.md
 .github/workflows/
 vite.config.ts.timestamp-*.mjs
 drizzle/
+# Local tool output (graphify knowledge-graph export). Never committed;
+# ignored here so `pnpm lint` is usable locally after running the tool.
+graphify-out/

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { ChevronLeft, LogOut } from 'lucide-svelte';
 	import { Avatar, Separator } from '$lib/components/ui';
@@ -64,7 +65,7 @@
 	<!-- Brand row -->
 	<div class="flex h-14 shrink-0 items-center gap-3 border-b border-sidebar-border px-3">
 		<a
-			href="/admin/dashboard"
+			href={resolve('/(admin)/admin/dashboard')}
 			class="flex min-w-0 items-center gap-2.5 text-sidebar-foreground"
 			title="Khao Pad"
 		>
@@ -113,7 +114,7 @@
 						{@const active = isActive(item.href)}
 						<li>
 							<a
-								href={item.href}
+								href={resolve(item.href)}
 								title={collapsed ? item.label() : undefined}
 								class={cn(
 									'flex items-center gap-3 rounded-md px-2 py-1.5 text-sm transition-colors',

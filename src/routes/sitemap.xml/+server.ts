@@ -15,8 +15,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   const origin = resolveOrigin(url, settings?.cdnBaseUrl);
 
   const entries = SUPPORTED_LOCALES.map(
-    (l) =>
-      `  <sitemap><loc>${origin}/sitemap-${l}.xml</loc></sitemap>`,
+    (l) => `  <sitemap><loc>${origin}/sitemap-${l}.xml</loc></sitemap>`,
   ).join("\n");
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>

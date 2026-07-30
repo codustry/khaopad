@@ -9,7 +9,11 @@
  * lookup + lastUsedAt bump. This module is just the request-parsing
  * shim plus the scope check.
  */
-import type { ApiKeyRecord, ApiKeyScope, ContentProvider } from "$lib/server/content/types";
+import type {
+  ApiKeyRecord,
+  ApiKeyScope,
+  ContentProvider,
+} from "$lib/server/content/types";
 
 export interface AuthResult {
   ok: boolean;
@@ -32,10 +36,7 @@ export async function authenticate(
   return { ok: true, key };
 }
 
-export function hasScope(
-  key: ApiKeyRecord,
-  required: ApiKeyScope,
-): boolean {
+export function hasScope(key: ApiKeyRecord, required: ApiKeyScope): boolean {
   if (key.scopes.includes("*:read")) return true;
   return key.scopes.includes(required);
 }

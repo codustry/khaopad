@@ -16,19 +16,19 @@ and (if you opt in) count page views.
 
 These are required for the site to work. We cannot turn them off.
 
-| Cookie name             | Purpose                                                              | Lifetime   |
-| ----------------------- | -------------------------------------------------------------------- | ---------- |
-| `better-auth.session`   | Authentication session — keeps you signed in after login             | 30 days    |
-| `PARAGLIDE_LOCALE`      | Remembers your language choice                                       | 1 year     |
-| `khaopad_consent`       | Stores your decision in the cookie banner so we don't show it again  | 1 year     |
+| Cookie name           | Purpose                                                             | Lifetime |
+| --------------------- | ------------------------------------------------------------------- | -------- |
+| `better-auth.session` | Authentication session — keeps you signed in after login            | 30 days  |
+| `PARAGLIDE_LOCALE`    | Remembers your language choice                                      | 1 year   |
+| `khaopad_consent`     | Stores your decision in the cookie banner so we don't show it again | 1 year   |
 
 ## Analytics cookies (off until you accept)
 
 Set only if you check **Analytics** in the banner.
 
-| Cookie name           | Purpose                                                              | Lifetime   |
-| --------------------- | -------------------------------------------------------------------- | ---------- |
-| _[None today.]_       | _v1.8 will add a privacy-friendly counter — update this row when it ships._ |            |
+| Cookie name     | Purpose                                                                     | Lifetime |
+| --------------- | --------------------------------------------------------------------------- | -------- |
+| _[None today.]_ | _v1.8 will add a privacy-friendly counter — update this row when it ships._ |          |
 
 We do **not** use Google Analytics, Facebook Pixel, or any other
 third-party tracker by default.
@@ -37,9 +37,9 @@ third-party tracker by default.
 
 Set only if you check **Marketing** in the banner.
 
-| Cookie name           | Purpose                                                              | Lifetime   |
-| --------------------- | -------------------------------------------------------------------- | ---------- |
-| _[None today.]_       | _Add rows here if you embed YouTube, Twitter, etc._                  |            |
+| Cookie name     | Purpose                                             | Lifetime |
+| --------------- | --------------------------------------------------- | -------- |
+| _[None today.]_ | _Add rows here if you embed YouTube, Twitter, etc._ |          |
 
 ## Changing your choices
 

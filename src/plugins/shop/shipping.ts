@@ -69,10 +69,14 @@ export async function quoteShipping(
 
   const eligibleMethods = methods.filter((m) => {
     if (!m.active) return false;
-    if (m.minWeightGrams != null && ctx.totalWeightGrams < m.minWeightGrams) return false;
-    if (m.maxWeightGrams != null && ctx.totalWeightGrams > m.maxWeightGrams) return false;
-    if (m.minSubtotalSatang != null && ctx.subtotalSatang < m.minSubtotalSatang) return false;
-    if (m.maxSubtotalSatang != null && ctx.subtotalSatang > m.maxSubtotalSatang) return false;
+    if (m.minWeightGrams != null && ctx.totalWeightGrams < m.minWeightGrams)
+      return false;
+    if (m.maxWeightGrams != null && ctx.totalWeightGrams > m.maxWeightGrams)
+      return false;
+    if (m.minSubtotalSatang != null && ctx.subtotalSatang < m.minSubtotalSatang)
+      return false;
+    if (m.maxSubtotalSatang != null && ctx.subtotalSatang > m.maxSubtotalSatang)
+      return false;
     return true;
   });
 

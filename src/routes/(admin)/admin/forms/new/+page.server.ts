@@ -59,13 +59,10 @@ export const actions: Actions = {
       createdBy: locals.user.id,
     });
     if (platform?.env?.DB) {
-      await logAudit(
-        platform.env.DB,
-        locals.user.id,
-        "form.create",
-        form.id,
-        { key: form.key, label: form.label },
-      );
+      await logAudit(platform.env.DB, locals.user.id, "form.create", form.id, {
+        key: form.key,
+        label: form.label,
+      });
     }
     throw redirect(303, `/admin/forms/${form.id}`);
   },

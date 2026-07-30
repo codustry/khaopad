@@ -59,9 +59,10 @@ export const POST: RequestHandler = async ({
     return json({ ok: false, code: "PLATFORM_NOT_READY" }, { status: 503 });
   }
 
-  const body = (await request.json().catch(() => null)) as
-    | { code?: string; email?: string }
-    | null;
+  const body = (await request.json().catch(() => null)) as {
+    code?: string;
+    email?: string;
+  } | null;
   const code = String(body?.code ?? "").trim();
   const email = String(body?.email ?? "").trim() || null;
 

@@ -121,13 +121,10 @@ export const actions: Actions = {
     if (!existing) return fail(404, { error: "Block not found" });
     await locals.content.deleteContentBlock(id);
     if (platform?.env?.DB) {
-      await logAudit(
-        platform.env.DB,
-        locals.user.id,
-        "settings.update",
-        id,
-        { kind: "content_block.delete", key: existing.key },
-      );
+      await logAudit(platform.env.DB, locals.user.id, "settings.update", id, {
+        kind: "content_block.delete",
+        key: existing.key,
+      });
     }
     return { ok: true };
   },

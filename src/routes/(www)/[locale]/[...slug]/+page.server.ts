@@ -43,8 +43,7 @@ export const load: PageServerLoad = async ({
     throw error(404, "Page not found");
   }
 
-  const localization =
-    page.localizations[locale] ?? page.localizations.en;
+  const localization = page.localizations[locale] ?? page.localizations.en;
   if (!localization) throw error(404, "Page not available");
 
   // Reuse v1.7a's block expansion + marked pipeline.

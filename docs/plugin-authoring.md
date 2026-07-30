@@ -23,11 +23,12 @@ drizzle/meta/_journal.json               # add entry pointing at the migration
 import { defineKhaopadPlugin } from "$lib/plugins";
 
 export default defineKhaopadPlugin({
-  slug: "hello",           // kebab-case, /^[a-z][a-z0-9-]*$/
-  name: "Hello",           // shown in Plugins UI (future)
-  version: "0.1.0",        // semver; wired for khaopadCompat later
-  description: "...",      // optional one-liner
-  onInit(ctx) {            // optional; runs once per Worker cold start
+  slug: "hello", // kebab-case, /^[a-z][a-z0-9-]*$/
+  name: "Hello", // shown in Plugins UI (future)
+  version: "0.1.0", // semver; wired for khaopadCompat later
+  description: "...", // optional one-liner
+  onInit(ctx) {
+    // optional; runs once per Worker cold start
     // Per-cold-start work: warm caches, seed data conditionally.
     // NOT the place for sidebar/webhook registration — do those at
     // module load (see below).
@@ -138,7 +139,7 @@ Add its default export to `enabledPlugins` in `src/lib/plugins/runtime.ts`:
 
 ```ts
 import hello from "$plugins/hello";
-import shop from "$plugins/shop";  // when it exists
+import shop from "$plugins/shop"; // when it exists
 
 const enabledPlugins: KhaopadPlugin[] = [hello, shop];
 ```

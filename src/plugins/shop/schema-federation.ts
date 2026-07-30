@@ -30,7 +30,12 @@
  *   4. **productId** IS an FK — same plugin owns both tables, so
  *      `onDelete: cascade` cleans up refs when a product is deleted.
  */
-import { integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+} from "drizzle-orm/sqlite-core";
 import { shopProducts } from "./schema";
 
 export const shopArticleProductRefs = sqliteTable(

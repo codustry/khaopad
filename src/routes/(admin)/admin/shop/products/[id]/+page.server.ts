@@ -31,7 +31,8 @@ export const load: PageServerLoad = async ({ locals, platform, params }) => {
 export const actions: Actions = {
   setStatus: async ({ request, locals, platform, params }) => {
     if (!locals.user) throw redirect(302, "/admin/login");
-    if (!hasRole(locals.user, "editor")) return fail(403, { error: "Forbidden" });
+    if (!hasRole(locals.user, "editor"))
+      return fail(403, { error: "Forbidden" });
     const env = platform?.env;
     if (!env) return fail(503, { error: "Platform not ready" });
     const fd = await request.formData();
@@ -55,7 +56,8 @@ export const actions: Actions = {
 
   adjustInventory: async ({ request, locals, platform, params }) => {
     if (!locals.user) throw redirect(302, "/admin/login");
-    if (!hasRole(locals.user, "editor")) return fail(403, { error: "Forbidden" });
+    if (!hasRole(locals.user, "editor"))
+      return fail(403, { error: "Forbidden" });
     const env = platform?.env;
     if (!env) return fail(503, { error: "Platform not ready" });
     const fd = await request.formData();
@@ -68,13 +70,11 @@ export const actions: Actions = {
     const svc = new ShopService(env.DB);
     try {
       const result = await svc.adjustInventory(variantId, Math.trunc(delta));
-      await logAudit(
-        env.DB,
-        locals.user.id,
-        "inventory.adjusted",
-        variantId,
-        { delta, productId: params.id, newOnHand: result.onHand },
-      );
+      await logAudit(env.DB, locals.user.id, "inventory.adjusted", variantId, {
+        delta,
+        productId: params.id,
+        newOnHand: result.onHand,
+      });
       return {
         success: true,
         message: `Inventory adjusted (+${delta}, on_hand=${result.onHand})`,
@@ -89,7 +89,8 @@ export const actions: Actions = {
 
   delete: async ({ locals, platform, params }) => {
     if (!locals.user) throw redirect(302, "/admin/login");
-    if (!hasRole(locals.user, "admin")) return fail(403, { error: "Forbidden" });
+    if (!hasRole(locals.user, "admin"))
+      return fail(403, { error: "Forbidden" });
     const env = platform?.env;
     if (!env) return fail(503, { error: "Platform not ready" });
     const svc = new ShopService(env.DB);

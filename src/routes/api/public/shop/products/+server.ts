@@ -31,7 +31,10 @@ export const GET: RequestHandler = async ({ platform, url }) => {
   const locale = toLocale(url.searchParams.get("locale") ?? "en");
   const limitRaw = Number(url.searchParams.get("limit") ?? "20");
   const offsetRaw = Number(url.searchParams.get("offset") ?? "0");
-  const limit = Math.max(1, Math.min(100, Number.isFinite(limitRaw) ? limitRaw : 20));
+  const limit = Math.max(
+    1,
+    Math.min(100, Number.isFinite(limitRaw) ? limitRaw : 20),
+  );
   const offset = Math.max(0, Number.isFinite(offsetRaw) ? offsetRaw : 0);
 
   const svc = new ShopService(env.DB);
@@ -48,11 +51,14 @@ export const GET: RequestHandler = async ({ platform, url }) => {
     publishedAt: r.publishedAt,
   }));
 
-  return json({ products, limit, offset, locale }, {
-    headers: {
-      // Match public/articles cache policy: read-heavy, edits infrequent
-      "cache-control":
-        "public, max-age=60, s-maxage=300, stale-while-revalidate=86400",
+  return json(
+    { products, limit, offset, locale },
+    {
+      headers: {
+        // Match public/articles cache policy: read-heavy, edits infrequent
+        "cache-control":
+          "public, max-age=60, s-maxage=300, stale-while-revalidate=86400",
+      },
     },
-  });
+  );
 };

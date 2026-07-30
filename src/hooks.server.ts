@@ -68,10 +68,7 @@ const bindingsHook: Handle = async ({ event, resolve }) => {
   try {
     // `platform.context` carries the Worker execution context; passing
     // it lets cache invalidation outlive the response (Phase 1, #68).
-    event.locals.content = createContentProvider(
-      env!,
-      event.platform?.context,
-    );
+    event.locals.content = createContentProvider(env!, event.platform?.context);
 
     const mediaBaseUrl =
       event.locals.subdomain === "admin"
@@ -401,7 +398,10 @@ const securityHeadersHook: Handle = async ({ event, resolve }) => {
 
   if (!response.headers.has("Content-Security-Policy")) {
     const isAdmin = event.locals.surface === "admin";
-    response.headers.set("Content-Security-Policy", isAdmin ? CSP_ADMIN : CSP_PUBLIC);
+    response.headers.set(
+      "Content-Security-Policy",
+      isAdmin ? CSP_ADMIN : CSP_PUBLIC,
+    );
   }
 
   return response;
@@ -485,12 +485,9 @@ const analyticsPageViewHook: Handle = async ({ event, resolve }) => {
     if (response.status >= 300) return response;
     const env = event.platform?.env;
     if (!env) return response;
-    const { track, buildEventContext } = await import(
-      "$lib/server/analytics/track"
-    );
-    const { ensureCartSession } = await import(
-      "$plugins/shop/cart-cookie"
-    );
+    const { track, buildEventContext } =
+      await import("$lib/server/analytics/track");
+    const { ensureCartSession } = await import("$plugins/shop/cart-cookie");
     const sessionId = ensureCartSession(event.cookies);
     const localeMatch = /^\/([a-z]{2})\//.exec(path);
     void track(

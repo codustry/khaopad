@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
 	import { Package, ArrowLeft } from 'lucide-svelte';
 	import { Button, Input, Label } from '$lib/components/ui';
@@ -11,7 +12,7 @@
 
 <div class="max-w-2xl space-y-6 p-6">
 	<a
-		href="/admin/shop/products"
+		href={resolve('/(admin)/admin/shop/products')}
 		class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
 	>
 		<ArrowLeft class="h-4 w-4" />
@@ -157,7 +158,7 @@
 
 		<div class="flex justify-end gap-2">
 			<a
-				href="/admin/shop/products"
+				href={resolve('/(admin)/admin/shop/products')}
 				class="inline-flex items-center rounded-md border border-input bg-background px-3 py-1.5 text-sm hover:bg-muted"
 			>
 				Cancel

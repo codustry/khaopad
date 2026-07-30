@@ -15,7 +15,13 @@ import { OrderService } from "$plugins/shop/order-service";
 import { clearCartSession } from "$plugins/shop/cart-cookie";
 import type { PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = async ({ params, platform, url, cookies, locals }) => {
+export const load: PageServerLoad = async ({
+  params,
+  platform,
+  url,
+  cookies,
+  locals,
+}) => {
   const env = platform?.env;
   if (!env) throw error(503, "Platform not ready");
 
@@ -25,7 +31,7 @@ export const load: PageServerLoad = async ({ params, platform, url, cookies, loc
     params.orderNumber,
     // Signed-in users can view any order they own; anonymous requests
     // need the email as a lookup key.
-    locals.user ? undefined : email ?? undefined,
+    locals.user ? undefined : (email ?? undefined),
   );
   if (!order) throw error(404, "Order not found");
 

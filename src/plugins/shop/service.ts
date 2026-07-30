@@ -142,10 +142,7 @@ function nowIso(): string {
  */
 function computeVariantTitle(
   optionValueIds: string[],
-  optionValues: Map<
-    string,
-    { value: string; optionPosition: number }
-  >,
+  optionValues: Map<string, { value: string; optionPosition: number }>,
 ): string {
   const enriched = optionValueIds
     .map((id) => optionValues.get(id))
@@ -165,11 +162,13 @@ export class ShopService {
 
   // ── Products ───────────────────────────────────────────
 
-  async listProducts(opts: {
-    status?: "draft" | "active" | "archived";
-    limit?: number;
-    offset?: number;
-  } = {}): Promise<
+  async listProducts(
+    opts: {
+      status?: "draft" | "active" | "archived";
+      limit?: number;
+      offset?: number;
+    } = {},
+  ): Promise<
     Array<
       ShopProduct & {
         title: string;
@@ -275,9 +274,7 @@ export class ShopService {
     });
   }
 
-  async getProductBySlug(
-    slug: string,
-  ): Promise<ShopProductWithGraph | null> {
+  async getProductBySlug(slug: string): Promise<ShopProductWithGraph | null> {
     const rows = await this.db
       .select()
       .from(shopProducts)
@@ -372,10 +369,7 @@ export class ShopService {
                   .from(shopProductVariants)
                   .leftJoin(
                     shopInventoryItems,
-                    eq(
-                      shopInventoryItems.variantId,
-                      shopProductVariants.id,
-                    ),
+                    eq(shopInventoryItems.variantId, shopProductVariants.id),
                   )
                   .leftJoin(
                     shopInventoryLevels,
@@ -418,12 +412,8 @@ export class ShopService {
     // items is the join rows — extract inventory per variant
     type JoinRow = {
       shop_product_variants: typeof shopProductVariants.$inferSelect;
-      shop_inventory_items:
-        | typeof shopInventoryItems.$inferSelect
-        | null;
-      shop_inventory_levels:
-        | typeof shopInventoryLevels.$inferSelect
-        | null;
+      shop_inventory_items: typeof shopInventoryItems.$inferSelect | null;
+      shop_inventory_levels: typeof shopInventoryLevels.$inferSelect | null;
     };
     const inventoryByVariant = new Map<
       string,
@@ -512,8 +502,7 @@ export class ShopService {
 
     const productId = nanoid();
     const now = nowIso();
-    const publishedAt =
-      input.status === "active" ? now : null;
+    const publishedAt = input.status === "active" ? now : null;
 
     // Build option/value id maps so we can insert them + reference in
     // variant_options. Callers may pass ids to update in the create
@@ -564,25 +553,19 @@ export class ShopService {
     });
 
     // Variants — validate option value ids first
-    const variantInserts: Array<
-      typeof shopProductVariants.$inferInsert
-    > = [];
+    const variantInserts: Array<typeof shopProductVariants.$inferInsert> = [];
     const variantOptionInserts: Array<
       typeof shopProductVariantOptions.$inferInsert
     > = [];
-    const inventoryItemInserts: Array<
-      typeof shopInventoryItems.$inferInsert
-    > = [];
+    const inventoryItemInserts: Array<typeof shopInventoryItems.$inferInsert> =
+      [];
     const inventoryLevelInserts: Array<
       typeof shopInventoryLevels.$inferInsert
     > = [];
 
     input.variants.forEach((v, vi) => {
       const variantId = v.id ?? nanoid();
-      const titleCached = computeVariantTitle(
-        v.optionValueIds,
-        valueLookup,
-      );
+      const titleCached = computeVariantTitle(v.optionValueIds, valueLookup);
       variantInserts.push({
         id: variantId,
         productId,
@@ -671,9 +654,7 @@ export class ShopService {
       await this.db.insert(shopProductOptions).values(optionInserts);
     }
     if (optionValueInserts.length) {
-      await this.db
-        .insert(shopProductOptionValues)
-        .values(optionValueInserts);
+      await this.db.insert(shopProductOptionValues).values(optionValueInserts);
     }
     if (variantInserts.length) {
       await this.db.insert(shopProductVariants).values(variantInserts);
@@ -687,9 +668,7 @@ export class ShopService {
       await this.db.insert(shopInventoryItems).values(inventoryItemInserts);
     }
     if (inventoryLevelInserts.length) {
-      await this.db
-        .insert(shopInventoryLevels)
-        .values(inventoryLevelInserts);
+      await this.db.insert(shopInventoryLevels).values(inventoryLevelInserts);
     }
 
     return productId;

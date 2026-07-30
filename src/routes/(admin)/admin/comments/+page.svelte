@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
 	import * as m from '$lib/paraglide/messages';
 	import { Badge } from '$lib/components/ui';
@@ -68,7 +69,7 @@
 	<div class="flex gap-2 border-b border-border">
 		{#each tabs as t (t.key)}
 			<a
-				href={`?status=${t.key}`}
+				href={resolve(`/(admin)/admin/comments?status=${t.key}`)}
 				class="px-4 py-2 text-sm border-b-2 -mb-px {data.status === t.key
 					? 'border-primary text-foreground font-medium'
 					: 'border-transparent text-muted-foreground hover:text-foreground'}"
@@ -98,7 +99,7 @@
 						</span>
 						{#if article}
 							<a
-								href={`/admin/articles/${c.articleId}`}
+								href={resolve('/(admin)/admin/articles/[id]', { id: c.articleId })}
 								class="text-xs text-muted-foreground hover:text-foreground truncate max-w-[180px]"
 								title={article.title}
 							>
@@ -158,7 +159,7 @@
 			<div class="flex items-center justify-between pt-2">
 				{#if data.hasPrev}
 					<a
-						href={`?status=${data.status}&page=${data.page - 1}`}
+						href={resolve(`/(admin)/admin/comments?status=${data.status}&page=${data.page - 1}`)}
 						class="px-3 py-1.5 border border-border rounded-md text-sm hover:bg-muted"
 					>
 						← {m.cms_audit_prev()}
@@ -168,7 +169,7 @@
 				{/if}
 				{#if data.hasNext}
 					<a
-						href={`?status=${data.status}&page=${data.page + 1}`}
+						href={resolve(`/(admin)/admin/comments?status=${data.status}&page=${data.page + 1}`)}
 						class="px-3 py-1.5 border border-border rounded-md text-sm hover:bg-muted"
 					>
 						{m.cms_audit_next()} →

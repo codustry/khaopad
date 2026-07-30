@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import * as m from '$lib/paraglide/messages';
@@ -86,7 +87,7 @@
 			<p class="font-medium">{m.cms_subscribers_no_provider_title()}</p>
 			<p class="mt-1">{m.cms_subscribers_no_provider_help()}</p>
 			<p class="mt-2">
-				<a href="/admin/settings" class="underline hover:no-underline">/admin/settings →</a>
+				<a href={resolve('/(admin)/admin/settings')} class="underline hover:no-underline">/admin/settings →</a>
 			</p>
 		</div>
 	{:else}

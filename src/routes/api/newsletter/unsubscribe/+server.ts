@@ -35,8 +35,5 @@ export const GET: RequestHandler = async ({ url, locals, platform }) => {
   }
 
   const locale = (subscriber.locale as Locale) ?? DEFAULT_LOCALE;
-  throw redirect(
-    302,
-    `${localePath(locale, "/")}?newsletter=unsubscribed`,
-  );
+  throw redirect(302, `${localePath(locale, "/")}?newsletter=unsubscribed`);
 };

@@ -180,7 +180,9 @@ export async function calculateTax(
         });
       }
     } else {
-      taxIncludedSatang = Math.round((ctx.subtotalSatang * rate) / (100 + rate));
+      taxIncludedSatang = Math.round(
+        (ctx.subtotalSatang * rate) / (100 + rate),
+      );
       lines.push({
         orderItemId: null,
         name,

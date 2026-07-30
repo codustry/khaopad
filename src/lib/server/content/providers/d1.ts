@@ -1111,9 +1111,7 @@ export class D1ContentProvider implements ContentProvider {
     return this.hydrateContentBlock(row);
   }
 
-  async getContentBlockByKey(
-    key: string,
-  ): Promise<ContentBlockRecord | null> {
+  async getContentBlockByKey(key: string): Promise<ContentBlockRecord | null> {
     const row = await this.db
       .select()
       .from(schema.contentBlocks)
@@ -1256,7 +1254,10 @@ export class D1ContentProvider implements ContentProvider {
     if (filter?.onlyPublished) {
       const nowIso = new Date().toISOString();
       conditions.push(
-        or(isNull(schema.pages.publishedAt), lte(schema.pages.publishedAt, nowIso)),
+        or(
+          isNull(schema.pages.publishedAt),
+          lte(schema.pages.publishedAt, nowIso),
+        ),
       );
     }
     const rows = conditions.length
@@ -1791,7 +1792,9 @@ export class D1ContentProvider implements ContentProvider {
 
   // ─── Newsletter subscribers (v2.0b) ────────────────────
 
-  async listSubscribers(filter?: SubscriberFilter): Promise<SubscriberRecord[]> {
+  async listSubscribers(
+    filter?: SubscriberFilter,
+  ): Promise<SubscriberRecord[]> {
     const conditions = [];
     if (filter?.locale) {
       conditions.push(eq(schema.subscribers.locale, filter.locale));
@@ -1836,7 +1839,10 @@ export class D1ContentProvider implements ContentProvider {
           .from(schema.subscribers)
           .where(and(...conditions))
           .all()
-      : await this.db.select({ id: schema.subscribers.id }).from(schema.subscribers).all();
+      : await this.db
+          .select({ id: schema.subscribers.id })
+          .from(schema.subscribers)
+          .all();
     return rows.length;
   }
 
@@ -1940,9 +1946,8 @@ export class D1ContentProvider implements ContentProvider {
     const limit = filter?.limit ?? 50;
     const offset = filter?.page ? Math.max(0, (filter.page - 1) * limit) : 0;
     const query = this.db.select().from(schema.comments);
-    const rows = await (conditions.length
-      ? query.where(and(...conditions))
-      : query
+    const rows = await (
+      conditions.length ? query.where(and(...conditions)) : query
     )
       .orderBy(desc(schema.comments.submittedAt))
       .limit(limit)
@@ -2023,9 +2028,7 @@ export class D1ContentProvider implements ContentProvider {
     return rows.length;
   }
 
-  private toComment(
-    row: typeof schema.comments.$inferSelect,
-  ): CommentRecord {
+  private toComment(row: typeof schema.comments.$inferSelect): CommentRecord {
     return {
       id: row.id,
       articleId: row.articleId,
@@ -2172,9 +2175,7 @@ export class D1ContentProvider implements ContentProvider {
     return rows.map((r) => this.toWebhookDelivery(r));
   }
 
-  private toWebhook(
-    row: typeof schema.webhooks.$inferSelect,
-  ): WebhookRecord {
+  private toWebhook(row: typeof schema.webhooks.$inferSelect): WebhookRecord {
     let events: WebhookEvent[] = [];
     try {
       const parsed = JSON.parse(row.events);
@@ -2253,9 +2254,7 @@ export class D1ContentProvider implements ContentProvider {
     return this.toApiKey(row);
   }
 
-  async createApiKey(
-    data: ApiKeyCreateInput,
-  ): Promise<ApiKeyCreateResult> {
+  async createApiKey(data: ApiKeyCreateInput): Promise<ApiKeyCreateResult> {
     // 48-char URL-safe random key. Prefix by `kp_live_` so a leaked
     // string is recognizable to scanners (GitHub secret scanning,
     // etc.) and operators can spot it in logs.

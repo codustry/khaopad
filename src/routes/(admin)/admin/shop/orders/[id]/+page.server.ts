@@ -30,7 +30,8 @@ export const load: PageServerLoad = async ({ locals, platform, params }) => {
 export const actions: Actions = {
   fulfil: async ({ locals, platform, params }) => {
     if (!locals.user) throw redirect(302, "/admin/login");
-    if (!hasRole(locals.user, "admin")) return fail(403, { error: "Forbidden" });
+    if (!hasRole(locals.user, "admin"))
+      return fail(403, { error: "Forbidden" });
     const env = platform?.env;
     if (!env) return fail(503, { error: "Platform not ready" });
     const svc = new OrderService(env.DB);
@@ -41,7 +42,8 @@ export const actions: Actions = {
 
   deliver: async ({ locals, platform, params }) => {
     if (!locals.user) throw redirect(302, "/admin/login");
-    if (!hasRole(locals.user, "admin")) return fail(403, { error: "Forbidden" });
+    if (!hasRole(locals.user, "admin"))
+      return fail(403, { error: "Forbidden" });
     const env = platform?.env;
     if (!env) return fail(503, { error: "Platform not ready" });
     const svc = new OrderService(env.DB);
@@ -52,7 +54,8 @@ export const actions: Actions = {
 
   refund: async ({ request, locals, platform, params, url }) => {
     if (!locals.user) throw redirect(302, "/admin/login");
-    if (!hasRole(locals.user, "admin")) return fail(403, { error: "Forbidden" });
+    if (!hasRole(locals.user, "admin"))
+      return fail(403, { error: "Forbidden" });
     const env = platform?.env;
     if (!env) return fail(503, { error: "Platform not ready" });
     const fd = await request.formData();

@@ -105,19 +105,19 @@ See [CONTENT-MODEL.md](./CONTENT-MODEL.md) for schema details.
 
 ## Where each concern lives
 
-| Concern                     | File(s)                                                                 |
-| --------------------------- | ----------------------------------------------------------------------- |
-| Surface dispatch (`/admin/*`) | `src/hooks.server.ts` (`surfaceHook`, `isAdminPath`)                      |
-| Platform binding validation | `src/lib/server/config/platform-status.ts`                              |
-| Content provider interface  | `src/lib/server/content/types.ts`                                       |
-| D1 provider                 | `src/lib/server/content/providers/d1.ts`                                |
-| Drizzle schema              | `src/lib/server/content/schema.ts`                                      |
-| R2 media service            | `src/lib/server/media/`                                                 |
-| Auth construction           | `src/lib/server/auth/index.ts`                                          |
-| Bootstrap helpers           | `src/lib/server/auth/bootstrap.ts`                                      |
-| Role permissions            | `src/lib/server/auth/permissions.ts`                                    |
-| i18n helpers                | `src/lib/i18n/index.ts` (content), `src/lib/paraglide/` (UI, generated) |
-| Slug normalization          | `src/lib/utils.ts` (`slugify`, `generateSlugFromTitle`)                 |
+| Concern                       | File(s)                                                                 |
+| ----------------------------- | ----------------------------------------------------------------------- |
+| Surface dispatch (`/admin/*`) | `src/hooks.server.ts` (`surfaceHook`, `isAdminPath`)                    |
+| Platform binding validation   | `src/lib/server/config/platform-status.ts`                              |
+| Content provider interface    | `src/lib/server/content/types.ts`                                       |
+| D1 provider                   | `src/lib/server/content/providers/d1.ts`                                |
+| Drizzle schema                | `src/lib/server/content/schema.ts`                                      |
+| R2 media service              | `src/lib/server/media/`                                                 |
+| Auth construction             | `src/lib/server/auth/index.ts`                                          |
+| Bootstrap helpers             | `src/lib/server/auth/bootstrap.ts`                                      |
+| Role permissions              | `src/lib/server/auth/permissions.ts`                                    |
+| i18n helpers                  | `src/lib/i18n/index.ts` (content), `src/lib/paraglide/` (UI, generated) |
+| Slug normalization            | `src/lib/utils.ts` (`slugify`, `generateSlugFromTitle`)                 |
 
 ## Deliberate non-goals for v1
 

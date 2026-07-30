@@ -87,13 +87,10 @@ export const actions: Actions = {
     if (!id || !name) return fail(400, { error: "Missing fields" });
     await locals.media.renameFolder(id, name);
     if (platform?.env?.DB) {
-      await logAudit(
-        platform.env.DB,
-        locals.user.id,
-        "settings.update",
-        id,
-        { kind: "media_folder.rename", name },
-      );
+      await logAudit(platform.env.DB, locals.user.id, "settings.update", id, {
+        kind: "media_folder.rename",
+        name,
+      });
     }
     return { ok: true };
   },
@@ -106,13 +103,9 @@ export const actions: Actions = {
     if (!id) return fail(400, { error: "Missing folder id" });
     await locals.media.deleteFolder(id);
     if (platform?.env?.DB) {
-      await logAudit(
-        platform.env.DB,
-        locals.user.id,
-        "settings.update",
-        id,
-        { kind: "media_folder.delete" },
-      );
+      await logAudit(platform.env.DB, locals.user.id, "settings.update", id, {
+        kind: "media_folder.delete",
+      });
     }
     return { ok: true };
   },

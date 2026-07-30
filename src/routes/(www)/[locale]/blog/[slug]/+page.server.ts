@@ -14,7 +14,13 @@ import { commentsAllowedForArticle } from "$lib/server/comments";
 import type { Locale } from "$lib/server/content/types";
 import type { PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = async ({ locals, params, url, cookies, platform }) => {
+export const load: PageServerLoad = async ({
+  locals,
+  params,
+  url,
+  cookies,
+  platform,
+}) => {
   const locale = toLocale(params.locale);
   const article = await locals.content.getArticleBySlug(params.slug);
 
@@ -59,8 +65,11 @@ export const load: PageServerLoad = async ({ locals, params, url, cookies, platf
   // that don't resolve (deleted, archived) get a comment marker.
   let expandedWithEmbeds = expanded;
   if (platform?.env?.DB) {
-    const { extractEmbeds, hydrateProductEmbeds, replaceEmbedsWithPlaceholders } =
-      await import("$plugins/shop/federation");
+    const {
+      extractEmbeds,
+      hydrateProductEmbeds,
+      replaceEmbedsWithPlaceholders,
+    } = await import("$plugins/shop/federation");
     const slugs = extractEmbeds(expanded);
     if (slugs.length > 0) {
       const productsBySlug = await hydrateProductEmbeds(platform.env.DB, slugs);
@@ -87,10 +96,7 @@ export const load: PageServerLoad = async ({ locals, params, url, cookies, platf
   // SEO surface for the public article page.
   const settings = await locals.content.getSettings().catch(() => null);
   const origin = resolveOrigin(url, settings?.cdnBaseUrl);
-  const canonical = canonicalUrl(
-    origin,
-    `/${locale}/blog/${article.slug}`,
-  );
+  const canonical = canonicalUrl(origin, `/${locale}/blog/${article.slug}`);
   const alternates: Partial<Record<Locale, string>> = {};
   for (const l of SUPPORTED_LOCALES) {
     if (article.localizations[l]) {

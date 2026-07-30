@@ -30,7 +30,9 @@ export type EventContext = {
   /** Referrer header at request time (browser-provided). */
   referrer?: string | null;
   /** Extracted `utm_*` params from the URL (all lowercase). */
-  utm?: Partial<Record<"source" | "medium" | "campaign" | "term" | "content", string>>;
+  utm?: Partial<
+    Record<"source" | "medium" | "campaign" | "term" | "content", string>
+  >;
   /** User-Agent, kept short (256 chars). */
   userAgent?: string | null;
   /** ISO-3166 alpha-2 country from Cloudflare's `cf-ipcountry` header. */
@@ -206,7 +208,13 @@ export const EVENT_METADATA: Record<
  */
 export function extractUtm(url: URL): EventContext["utm"] {
   const utm: Record<string, string> = {};
-  for (const key of ["source", "medium", "campaign", "term", "content"] as const) {
+  for (const key of [
+    "source",
+    "medium",
+    "campaign",
+    "term",
+    "content",
+  ] as const) {
     const value = url.searchParams.get(`utm_${key}`);
     if (value) utm[key] = value.slice(0, 200);
   }

@@ -4,11 +4,11 @@ Curated list of plugins for Khao Pad. See [docs/plugin-authoring.md](./plugin-au
 
 ## Official plugins
 
-| Plugin | Purpose | Status |
-|---|---|---|
-| `@khaopad/plugin-hello` (in-tree at `src/plugins/hello/`) | Reference plugin — exercises every extension point (sidebar, migration, route, audit, webhook) | 🟢 Ships with v3.0 |
-| `@khaopad/plugin-shop` (in-tree at `src/plugins/shop/`) | Small ecommerce for Thailand-first sites: products, variants, cart, BeamCheckout | 🟡 v3.1 in progress — skeleton merged, catalog + admin CRUD next ([#56](https://github.com/codustry/khaopad/issues/56)) |
-| `@khaopad/plugin-reviews` | Product reviews with moderation, star ratings, `AggregateRating` JSON-LD | 🟡 Planned v3.4 ([#60](https://github.com/codustry/khaopad/issues/60)) |
+| Plugin                                                    | Purpose                                                                                        | Status                                                                                                                  |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `@khaopad/plugin-hello` (in-tree at `src/plugins/hello/`) | Reference plugin — exercises every extension point (sidebar, migration, route, audit, webhook) | 🟢 Ships with v3.0                                                                                                      |
+| `@khaopad/plugin-shop` (in-tree at `src/plugins/shop/`)   | Small ecommerce for Thailand-first sites: products, variants, cart, BeamCheckout               | 🟡 v3.1 in progress — skeleton merged, catalog + admin CRUD next ([#56](https://github.com/codustry/khaopad/issues/56)) |
+| `@khaopad/plugin-reviews`                                 | Product reviews with moderation, star ratings, `AggregateRating` JSON-LD                       | 🟡 Planned v3.4 ([#60](https://github.com/codustry/khaopad/issues/60))                                                  |
 
 ## Community plugins
 

@@ -120,9 +120,7 @@ export async function getArticleAnalytics(
   // Top referrer origins from article_read context.
   const referrerRows = await db
     .select({
-      origin: sql<
-        string | null
-      >`json_extract(context_json, '$.referrer')`,
+      origin: sql<string | null>`json_extract(context_json, '$.referrer')`,
       count: sql<number>`count(*)`,
     })
     .from(events)

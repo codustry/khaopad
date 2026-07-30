@@ -316,10 +316,13 @@ export interface ContentProvider {
   deleteSubscriber(id: string): Promise<void>;
 
   // Form submissions (v2.0a)
-  listFormSubmissions(formId: string, opts?: {
-    status?: FormSubmissionStatus;
-    limit?: number;
-  }): Promise<FormSubmissionRecord[]>;
+  listFormSubmissions(
+    formId: string,
+    opts?: {
+      status?: FormSubmissionStatus;
+      limit?: number;
+    },
+  ): Promise<FormSubmissionRecord[]>;
   getFormSubmission(id: string): Promise<FormSubmissionRecord | null>;
   createFormSubmission(data: {
     formId: string;
@@ -349,7 +352,10 @@ export interface ContentProvider {
   // Navigation (v1.7b)
   listMenus(): Promise<NavigationMenuRecord[]>;
   getMenuByKey(key: string): Promise<NavigationMenuRecord | null>;
-  createMenu(data: { key: string; label: string }): Promise<NavigationMenuRecord>;
+  createMenu(data: {
+    key: string;
+    label: string;
+  }): Promise<NavigationMenuRecord>;
   deleteMenu(id: string): Promise<void>;
   createNavigationItem(
     data: NavigationItemCreateInput,
@@ -401,10 +407,7 @@ export interface ContentProvider {
   /** Returns webhooks with `enabled=true` AND subscribed to `event`. */
   listWebhooksByEvent(event: WebhookEvent): Promise<WebhookRecord[]>;
   createWebhook(data: WebhookCreateInput): Promise<WebhookRecord>;
-  updateWebhook(
-    id: string,
-    data: WebhookUpdateInput,
-  ): Promise<WebhookRecord>;
+  updateWebhook(id: string, data: WebhookUpdateInput): Promise<WebhookRecord>;
   deleteWebhook(id: string): Promise<void>;
   rotateWebhookSecret(id: string): Promise<WebhookRecord>;
   recordWebhookDelivery(data: {
@@ -489,9 +492,30 @@ export interface ContentBlockRecord {
 
 /** A single field in a form definition. */
 export type FormField =
-  | { name: string; kind: "text"; label: string; required?: boolean; placeholder?: string; maxLength?: number }
-  | { name: string; kind: "email"; label: string; required?: boolean; placeholder?: string }
-  | { name: string; kind: "textarea"; label: string; required?: boolean; placeholder?: string; rows?: number; maxLength?: number }
+  | {
+      name: string;
+      kind: "text";
+      label: string;
+      required?: boolean;
+      placeholder?: string;
+      maxLength?: number;
+    }
+  | {
+      name: string;
+      kind: "email";
+      label: string;
+      required?: boolean;
+      placeholder?: string;
+    }
+  | {
+      name: string;
+      kind: "textarea";
+      label: string;
+      required?: boolean;
+      placeholder?: string;
+      rows?: number;
+      maxLength?: number;
+    }
   | { name: string; kind: "checkbox"; label: string; required?: boolean };
 
 export type FormSubmissionStatus = "new" | "read" | "spam" | "archived";

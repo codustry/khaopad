@@ -159,7 +159,9 @@ export const GET: RequestHandler = async ({ platform, url }) => {
       parts.push(`      <g:image_link>${escapeXml(imageLink)}</g:image_link>`);
     }
     if (product.vendor) {
-      parts.push(`      <g:brand>${escapeXml(product.vendor.slice(0, 70))}</g:brand>`);
+      parts.push(
+        `      <g:brand>${escapeXml(product.vendor.slice(0, 70))}</g:brand>`,
+      );
     }
 
     items.push(`    <item>\n${parts.join("\n")}\n    </item>`);

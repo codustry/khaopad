@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { invalidateAll } from '$app/navigation';
 	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
@@ -51,12 +52,6 @@
 		return map;
 	});
 	const folderById = $derived(new Map(data.folders.map((f) => [f.id, f])));
-
-	function folderHref(folderId: string | null | 'all'): string {
-		if (folderId === 'all') return '/admin/media';
-		if (folderId === null) return '/admin/media?folder=root';
-		return `/admin/media?folder=${folderId}`;
-	}
 
 	async function onUpload(event: SubmitEvent) {
 		event.preventDefault();
@@ -241,7 +236,7 @@
 			<ul class="space-y-0.5">
 				<li>
 					<a
-						href={folderHref('all')}
+						href={resolve('/(admin)/admin/media')}
 						ondragover={onDragOver}
 						ondrop={(e) => onDrop(e, null)}
 						class="flex items-center gap-2 px-2 py-1.5 text-sm rounded-md hover:bg-muted {!isFiltered ? 'bg-muted font-medium' : ''}"
@@ -254,7 +249,7 @@
 				</li>
 				<li>
 					<a
-						href={folderHref(null)}
+						href={resolve('/(admin)/admin/media?folder=root')}
 						ondragover={onDragOver}
 						ondrop={(e) => onDrop(e, null)}
 						class="flex items-center gap-2 px-2 py-1.5 text-sm rounded-md hover:bg-muted {isFiltered && activeFolderId === null ? 'bg-muted font-medium' : ''}"
@@ -296,7 +291,7 @@
 									<button type="submit" class="text-xs text-primary hover:underline">{m.cms_save()}</button>
 								</form>
 							{:else}
-								<a href={folderHref(folder.id)} class="flex-1 flex items-center gap-2 truncate">
+								<a href={resolve(`/(admin)/admin/media?folder=${folder.id}`)} class="flex-1 flex items-center gap-2 truncate">
 									<svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
 										><path d="M3 7a2 2 0 0 1 2-2h3l2 2h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" /></svg
 									>

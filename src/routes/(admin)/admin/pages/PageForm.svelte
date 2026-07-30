@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
 	import * as m from '$lib/paraglide/messages';
 	import { slugify } from '$lib/utils';
@@ -262,7 +263,7 @@
 	</section>
 
 	<div class="flex items-center justify-between">
-		<a href="/admin/pages" class="text-sm text-muted-foreground hover:underline">
+		<a href={resolve('/(admin)/admin/pages')} class="text-sm text-muted-foreground hover:underline">
 			← {m.cms_back_to_list()}
 		</a>
 		<button

@@ -34,7 +34,8 @@ export const POST: RequestHandler = async ({
 }) => {
   const form = await locals.content.getFormByKey(params.key);
   if (!form) throw error(404, "Form not found");
-  if (!form.enabled) throw error(410, "Form is no longer accepting submissions");
+  if (!form.enabled)
+    throw error(410, "Form is no longer accepting submissions");
 
   // Parse the body. Forms are typically posted as
   // application/x-www-form-urlencoded; multipart works too.

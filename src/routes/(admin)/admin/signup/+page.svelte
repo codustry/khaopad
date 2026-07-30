@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
 	import * as m from '$lib/paraglide/messages';
 	import { Button, Input, Label } from '$lib/components/ui';
@@ -26,7 +27,7 @@
 			class="pointer-events-none absolute -bottom-24 -right-24 h-80 w-80 rounded-full bg-primary/10 blur-3xl"
 		></div>
 
-		<a href="/" class="relative flex items-center gap-2.5">
+		<a href={resolve('/')} class="relative flex items-center gap-2.5">
 			<span
 				class="grid h-9 w-9 place-items-center rounded-md bg-primary font-bold text-primary-foreground"
 			>

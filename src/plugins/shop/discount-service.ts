@@ -226,7 +226,9 @@ export async function recordRedemption(
 }
 
 /** Admin CRUD helpers. */
-export async function listDiscounts(d1: D1Database): Promise<ShopDiscountCode[]> {
+export async function listDiscounts(
+  d1: D1Database,
+): Promise<ShopDiscountCode[]> {
   const db = drizzle(d1);
   return db
     .select()

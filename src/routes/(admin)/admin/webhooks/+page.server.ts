@@ -86,13 +86,10 @@ export const actions: Actions = {
     }
     await locals.content.updateWebhook(id, { label, url, events, enabled });
     if (platform?.env?.DB) {
-      await logAudit(
-        platform.env.DB,
-        locals.user.id,
-        "settings.update",
-        id,
-        { kind: "webhook.update", url },
-      );
+      await logAudit(platform.env.DB, locals.user.id, "settings.update", id, {
+        kind: "webhook.update",
+        url,
+      });
     }
     return { ok: true };
   },
@@ -105,13 +102,9 @@ export const actions: Actions = {
     if (!id) return fail(400, { error: "Missing id" });
     await locals.content.rotateWebhookSecret(id);
     if (platform?.env?.DB) {
-      await logAudit(
-        platform.env.DB,
-        locals.user.id,
-        "settings.update",
-        id,
-        { kind: "webhook.rotate_secret" },
-      );
+      await logAudit(platform.env.DB, locals.user.id, "settings.update", id, {
+        kind: "webhook.rotate_secret",
+      });
     }
     return { ok: true };
   },
@@ -124,13 +117,9 @@ export const actions: Actions = {
     if (!id) return fail(400, { error: "Missing id" });
     await locals.content.deleteWebhook(id);
     if (platform?.env?.DB) {
-      await logAudit(
-        platform.env.DB,
-        locals.user.id,
-        "settings.update",
-        id,
-        { kind: "webhook.delete" },
-      );
+      await logAudit(platform.env.DB, locals.user.id, "settings.update", id, {
+        kind: "webhook.delete",
+      });
     }
     return { ok: true };
   },

@@ -44,9 +44,7 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
       if (!loc) return null;
       const link = `${origin}/${locale}/blog/${a.slug}`;
       const html = await marked(loc.body);
-      const pubDate = new Date(
-        a.publishedAt ?? a.createdAt,
-      ).toUTCString();
+      const pubDate = new Date(a.publishedAt ?? a.createdAt).toUTCString();
       return { link, title: loc.title, excerpt: loc.excerpt, html, pubDate };
     }),
   );
@@ -65,7 +63,8 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
     )
     .join("\n");
 
-  const lastBuildDate = items.find((i) => i)?.pubDate ?? new Date().toUTCString();
+  const lastBuildDate =
+    items.find((i) => i)?.pubDate ?? new Date().toUTCString();
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"
