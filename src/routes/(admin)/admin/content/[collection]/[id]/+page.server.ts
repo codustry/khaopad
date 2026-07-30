@@ -87,7 +87,18 @@ export const load: PageServerLoad = async ({ params, locals, platform }) => {
       .all();
     for (const row of relRows) {
       const list = relations[row.fieldApiId] ?? [];
-      list.push(row.targetEntryId);
+      // #99: an edge targets either an entry we own or an external
+      // reference. External targets are round-tripped as
+      // `namespace:ref` — a single string keeps the existing form
+      // encoding (one comma-separated field per relation) working for
+      // both shapes, and the save action splits it back apart.
+      if (row.targetKind === "external") {
+        if (row.targetNamespace && row.targetRef) {
+          list.push(`${row.targetNamespace}:${row.targetRef}`);
+        }
+      } else if (row.targetEntryId) {
+        list.push(row.targetEntryId);
+      }
       relations[row.fieldApiId] = list;
     }
   }

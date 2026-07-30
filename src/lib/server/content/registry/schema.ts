@@ -42,6 +42,7 @@
  * SonicJS, which ships this design on D1, flags the same wall. Hence
  * `promoted` is opt-in per field, never automatic.
  */
+import { sql } from "drizzle-orm";
 import {
   index,
   integer,
@@ -310,14 +311,55 @@ export const entryRelations = sqliteTable(
      */
     fieldApiId: text("field_api_id").notNull(),
     /**
-     * The target. CASCADE, so deleting an entry removes the edges
+     * Which shape this edge's target takes (#99).
+     *
+     *   `entry`    — points at an entry we own; `targetEntryId` is set
+     *   `external` — points at something the CMS does NOT own;
+     *                `targetNamespace` + `targetRef` are set
+     *
+     * The external case exists because forcing every target to be an
+     * entry means creating shell entries for data you merely reference
+     * — which both implies you manage it and pollutes the collection it
+     * lands in. A CHECK constraint enforces exactly one shape.
+     */
+    targetKind: text("target_kind", { enum: ["entry", "external"] })
+      .notNull()
+      .default("entry"),
+    /**
+     * The target entry. CASCADE, so deleting an entry removes the edges
      * pointing at it rather than leaving dangling references that
      * populate would have to filter out on every read.
+     *
+     * Nullable since #99 — null exactly when `targetKind='external'`.
      */
-    targetEntryId: text("target_entry_id")
-      .notNull()
-      .references(() => entries.id, { onDelete: "cascade" }),
+    targetEntryId: text("target_entry_id").references(() => entries.id, {
+      onDelete: "cascade",
+    }),
+    /**
+     * Governing namespace for an external target — e.g. a manufacturer
+     * key. Deliberately a plain string rather than an FK: the namespace
+     * side *should* be modelled as a normal user collection when it
+     * needs governance, leaving only the far-side identifier
+     * unmanaged (#99).
+     */
+    targetNamespace: text("target_namespace"),
+    /** Identifier within the namespace — a model number, SKU, ISBN. */
+    targetRef: text("target_ref"),
+    /** Optional display override; falls back to `targetRef`. */
+    targetLabel: text("target_label"),
     position: integer("position").notNull().default(0),
+    /**
+     * Edge attributes (#99) — data belonging to the PAIRING rather than
+     * to either endpoint. A confidence tier on a "replaces" edge, a
+     * `quantity` on a bill-of-materials edge, `valid_from`/`valid_until`
+     * on a supersession, a `role` on person↔project.
+     *
+     * Opt-in: validated against a JSON schema declared on the relation
+     * field's `config.edgeFields` in `collection_fields`, and left null
+     * for relations that carry no edge data, so containment relations
+     * pay nothing.
+     */
+    dataJson: text("data_json"),
     createdAt: text("created_at").notNull(),
   },
   (t) => ({
@@ -334,12 +376,28 @@ export const entryRelations = sqliteTable(
       t.targetEntryId,
       t.fieldApiId,
     ),
-    // The same edge must not exist twice on one field.
-    uniqueEdge: uniqueIndex("entry_relations_unique_edge_idx").on(
-      t.entryId,
-      t.fieldApiId,
-      t.targetEntryId,
+    // Reverse lookup for EXTERNAL targets: "which entries reference
+    // busch/R5-KA-0100?" — powers cross-reference landing pages (#99).
+    externalIdx: index("entry_relations_external_idx").on(
+      t.targetNamespace,
+      t.targetRef,
     ),
+    // The same edge must not exist twice on one field.
+    //
+    // Two indexes rather than one, because `targetEntryId` became
+    // nullable in #99 and SQLite treats NULLs as DISTINCT in a UNIQUE
+    // index — a single index spanning both shapes would silently stop
+    // constraining the external case, exactly the trap that made
+    // `attribute_values.locale` unenforceable before it was fixed.
+    //
+    // Each index is PARTIAL (`WHERE target_kind = …`) so the column it
+    // keys on is guaranteed non-null within its own scope.
+    uniqueEntryEdge: uniqueIndex("entry_relations_unique_edge_idx")
+      .on(t.entryId, t.fieldApiId, t.targetEntryId)
+      .where(sql`${t.targetKind} = 'entry'`),
+    uniqueExternalEdge: uniqueIndex("entry_relations_unique_external_idx")
+      .on(t.entryId, t.fieldApiId, t.targetNamespace, t.targetRef)
+      .where(sql`${t.targetKind} = 'external'`),
   }),
 );
 

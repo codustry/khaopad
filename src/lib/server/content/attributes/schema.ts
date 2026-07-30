@@ -86,6 +86,17 @@ export type AttributeDataType = (typeof ATTRIBUTE_DATA_TYPES)[number];
  */
 export const NON_LOCALIZED_SENTINEL = "*";
 
+/**
+ * Stand-in for "this value carries no context qualifier" (#98), used
+ * instead of NULL in `attribute_values.qualifier`.
+ *
+ * Same rationale as NON_LOCALIZED_SENTINEL: SQLite considers NULLs
+ * distinct in a UNIQUE index, so a nullable qualifier would make the
+ * (entity, attribute, locale, qualifier) constraint unenforceable for
+ * every unqualified value — i.e. the common case.
+ */
+export const UNQUALIFIED_SENTINEL = "*";
+
 // ─── Definitions (the registry) ─────────────────────────────
 
 export const attributeDefinitions = sqliteTable(
@@ -111,6 +122,34 @@ export const attributeDefinitions = sqliteTable(
     standardUnit: text("standard_unit"),
     /** JSON array of option keys, for select / multiselect. */
     optionsJson: text("options_json"),
+    /**
+     * Which direction is "better" within this attribute (#98):
+     * 'higher' | 'lower' | null when there is no natural ordering.
+     *
+     * Without it every "best first" sort, top-N widget and
+     * winning-cell highlight is BACKWARDS for any lower-is-better
+     * attribute — vacuum pressure, sound level, power draw, latency,
+     * price, lead time. Null for things like connection size or colour,
+     * where "better" is meaningless.
+     *
+     * Deliberately per-attribute rather than per-measure-family: two
+     * pressure attributes can disagree (ultimate pressure lower-is-
+     * better, burst pressure higher-is-better).
+     */
+    betterDirection: text("better_direction", {
+      enum: ["higher", "lower"],
+    }),
+    /**
+     * Allowed qualifier vocabulary for this attribute's values (#98), as
+     * a JSON array: `["50hz","60hz"]`.
+     *
+     * Advisory, not a constraint: it tells the admin UI which inputs to
+     * render and the compare view which columns align. Null means the
+     * attribute takes unqualified values only.
+     *
+     * The engine never interprets the strings — '50hz' is user data.
+     */
+    qualifiersJson: text("qualifiers_json"),
     /**
      * Grouping hint for datasheet layout — 'performance', 'electrical',
      * 'mechanical'. Purely presentational; no query depends on it.
@@ -288,10 +327,41 @@ export const attributeValues = sqliteTable(
      */
     locale: text("locale").notNull().default(NON_LOCALIZED_SENTINEL),
     /**
-     * Numeric magnitude IN THE STANDARD UNIT. `real`, not integer:
-     * pressures like 1e-3 mbar and flows like 0.06 m³/h need fractions.
+     * Context discriminator (#98) — e.g. '50hz', '60hz', '230v'.
+     *
+     * One attribute can hold several context-keyed values instead of
+     * forcing prose ("80 m³/h (50 Hz), 98 m³/h (60 Hz)") or two
+     * near-duplicate definitions that no compare view can align into a
+     * single row.
+     *
+     * NOT NULL with an `UNQUALIFIED_SENTINEL` default, for the same
+     * reason as `locale` above: a nullable discriminator inside a UNIQUE
+     * index is inert in SQLite, so the uniqueness constraint would stop
+     * applying to the common unqualified case.
+     *
+     * The vocabulary is deliberately NOT constrained here. '50hz' is
+     * user data; the engine only needs the values to be comparable.
      */
-    valueNumber: real("value_number"),
+    qualifier: text("qualifier").notNull().default(UNQUALIFIED_SENTINEL),
+    /**
+     * Numeric value as a CLOSED INTERVAL in the standard unit (#98).
+     *
+     * A scalar sets both bounds equal. Half of a real catalog's specs are
+     * genuinely intervals — tolerance bands, "22-25 kg depending on
+     * motor", performance ranges — and a single magnitude column forces
+     * those into prose in `value_text`, which is precisely the
+     * free-form-string trap the typed spec layer exists to avoid.
+     *
+     * Faceting becomes an interval-overlap test, which is also *more*
+     * correct than a point test for genuine ranges:
+     *
+     *   WHERE value_number_max >= :lo AND value_number_min <= :hi
+     *
+     * `real`, not integer: pressures like 1e-3 mbar and flows like
+     * 0.06 m³/h need fractions.
+     */
+    valueNumberMin: real("value_number_min"),
+    valueNumberMax: real("value_number_max"),
     /** Unit as authored ('mbar', 'm3/h'), for faithful display. */
     valueUnit: text("value_unit"),
     /** Text value, or a select option key. */
@@ -306,11 +376,16 @@ export const attributeValues = sqliteTable(
     // One value per (entity, attribute, locale). Without this a second
     // write would silently duplicate rather than update, and a datasheet
     // would render the attribute twice.
+    // One value per (entity, attribute, locale, qualifier). The
+    // qualifier is part of the key since #98 — without it, a 50 Hz and a
+    // 60 Hz value for one attribute would collide and the second write
+    // would overwrite the first instead of sitting alongside it.
     entityAttrIdx: uniqueIndex("attribute_values_entity_attr_idx").on(
       t.entityType,
       t.entityId,
       t.attributeId,
       t.locale,
+      t.qualifier,
     ),
     // Datasheet assembly: every value for one entity (#88 §C.3).
     entityIdx: index("attribute_values_entity_idx").on(
@@ -321,7 +396,8 @@ export const attributeValues = sqliteTable(
     // "pumping speed 100–300 m³/h" an index seek rather than a scan.
     numericFacetIdx: index("attribute_values_numeric_facet_idx").on(
       t.attributeId,
-      t.valueNumber,
+      t.valueNumberMin,
+      t.valueNumberMax,
     ),
     // Faceting on a select option key.
     textFacetIdx: index("attribute_values_text_facet_idx").on(

@@ -101,6 +101,11 @@ export interface UpsertEntryInput {
    * significant and is persisted as `position`.
    */
   relations?: Record<string, string[]>;
+  /**
+   * Edge attributes (#99), keyed by field apiId then by target string:
+   * `{ xref: { "acme:MODEL-1": '{"confidence":"exact"}' } }`.
+   */
+  edgeData?: Record<string, Record<string, string>>;
   createdBy?: string;
 }
 
@@ -646,7 +651,12 @@ export class RegistryService {
             "UNKNOWN_FIELD",
           );
         }
-        await this.setRelation(entryId, field, targetIds);
+        await this.setRelation(
+          entryId,
+          field,
+          targetIds,
+          input.edgeData?.[fieldApiId],
+        );
       }
     }
 
@@ -674,7 +684,19 @@ export class RegistryService {
   async setRelation(
     entryId: string,
     field: CollectionField,
+    /**
+     * Entry ids, and/or external refs written `namespace:ref` (#99).
+     * Order is significant — it becomes `position`.
+     */
     targetIds: string[],
+    /**
+     * Optional edge attributes (#99), keyed by the same target string.
+     * Data belonging to the PAIRING rather than either endpoint — a
+     * confidence tier, a quantity, a validity window. Pre-serialized
+     * JSON; the caller owns its shape, declared on the field's
+     * `config.edgeFields`.
+     */
+    edgeData?: Record<string, string>,
   ): Promise<void> {
     const config = this.parseConfig(field);
     const cardinality =
@@ -690,11 +712,33 @@ export class RegistryService {
       );
     }
 
-    // Targets must exist and be of an allowed collection. Without this
-    // an edge can point at an entry of the wrong type, and populate
+    // #99: a target is either an entry id we own, or an EXTERNAL
+    // reference written `namespace:ref`. Split them so each half is
+    // validated against the rule that applies to it — entry ids must
+    // resolve to an allowed collection; external refs must not be
+    // validated against `entries` at all, since the whole point is that
+    // we don't own them.
+    const external = unique
+      .filter((t) => t.includes(":"))
+      .map((t) => {
+        const idx = t.indexOf(":");
+        return { namespace: t.slice(0, idx), ref: t.slice(idx + 1) };
+      })
+      .filter((e) => e.namespace && e.ref);
+    const entryTargets = unique.filter((t) => !t.includes(":"));
+
+    if (external.length > 0 && !allowsExternal(config)) {
+      throw new RegistryError(
+        `Field "${field.apiId}" does not accept external targets — set config.allowExternal to enable them`,
+        "INVALID_VALUE",
+      );
+    }
+
+    // Entry targets must exist and be of an allowed collection. Without
+    // this an edge can point at an entry of the wrong type, and populate
     // would return objects with an unexpected shape.
-    if (unique.length > 0) {
-      await this.assertValidTargets(field, config, unique);
+    if (entryTargets.length > 0) {
+      await this.assertValidTargets(field, config, entryTargets);
     }
 
     await this.db
@@ -709,17 +753,42 @@ export class RegistryService {
     if (unique.length === 0) return;
 
     const now = this.now();
-    const rows = unique.map((targetEntryId, i) => ({
-      id: nanoid(),
-      entryId,
-      fieldApiId: field.apiId,
-      targetEntryId,
-      position: i,
-      createdAt: now,
-    }));
-    // 5 columns per row against a 100-parameter ceiling → 20 rows max
-    // per statement.
-    const perStatement = Math.floor(D1_MAX_BIND_PARAMS / 6);
+    // Position is assigned across BOTH shapes in the order the caller
+    // supplied, so a curated list mixing owned and external targets keeps
+    // its authored order.
+    let pos = 0;
+    const rows = [
+      ...entryTargets.map((targetEntryId) => ({
+        id: nanoid(),
+        entryId,
+        fieldApiId: field.apiId,
+        targetKind: "entry" as const,
+        targetEntryId,
+        targetNamespace: null,
+        targetRef: null,
+        targetLabel: null,
+        dataJson: edgeData?.[targetEntryId] ?? null,
+        position: pos++,
+        createdAt: now,
+      })),
+      ...external.map((e) => ({
+        id: nanoid(),
+        entryId,
+        fieldApiId: field.apiId,
+        targetKind: "external" as const,
+        targetEntryId: null,
+        targetNamespace: e.namespace,
+        targetRef: e.ref,
+        targetLabel: null,
+        dataJson: edgeData?.[`${e.namespace}:${e.ref}`] ?? null,
+        position: pos++,
+        createdAt: now,
+      })),
+    ];
+    // 11 columns per row against D1's 100-parameter ceiling → 9 rows max
+    // per statement. #99 widened the row from 6 columns to 11, so the
+    // old divisor would have overflowed at 16 rows.
+    const perStatement = Math.max(1, Math.floor(D1_MAX_BIND_PARAMS / 11));
     for (let i = 0; i < rows.length; i += perStatement) {
       await this.db
         .insert(entryRelations)
@@ -1093,6 +1162,17 @@ export class RegistryService {
     }
     return out;
   }
+}
+
+/**
+ * Whether a relation field accepts external (non-entry) targets (#99).
+ *
+ * Opt-in per field: a containment relation like Page→Block should never
+ * point outside the CMS, and silently allowing it would let a typo'd
+ * entry id be stored as an unresolvable external ref instead of failing.
+ */
+function allowsExternal(config: unknown): boolean {
+  return (config as { allowExternal?: unknown })?.allowExternal === true;
 }
 
 function safeParseObject(json: string): Record<string, unknown> {

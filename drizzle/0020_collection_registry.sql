@@ -92,9 +92,34 @@ CREATE TABLE `entry_relations` (
   `id` text PRIMARY KEY NOT NULL,
   `entry_id` text NOT NULL,
   `field_api_id` text NOT NULL,
-  `target_entry_id` text NOT NULL,
+  -- #99: an edge targets either an entry we own or an EXTERNAL reference.
+  -- Forcing everything to be an entry means creating shell entries for
+  -- data you merely reference, which implies you manage it.
+  `target_kind` text DEFAULT 'entry' NOT NULL,
+  `target_entry_id` text,
+  `target_namespace` text,
+  `target_ref` text,
+  `target_label` text,
   `position` integer DEFAULT 0 NOT NULL,
+  -- #99: edge attributes — data belonging to the PAIRING, not to either
+  -- endpoint (a confidence tier on "replaces", a quantity on a BOM edge).
+  -- Opt-in; null for containment relations, which pay nothing.
+  `data_json` text,
   `created_at` text NOT NULL,
+  -- Exactly one target shape must be populated. Without this, a row can
+  -- claim to be external while carrying an entry id, and populate would
+  -- have to guess which to trust.
+  CONSTRAINT `entry_relations_target_shape` CHECK (
+    (`target_kind` = 'entry'
+       AND `target_entry_id` IS NOT NULL
+       AND `target_namespace` IS NULL
+       AND `target_ref` IS NULL)
+    OR
+    (`target_kind` = 'external'
+       AND `target_entry_id` IS NULL
+       AND `target_namespace` IS NOT NULL
+       AND `target_ref` IS NOT NULL)
+  ),
   FOREIGN KEY (`entry_id`) REFERENCES `entries`(`id`) ON UPDATE no action ON DELETE cascade,
   FOREIGN KEY (`target_entry_id`) REFERENCES `entries`(`id`) ON UPDATE no action ON DELETE cascade
 );
@@ -104,7 +129,16 @@ CREATE INDEX `entry_relations_forward_idx` ON `entry_relations` (`entry_id`,`fie
 -- Reverse: "what points at this entry?" — reverse/join fields, and
 -- cache invalidation when a target is edited.
 CREATE INDEX `entry_relations_reverse_idx` ON `entry_relations` (`target_entry_id`,`field_api_id`);--> statement-breakpoint
-CREATE UNIQUE INDEX `entry_relations_unique_edge_idx` ON `entry_relations` (`entry_id`,`field_api_id`,`target_entry_id`);--> statement-breakpoint
+-- Reverse lookup for external targets: "which entries reference
+-- <namespace>/<ref>?" — powers cross-reference landing pages.
+CREATE INDEX `entry_relations_external_idx` ON `entry_relations` (`target_namespace`,`target_ref`);--> statement-breakpoint
+-- Uniqueness is TWO PARTIAL indexes, not one spanning index. Since #99
+-- made target_entry_id nullable and SQLite treats NULLs as DISTINCT in a
+-- UNIQUE index, a single index covering both shapes would silently stop
+-- constraining the external case. Each partial index keys only on
+-- columns guaranteed non-null within its own WHERE scope.
+CREATE UNIQUE INDEX `entry_relations_unique_edge_idx` ON `entry_relations` (`entry_id`,`field_api_id`,`target_entry_id`) WHERE `target_kind` = 'entry';--> statement-breakpoint
+CREATE UNIQUE INDEX `entry_relations_unique_external_idx` ON `entry_relations` (`entry_id`,`field_api_id`,`target_namespace`,`target_ref`) WHERE `target_kind` = 'external';--> statement-breakpoint
 
 -- Sparse inverted index over filterable, non-promoted field values.
 --

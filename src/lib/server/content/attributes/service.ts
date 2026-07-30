@@ -25,6 +25,7 @@ import {
   familyAttributes,
   ATTRIBUTE_DATA_TYPES,
   NON_LOCALIZED_SENTINEL,
+  UNQUALIFIED_SENTINEL,
   type AttributeDataType,
   type AttributeDefinition,
 } from "./schema";
@@ -82,8 +83,18 @@ export interface ResolvedValue {
   label: string;
   groupKey: string | null;
   position: number;
-  /** Standard-unit magnitude, for sorting/comparing. Null for non-numeric. */
+  /**
+   * Standard-unit LOWER bound, for sorting/comparing. Null for
+   * non-numeric. Equals `standardValueMax` for a scalar.
+   */
   standardValue: number | null;
+  /** Standard-unit UPPER bound (#98). Equals `standardValue` for a scalar. */
+  standardValueMax: number | null;
+  /**
+   * Context discriminator (#98) — '50hz', '230v' — or null when the value
+   * is unqualified. The compare view aligns rows by (attribute, qualifier).
+   */
+  qualifier: string | null;
   /** Value in the unit it was authored in — what a datasheet shows. */
   displayValue: string | number | boolean | string[] | null;
   /** Authored unit, e.g. 'mbar'. Null for non-measurements. */
@@ -109,10 +120,16 @@ export interface CreateAttributeInput {
   createdBy?: string;
 }
 
-/** A value as supplied by a caller, before normalization. */
+/**
+ * A value as supplied by a caller, before normalization.
+ *
+ * `max` (#98) makes a numeric value an INTERVAL rather than a point.
+ * Omit it for a scalar — both bounds are then set equal, so every query
+ * is an overlap test regardless of which shape was authored.
+ */
 export type RawValueInput =
-  | { kind: "number"; value: number }
-  | { kind: "measurement"; value: number; unit: string }
+  | { kind: "number"; value: number; max?: number }
+  | { kind: "measurement"; value: number; unit: string; max?: number }
   | { kind: "select"; option: string }
   | { kind: "multiselect"; options: string[] }
   | { kind: "boolean"; value: boolean }
@@ -457,11 +474,21 @@ export class AttributeService {
    * Upsert on (entityType, entityId, attributeId, locale) — the unique
    * index makes a repeated write an update rather than a duplicate row.
    */
+  /**
+   * Write one value.
+   *
+   * `qualifier` (#98) lets one attribute hold several context-keyed
+   * values — a 50 Hz and a 60 Hz speed sit alongside each other rather
+   * than the second overwriting the first, because the qualifier is part
+   * of the uniqueness key.
+   */
   async setValue(
     entityType: string,
     entityId: string,
     attributeKey: string,
     input: RawValueInput,
+    /** Context key (#98) — '50hz'. Omit for an unqualified value. */
+    qualifier?: string,
   ): Promise<void> {
     const attr = await this.getAttributeByKey(attributeKey);
     if (!attr) {
@@ -481,6 +508,9 @@ export class AttributeService {
     // Never NULL — see NON_LOCALIZED_SENTINEL. A NULL here would make the
     // (entity, attribute, locale) unique index inert in SQLite.
     const locale = row.locale ?? NON_LOCALIZED_SENTINEL;
+    // Never NULL, for the same reason as locale — see
+    // UNQUALIFIED_SENTINEL.
+    const qual = qualifier ?? UNQUALIFIED_SENTINEL;
     const now = this.now();
 
     const existing = await this.db
@@ -492,6 +522,7 @@ export class AttributeService {
           eq(attributeValues.entityId, entityId),
           eq(attributeValues.attributeId, attr.id),
           eq(attributeValues.locale, locale),
+          eq(attributeValues.qualifier, qual),
         ),
       )
       .limit(1)
@@ -500,7 +531,7 @@ export class AttributeService {
     if (existing) {
       await this.db
         .update(attributeValues)
-        .set({ ...row, locale, updatedAt: now })
+        .set({ ...row, locale, qualifier: qual, updatedAt: now })
         .where(eq(attributeValues.id, existing.id));
       return;
     }
@@ -512,6 +543,7 @@ export class AttributeService {
       attributeId: attr.id,
       ...row,
       locale,
+      qualifier: qual,
       createdAt: now,
       updatedAt: now,
     });
@@ -521,14 +553,15 @@ export class AttributeService {
    * Translate a typed input into the table's columns.
    *
    * For a measurement this is where unit normalization happens: the
-   * canonical magnitude goes to `valueNumber` and the authored unit is
+   * canonical interval goes to `valueNumberMin`/`Max` and the unit is
    * preserved in `valueUnit`, so faceting is correct and display is
    * faithful.
    */
   private buildValueRow(attr: AttributeDefinition, input: RawValueInput) {
     const base = {
       locale: null as string | null,
-      valueNumber: null as number | null,
+      valueNumberMin: null as number | null,
+      valueNumberMax: null as number | null,
       valueUnit: null as string | null,
       valueText: null as string | null,
       valueJson: null as string | null,
@@ -543,7 +576,22 @@ export class AttributeService {
             "INVALID_VALUE",
           );
         }
-        return { ...base, valueNumber: input.value };
+        const max = input.max ?? input.value;
+        if (!Number.isFinite(max)) {
+          throw new AttributeError(
+            `Attribute "${attr.key}" range max must be a finite number`,
+            "INVALID_VALUE",
+          );
+        }
+        if (max < input.value) {
+          throw new AttributeError(
+            `Attribute "${attr.key}" range is inverted (${input.value} > ${max})`,
+            "INVALID_VALUE",
+          );
+        }
+        // A scalar sets both bounds equal, so every read path is a single
+        // overlap test and never has to branch on "is this a range?".
+        return { ...base, valueNumberMin: input.value, valueNumberMax: max };
       }
 
       case "measurement": {
@@ -560,13 +608,27 @@ export class AttributeService {
           );
         }
         try {
-          const n = normalize(attr.measureFamily, input.value, input.unit);
+          const lo = normalize(attr.measureFamily, input.value, input.unit);
+          // Both bounds normalize through the SAME family+unit, so a
+          // range authored in m3/min compares correctly against one
+          // authored in m3/h.
+          const hi =
+            input.max === undefined
+              ? lo
+              : normalize(attr.measureFamily, input.max, input.unit);
+          if (hi.standardValue < lo.standardValue) {
+            throw new AttributeError(
+              `Attribute "${attr.key}" range is inverted (${input.value} > ${input.max} ${input.unit})`,
+              "INVALID_VALUE",
+            );
+          }
           return {
             ...base,
-            // Canonical magnitude — what every query compares on.
-            valueNumber: n.standardValue,
+            // Canonical interval — what every query compares on.
+            valueNumberMin: lo.standardValue,
+            valueNumberMax: hi.standardValue,
             // Authored unit — what the datasheet renders.
-            valueUnit: n.unit,
+            valueUnit: lo.unit,
           };
         } catch (err) {
           if (err instanceof UnitError) {
@@ -748,7 +810,7 @@ export class AttributeService {
   /**
    * Faceted filter / sort on one attribute (#88 §C.3).
    *
-   * Because `valueNumber` is always the standard-unit magnitude, a range
+   * Because both bounds are always standard-unit magnitudes, a range
    * expressed in ANY unit of the family is correct — the bounds are
    * normalized here before comparison, so "100–300 m³/h" and
    * "1.67–5 m³/min" select the same entities.
@@ -822,14 +884,19 @@ export class AttributeService {
               filter.unit as string,
             ).standardValue
           : v;
+      // Interval OVERLAP, not a point test (#98): a value whose range is
+      // 150-170 must match a 100-160 filter. Note the operands are
+      // deliberately crossed — a stored interval overlaps the requested
+      // one when its max is at least the requested min AND its min is at
+      // most the requested max.
       if (filter.min !== undefined) {
         conditions.push(
-          gte(attributeValues.valueNumber, toStandard(filter.min)),
+          gte(attributeValues.valueNumberMax, toStandard(filter.min)),
         );
       }
       if (filter.max !== undefined) {
         conditions.push(
-          lte(attributeValues.valueNumber, toStandard(filter.max)),
+          lte(attributeValues.valueNumberMin, toStandard(filter.max)),
         );
       }
     } else if (filter.kind === "option") {
@@ -842,15 +909,17 @@ export class AttributeService {
     const order =
       filter.kind === "range"
         ? opts.sort === "desc"
-          ? sql`${attributeValues.valueNumber} DESC`
-          : sql`${attributeValues.valueNumber} ASC`
+          ? sql`${attributeValues.valueNumberMin} DESC`
+          : sql`${attributeValues.valueNumberMin} ASC`
         : sql`${attributeValues.valueText} ASC`;
 
     const rows = await this.db
       .select({
         entityType: attributeValues.entityType,
         entityId: attributeValues.entityId,
-        valueNumber: attributeValues.valueNumber,
+        valueNumberMin: attributeValues.valueNumberMin,
+        valueNumberMax: attributeValues.valueNumberMax,
+        qualifier: attributeValues.qualifier,
         valueText: attributeValues.valueText,
         valueBool: attributeValues.valueBool,
       })
@@ -863,7 +932,7 @@ export class AttributeService {
     return rows.map((r) => ({
       entityType: r.entityType,
       entityId: r.entityId,
-      value: r.valueNumber ?? r.valueText ?? r.valueBool ?? null,
+      value: r.valueNumberMin ?? r.valueText ?? r.valueBool ?? null,
     }));
   }
 
@@ -889,7 +958,9 @@ export class AttributeService {
         .select({
           entityId: attributeValues.entityId,
           attributeId: attributeValues.attributeId,
-          valueNumber: attributeValues.valueNumber,
+          valueNumberMin: attributeValues.valueNumberMin,
+          valueNumberMax: attributeValues.valueNumberMax,
+          qualifier: attributeValues.qualifier,
           valueUnit: attributeValues.valueUnit,
           valueText: attributeValues.valueText,
           valueJson: attributeValues.valueJson,
@@ -944,7 +1015,9 @@ export class AttributeService {
         label: labelByAttr.get(r.attributeId) ?? r.key,
         groupKey: r.groupKey,
         position: r.position,
-        standardValue: r.valueNumber,
+        standardValue: r.valueNumberMin,
+        standardValueMax: r.valueNumberMax,
+        qualifier: r.qualifier === "*" ? null : r.qualifier,
         unit: r.valueUnit,
         measureFamily: r.measureFamily,
         displayValue: this.displayValueOf(r),
@@ -965,7 +1038,8 @@ export class AttributeService {
    */
   private displayValueOf(r: {
     dataType: AttributeDataType;
-    valueNumber: number | null;
+    valueNumberMin: number | null;
+    valueNumberMax: number | null;
     valueUnit: string | null;
     valueText: string | null;
     valueJson: string | null;
@@ -974,19 +1048,19 @@ export class AttributeService {
   }): ResolvedValue["displayValue"] {
     switch (r.dataType) {
       case "number":
-        return r.valueNumber;
+        return r.valueNumberMin;
       case "measurement": {
         if (
-          r.valueNumber === null ||
+          r.valueNumberMin === null ||
           !r.valueUnit ||
           !r.measureFamily ||
           !isMeasureFamily(r.measureFamily)
         ) {
-          return r.valueNumber;
+          return r.valueNumberMin;
         }
         const factor = FAMILIES[r.measureFamily].units[r.valueUnit]?.factor;
-        if (!factor) return r.valueNumber;
-        const authored = r.valueNumber / factor;
+        if (!factor) return r.valueNumberMin;
+        const authored = r.valueNumberMin / factor;
         // Trim float noise from the round-trip (0.1 mbar → 10 Pa → 0.1)
         // without truncating genuinely small vacuum values like 1e-6.
         return Number(authored.toPrecision(12));
