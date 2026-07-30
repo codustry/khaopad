@@ -18,7 +18,13 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Must be >= 22: better-sqlite3@13 (integration tests) declares
+          # `engines: node >=22`. On Node 20 it does not fail cleanly —
+          # loading it kills the vitest worker with "Worker exited
+          # unexpectedly", and vitest then reports "26 passed (46)": the
+          # 20 integration tests never ran, and the suite looked mostly
+          # green. Also realigns with deploy.yml, which already uses 22.
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies

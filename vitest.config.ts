@@ -39,5 +39,13 @@ export default defineConfig({
     // Fail loudly rather than silently passing on zero tests — a config
     // change that stops matching any file should break CI, not go green.
     passWithNoTests: false,
+    // A test FILE that dies before running counts as a failure, not an
+    // absence. When better-sqlite3 was loaded under Node 20 (it requires
+    // >=22) the worker was killed outright, and the summary read
+    // "26 passed (46)" with a non-obvious unhandled error above it — the
+    // 20 integration tests never executed. dangerouslyIgnoreUnhandledErrors
+    // stays false (the default) for the same reason: a crashed worker must
+    // never be reportable as a pass.
+    dangerouslyIgnoreUnhandledErrors: false,
   },
 });
