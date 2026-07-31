@@ -62,7 +62,7 @@
 	{#if data.articles.items.length === 0}
 		<p class="text-muted-foreground">{m.cms_no_articles()}</p>
 	{:else}
-		<div class="border border-border rounded-lg overflow-hidden">
+		<div class="border border-border rounded-lg overflow-x-auto">
 			<table class="w-full text-sm">
 				<thead class="bg-muted">
 					<tr>

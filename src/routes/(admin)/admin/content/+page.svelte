@@ -148,7 +148,7 @@
 				</p>
 			</div>
 		{:else}
-			<div class="overflow-hidden rounded-lg border border-border">
+			<div class="overflow-x-auto rounded-lg border border-border">
 				<table class="w-full text-sm">
 					<thead
 						class="bg-muted/50 text-left text-xs uppercase text-muted-foreground"

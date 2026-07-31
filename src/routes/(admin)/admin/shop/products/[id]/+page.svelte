@@ -79,6 +79,7 @@
 		{#if product.variants.length === 0}
 			<p class="text-sm text-muted-foreground">No variants.</p>
 		{:else}
+			<div class="overflow-x-auto">
 			<table class="w-full text-sm">
 				<thead class="text-left text-xs uppercase text-muted-foreground">
 					<tr>
@@ -146,6 +147,7 @@
 					{/each}
 				</tbody>
 			</table>
+			</div>
 		{/if}
 	</section>
 

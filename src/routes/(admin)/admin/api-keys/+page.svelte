@@ -138,7 +138,7 @@
 			<p class="text-sm text-muted-foreground">{m.cms_api_keys_empty()}</p>
 		</div>
 	{:else}
-		<div class="border border-border rounded-lg overflow-hidden">
+		<div class="border border-border rounded-lg overflow-x-auto">
 			<table class="w-full text-sm">
 				<thead class="bg-muted/30 text-xs uppercase tracking-wider text-muted-foreground">
 					<tr>
