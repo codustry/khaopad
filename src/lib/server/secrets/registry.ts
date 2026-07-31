@@ -48,13 +48,6 @@ export type SecretDef = {
 
 export const MANAGED_SECRETS: readonly SecretDef[] = [
   {
-    key: "BEAM_MERCHANT_ID",
-    label: "Beam merchant ID",
-    help: "Your BeamCheckout merchant identifier, e.g. codustry-xxxxxx. An identifier, not a credential — shown in full so you can confirm it.",
-    sensitive: false,
-    group: "Payments — BeamCheckout",
-  },
-  {
     key: "BEAM_API_KEY",
     label: "Beam secret key",
     help: "Server-side API key used to create charges and issue refunds. Beam dashboard → Developers → API keys.",

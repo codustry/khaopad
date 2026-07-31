@@ -237,17 +237,19 @@ describe("status listing (what the admin page receives)", () => {
     expect(beam.preview).toBe("••••••••8765");
   });
 
-  it("shows the non-sensitive merchant id in full", async () => {
-    // Masking a public identifier just makes it unverifiable.
-    await setSecret(env, "BEAM_MERCHANT_ID", "codustry-ova1t0", "u");
+  it("masks every managed secret, since all are sensitive today", async () => {
+    // The `sensitive: false` branch is retained for future non-secret
+    // entries, but nothing currently uses it — assert that, so a new
+    // entry marked non-sensitive is a deliberate decision, not a typo.
+    await setSecret(env, "BEAM_WEBHOOK_SECRET", "whsec_abcdef123456", "u");
     const statuses = await listSecretStatus(env);
-    const merchant = statuses.find((s) => s.key === "BEAM_MERCHANT_ID")!;
-    expect(merchant.preview).toBe("codustry-ova1t0");
+    const hook = statuses.find((s) => s.key === "BEAM_WEBHOOK_SECRET")!;
+    expect(hook.preview).toBe("••••••••3456");
   });
 
   it("reports every registry key, including unset ones", async () => {
     const statuses = await listSecretStatus(env);
-    expect(statuses.length).toBe(4);
+    expect(statuses.length).toBe(3);
     for (const s of statuses) {
       expect(s.configured).toBe(false);
       expect(s.source).toBe("unset");

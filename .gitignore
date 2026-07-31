@@ -28,3 +28,11 @@ vite.config.js.timestamp-*.mjs
 
 # Local graphify knowledge-graph output
 graphify-out/
+
+# macOS/iCloud duplicate-file artifacts ("foo 2.sql", "foo 3.ts").
+# A duplicated migration silently re-runs CREATE TABLE and blocks the
+# whole chain — and once blocked, schema tests pass against STALE schema.
+# That has bitten this repo more than once; never let one be committed.
+* [0-9].sql
+* [0-9].ts
+* [0-9].json

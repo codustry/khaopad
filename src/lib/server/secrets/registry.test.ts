@@ -28,21 +28,27 @@ describe("managed secret registry", () => {
     expect(isManagedSecret("beam_api_key")).toBe(false); // case-sensitive
   });
 
-  it("accepts exactly the four intended keys", () => {
+  it("accepts exactly the three intended keys", () => {
     const keys = MANAGED_SECRETS.map((s) => s.key).sort();
     expect(keys).toEqual([
       "BEAM_API_KEY",
-      "BEAM_MERCHANT_ID",
       "BEAM_WEBHOOK_SECRET",
       "RESEND_API_KEY",
     ]);
   });
 
-  it("marks every credential sensitive except the merchant identifier", () => {
+  it("only lists keys the application actually reads", () => {
+    // BEAM_MERCHANT_ID was offered in the first cut but nothing consumed
+    // it — BeamConfig takes only apiKey/webhookSecret/baseUrl. Offering an
+    // inert field invites an admin to "configure" something that does
+    // nothing, which is worse than omitting it.
+    expect(isManagedSecret("BEAM_MERCHANT_ID")).toBe(false);
+  });
+
+  it("marks every managed credential sensitive", () => {
     // A wrong value here means a live key renders in full on the page.
     for (const def of MANAGED_SECRETS) {
-      const expected = def.key !== "BEAM_MERCHANT_ID";
-      expect(def.sensitive, `${def.key}.sensitive`).toBe(expected);
+      expect(def.sensitive, `${def.key}.sensitive`).toBe(true);
     }
   });
 
