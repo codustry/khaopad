@@ -21,6 +21,16 @@ const CONFIG = {
   webhookSecret: btoa("webhook-key-bytes"), // Beam stores this base64
 };
 
+/** Matches ChargeInput in payment.ts — kept in one place so a shape change breaks once. */
+const CHARGE = {
+  orderId: "ord_1",
+  description: "test charge",
+  amount: 10000,
+  currency: "THB",
+  customerEmail: "buyer@example.com",
+  returnUrl: "https://example.com/return",
+};
+
 afterEach(() => vi.restoreAllMocks());
 
 function mockFetch(body: unknown, ok = true) {
@@ -38,13 +48,7 @@ describe("Beam authentication", () => {
   it("uses HTTP Basic with base64(merchantId:apiKey), NOT bearer", async () => {
     const fetchSpy = mockFetch({ id: "chg_1", status: "pending" });
     const provider = new BeamPaymentProvider(CONFIG);
-    await provider.createCharge({
-      amount: 10000,
-      currency: "THB",
-      description: "test",
-      referenceId: "ref-1",
-      returnUrl: "https://example.com/return",
-    } as Parameters<typeof provider.createCharge>[0]);
+    await provider.createCharge(CHARGE);
 
     const headers = fetchSpy.mock.calls[0][1].headers as Record<string, string>;
     const expected = `Basic ${btoa("codustry-ova1t0:sk_test_abc123")}`;
@@ -56,13 +60,7 @@ describe("Beam authentication", () => {
     // The version belongs in the path, not the base URL. With `/v1` in
     // the base the request went to /v1/charges and 404'd.
     const fetchSpy = mockFetch({ id: "chg_1", status: "pending" });
-    await new BeamPaymentProvider(CONFIG).createCharge({
-      amount: 10000,
-      currency: "THB",
-      description: "t",
-      referenceId: "r",
-      returnUrl: "https://example.com",
-    } as never);
+    await new BeamPaymentProvider(CONFIG).createCharge(CHARGE);
     expect(fetchSpy.mock.calls[0][0]).toBe(
       "https://api.beamcheckout.com/api/v1/charges",
     );
@@ -73,13 +71,7 @@ describe("Beam authentication", () => {
     await new BeamPaymentProvider({
       ...CONFIG,
       baseUrl: "https://playground.api.beamcheckout.com",
-    }).createCharge({
-      amount: 1,
-      currency: "THB",
-      description: "t",
-      referenceId: "r",
-      returnUrl: "https://example.com",
-    } as never);
+    }).createCharge(CHARGE);
     expect(fetchSpy.mock.calls[0][0]).toBe(
       "https://playground.api.beamcheckout.com/api/v1/charges",
     );

@@ -66,12 +66,18 @@ async function hmacSha256Base64(
   body: string,
 ): Promise<string> {
   const enc = new TextEncoder();
-  let keyBytes: Uint8Array;
+  let decoded: Uint8Array;
   try {
-    keyBytes = Uint8Array.from(atob(base64Secret), (c) => c.charCodeAt(0));
+    decoded = Uint8Array.from(atob(base64Secret), (c) => c.charCodeAt(0));
   } catch {
-    keyBytes = enc.encode(base64Secret);
+    decoded = enc.encode(base64Secret);
   }
+  // Copy into a freshly-allocated ArrayBuffer. Both branches above are
+  // `Uint8Array<ArrayBufferLike>`, and importKey's BufferSource requires
+  // the narrower `ArrayBuffer` backing (a SharedArrayBuffer would not be
+  // valid key material).
+  const keyBytes = new Uint8Array(decoded.length);
+  keyBytes.set(decoded);
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
     keyBytes,
