@@ -12,7 +12,12 @@ import type { PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals, platform, params }) => {
   if (!locals.user) throw redirect(302, "/admin/login");
-  if (!hasRole(locals.user, "editor")) throw redirect(302, "/admin");
+  if (!hasRole(locals.user, "editor")) {
+    throw error(
+      403,
+      "Only editors, admins and super admins can access this area.",
+    );
+  }
   const env = platform?.env;
   if (!env) throw error(503, "Platform not ready");
   const svc = new ShopService(env.DB);

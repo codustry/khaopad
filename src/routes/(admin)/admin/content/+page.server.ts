@@ -20,7 +20,9 @@ export const load: PageServerLoad = async ({ locals, platform }) => {
   // Defining a content type is a schema change in every meaningful sense
   // — it alters what the public API exposes — so it sits with admins,
   // not editors, matching how /admin/settings is gated.
-  if (!hasRole(locals.user, "admin")) throw redirect(302, "/admin");
+  if (!hasRole(locals.user, "admin")) {
+    throw error(403, "Only admins and super admins can access this area.");
+  }
   const env = platform?.env;
   if (!env) throw error(503, "Platform not ready");
 

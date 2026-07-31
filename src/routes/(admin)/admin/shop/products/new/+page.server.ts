@@ -6,7 +6,7 @@
  * keeps the onboarding path simple; the ADR's variant-matrix editor
  * is more valuable when there's already a product to attach to.
  */
-import { fail, redirect } from "@sveltejs/kit";
+import { fail, redirect, error } from "@sveltejs/kit";
 import { hasRole } from "$lib/server/auth/permissions";
 import { logAudit } from "$lib/server/audit";
 import { ShopService, ShopValidationError } from "$plugins/shop/service";
@@ -15,7 +15,12 @@ import type { Actions, PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals }) => {
   if (!locals.user) throw redirect(302, "/admin/login");
-  if (!hasRole(locals.user, "editor")) throw redirect(302, "/admin");
+  if (!hasRole(locals.user, "editor")) {
+    throw error(
+      403,
+      "Only editors, admins and super admins can access this area.",
+    );
+  }
   return {};
 };
 

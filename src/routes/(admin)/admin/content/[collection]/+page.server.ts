@@ -24,7 +24,12 @@ const ENTRY_PAGE_SIZE = 50;
 
 export const load: PageServerLoad = async ({ params, locals, platform }) => {
   if (!locals.user) throw redirect(302, "/admin/login");
-  if (!hasRole(locals.user, "editor")) throw redirect(302, "/admin");
+  if (!hasRole(locals.user, "editor")) {
+    throw error(
+      403,
+      "Only editors, admins and super admins can access this area.",
+    );
+  }
   const env = platform?.env;
   if (!env) throw error(503, "Platform not ready");
 
