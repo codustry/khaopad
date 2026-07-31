@@ -48,6 +48,16 @@ export type SecretDef = {
 
 export const MANAGED_SECRETS: readonly SecretDef[] = [
   {
+    key: "BEAM_MERCHANT_ID",
+    label: "Beam merchant ID",
+    help: "REQUIRED. Beam authenticates with HTTP Basic auth as base64(merchantId:apiKey) — the merchant ID is the username, a separate credential from the API key. Without it every Beam request is rejected. Lighthouse dashboard → Developers.",
+    // A public identifier, not a credential — shown in full so an admin
+    // can verify it against the Lighthouse dashboard. Masking it would
+    // only make a typo harder to spot.
+    sensitive: false,
+    group: "Payments — BeamCheckout",
+  },
+  {
     key: "BEAM_API_KEY",
     label: "Beam secret key",
     help: "Server-side API key used to create charges and issue refunds. Beam dashboard → Developers → API keys.",

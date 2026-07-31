@@ -47,14 +47,19 @@ export async function resolveBeamProvider(
   env: BeamEnv,
 ): Promise<PaymentProvider | null> {
   const resolved = await getSecrets(env, [
+    "BEAM_MERCHANT_ID",
     "BEAM_API_KEY",
     "BEAM_WEBHOOK_SECRET",
   ]);
+  const merchantId = resolved.BEAM_MERCHANT_ID;
   const apiKey = resolved.BEAM_API_KEY;
   const webhookSecret = resolved.BEAM_WEBHOOK_SECRET;
-  if (!apiKey || !webhookSecret) return null;
+  // All three are required: merchantId is the HTTP Basic username, so a
+  // provider built without it would 401 on every call.
+  if (!merchantId || !apiKey || !webhookSecret) return null;
 
   return new BeamPaymentProvider({
+    merchantId,
     apiKey,
     webhookSecret,
     baseUrl: env.BEAM_BASE_URL,

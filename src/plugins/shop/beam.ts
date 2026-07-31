@@ -3,16 +3,23 @@
  * Thailand-first payment methods: PromptPay QR, credit/debit card,
  * LINE Pay, TrueMoney.
  *
- * Beam is Thailand's answer to Stripe/Adyen — API surface is roughly
- * Stripe-shaped (Charge object, webhooks with HMAC signatures) but
- * with Thai payment method affinity built in. Reference implementation
- * lives at codustry/bactrack-website; this adapter lifts the client
- * shape but restructures for the plugin runtime.
+ * Beam serves Thai payment methods, but its API is NOT Stripe-shaped —
+ * an earlier version of this adapter assumed it was and got four things
+ * wrong (bearer auth, base path, and the webhook digest encoding). Per
+ * https://docs.beamcheckout.com/get-started/authentication it uses
+ * HTTP Basic auth:
  *
- * Configuration is via env vars (validated at construction time):
- *   BEAM_API_KEY — secret key from beamcheckout.com dashboard
- *   BEAM_WEBHOOK_SECRET — for HMAC signature verification
- *   BEAM_BASE_URL — defaults to https://api.beamcheckout.com/v1
+ *     Authorization: Basic base64(merchantId + ":" + apiKey)
+ *
+ * The merchant ID is a SEPARATE credential from the API key — it is the
+ * Basic username, not something embedded in the key. Without it every
+ * request is rejected, so it is required, not optional.
+ *
+ * Configuration (validated at construction time):
+ *   BEAM_MERCHANT_ID — merchant identifier; the Basic-auth username
+ *   BEAM_API_KEY — secret key from the Lighthouse dashboard
+ *   BEAM_WEBHOOK_SECRET — base64 HMAC key for webhook verification
+ *   BEAM_BASE_URL — defaults to https://api.beamcheckout.com
  *
  * Not shipped:
  *   - Recurring payments / subscriptions (Beam doesn't support natively)
@@ -27,32 +34,54 @@ import type {
   WebhookVerifyResult,
 } from "./payment";
 
-const DEFAULT_BEAM_BASE_URL = "https://api.beamcheckout.com/v1";
+// Host only — the version lives in the documented path (/api/v1/charges),
+// not in the base URL. Sandbox: https://playground.api.beamcheckout.com
+const DEFAULT_BEAM_BASE_URL = "https://api.beamcheckout.com";
 
 export type BeamConfig = {
+  /** Basic-auth username. Required — Beam rejects requests without it. */
+  merchantId: string;
   apiKey: string;
   webhookSecret: string;
   baseUrl?: string;
 };
 
 /**
- * Compute HMAC-SHA256 hex signature — used both to sign outbound
- * requests (Beam auth) and to verify inbound webhook signatures.
- * Uses Web Crypto (available in Cloudflare Workers).
+ * Compute the webhook HMAC-SHA256 digest, BASE64-encoded.
+ *
+ * Two details Beam specifies that a Stripe-shaped implementation gets
+ * wrong (and this adapter previously did):
+ *
+ *  - The digest is **base64**, not hex. `X-Beam-Signature` carries base64.
+ *  - The configured HMAC key is itself **base64-encoded** and must be
+ *    DECODED to bytes before use. Using the base64 string as raw key
+ *    material produces a digest that never matches.
+ *
+ * Falls back to raw-string key material when the secret is not valid
+ * base64, so a misconfigured key fails signature comparison (rejecting
+ * the webhook) rather than throwing inside the handler.
  */
-async function hmacSha256Hex(secret: string, body: string): Promise<string> {
+async function hmacSha256Base64(
+  base64Secret: string,
+  body: string,
+): Promise<string> {
   const enc = new TextEncoder();
+  let keyBytes: Uint8Array;
+  try {
+    keyBytes = Uint8Array.from(atob(base64Secret), (c) => c.charCodeAt(0));
+  } catch {
+    keyBytes = enc.encode(base64Secret);
+  }
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
-    enc.encode(secret),
+    keyBytes,
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],
   );
   const sig = await crypto.subtle.sign("HMAC", keyMaterial, enc.encode(body));
-  return Array.from(new Uint8Array(sig))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  const digest = new Uint8Array(sig);
+  return btoa(Array.from(digest, (b) => String.fromCharCode(b)).join(""));
 }
 
 /**
@@ -97,6 +126,11 @@ export class BeamPaymentProvider implements PaymentProvider {
   private readonly baseUrl: string;
 
   constructor(private readonly config: BeamConfig) {
+    if (!config.merchantId) {
+      throw new Error(
+        "BeamPaymentProvider: merchantId is required — it is the HTTP Basic username",
+      );
+    }
     if (!config.apiKey) {
       throw new Error("BeamPaymentProvider: apiKey is required");
     }
@@ -106,13 +140,29 @@ export class BeamPaymentProvider implements PaymentProvider {
     this.baseUrl = config.baseUrl ?? DEFAULT_BEAM_BASE_URL;
   }
 
+  /**
+   * HTTP Basic auth: base64(merchantId:apiKey).
+   *
+   * Beam does NOT use bearer tokens. Computed per call rather than cached
+   * so a credential rotated through /admin/settings/secrets takes effect
+   * on the next request.
+   */
+  private authHeader(): string {
+    const raw = `${this.config.merchantId}:${this.config.apiKey}`;
+    // btoa is byte-oriented; encode UTF-8 first so a non-ASCII id or key
+    // does not silently produce a wrong header.
+    const bytes = new TextEncoder().encode(raw);
+    const binary = Array.from(bytes, (b) => String.fromCharCode(b)).join("");
+    return `Basic ${btoa(binary)}`;
+  }
+
   async createCharge(input: ChargeInput): Promise<ChargeResult> {
     try {
-      const res = await fetch(`${this.baseUrl}/charges`, {
+      const res = await fetch(`${this.baseUrl}/api/v1/charges`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          authorization: `Bearer ${this.config.apiKey}`,
+          authorization: this.authHeader(),
         },
         body: JSON.stringify({
           amount: input.amount,
@@ -152,11 +202,11 @@ export class BeamPaymentProvider implements PaymentProvider {
 
   async refund(input: RefundInput): Promise<RefundResult> {
     try {
-      const res = await fetch(`${this.baseUrl}/refunds`, {
+      const res = await fetch(`${this.baseUrl}/api/v1/refunds`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          authorization: `Bearer ${this.config.apiKey}`,
+          authorization: this.authHeader(),
         },
         body: JSON.stringify({
           charge_id: input.providerChargeId,
@@ -199,11 +249,12 @@ export class BeamPaymentProvider implements PaymentProvider {
         message: "X-Beam-Signature header absent",
       };
     }
-    // Strip optional `sha256=` scheme prefix (Stripe convention that
-    // Beam MAY adopt) so we compare hex-to-hex regardless of format.
-    const providedHex = signature.toLowerCase().replace(/^sha256=/, "");
-    const expected = await hmacSha256Hex(this.config.webhookSecret, rawBody);
-    if (!timingSafeEqual(expected, providedHex)) {
+    // Beam sends a bare base64 digest. Strip a `sha256=` prefix defensively
+    // (some gateways add one) but do NOT lowercase — base64 is
+    // case-sensitive, and lowercasing it guarantees a mismatch.
+    const provided = signature.replace(/^sha256=/, "").trim();
+    const expected = await hmacSha256Base64(this.config.webhookSecret, rawBody);
+    if (!timingSafeEqual(expected, provided)) {
       return { ok: false, code: "INVALID_SIGNATURE", message: "HMAC mismatch" };
     }
     let parsed: BeamWebhookEnvelope;

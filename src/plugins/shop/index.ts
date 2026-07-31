@@ -89,13 +89,15 @@ export default defineKhaopadPlugin({
     // DB-stored credentials are resolved per-request instead, in
     // `beam-config.server.ts`. That also keeps a rotated key effective
     // immediately, rather than pinning whatever existed at boot.
+    const beamMerchantId = ctx.env.BEAM_MERCHANT_ID;
     const beamKey = ctx.env.BEAM_API_KEY;
     const beamWebhookSecret = ctx.env.BEAM_WEBHOOK_SECRET;
-    if (beamKey && beamWebhookSecret) {
+    if (beamMerchantId && beamKey && beamWebhookSecret) {
       const { BeamPaymentProvider } = await import("./beam");
       const { registerPaymentProvider } = await import("./payment");
       registerPaymentProvider(
         new BeamPaymentProvider({
+          merchantId: beamMerchantId,
           apiKey: beamKey,
           webhookSecret: beamWebhookSecret,
           baseUrl: ctx.env.BEAM_BASE_URL,

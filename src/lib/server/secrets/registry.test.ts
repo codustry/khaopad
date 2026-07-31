@@ -28,27 +28,31 @@ describe("managed secret registry", () => {
     expect(isManagedSecret("beam_api_key")).toBe(false); // case-sensitive
   });
 
-  it("accepts exactly the three intended keys", () => {
+  it("accepts exactly the four intended keys", () => {
     const keys = MANAGED_SECRETS.map((s) => s.key).sort();
     expect(keys).toEqual([
       "BEAM_API_KEY",
+      "BEAM_MERCHANT_ID",
       "BEAM_WEBHOOK_SECRET",
       "RESEND_API_KEY",
     ]);
   });
 
-  it("only lists keys the application actually reads", () => {
-    // BEAM_MERCHANT_ID was offered in the first cut but nothing consumed
-    // it — BeamConfig takes only apiKey/webhookSecret/baseUrl. Offering an
-    // inert field invites an admin to "configure" something that does
-    // nothing, which is worse than omitting it.
-    expect(isManagedSecret("BEAM_MERCHANT_ID")).toBe(false);
+  it("includes BEAM_MERCHANT_ID — Beam requires it to authenticate", () => {
+    // Beam uses HTTP Basic as base64(merchantId:apiKey), so the merchant
+    // id is the username and a hard requirement, not decoration. I briefly
+    // removed it after concluding from the code that nothing read it;
+    // the code was wrong, not the requirement.
+    expect(isManagedSecret("BEAM_MERCHANT_ID")).toBe(true);
   });
 
-  it("marks every managed credential sensitive", () => {
-    // A wrong value here means a live key renders in full on the page.
+  it("marks credentials sensitive but the merchant identifier public", () => {
+    // A wrong flag means a live key renders in full on the page. The
+    // merchant id is a public identifier — masking it would only make a
+    // typo harder to spot against the Lighthouse dashboard.
     for (const def of MANAGED_SECRETS) {
-      expect(def.sensitive, `${def.key}.sensitive`).toBe(true);
+      const expected = def.key !== "BEAM_MERCHANT_ID";
+      expect(def.sensitive, `${def.key}.sensitive`).toBe(expected);
     }
   });
 
