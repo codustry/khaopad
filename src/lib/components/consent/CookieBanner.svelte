@@ -6,7 +6,7 @@
 	let {
 		consent,
 		privacyHref,
-	}: { consent: ConsentRecord; privacyHref: string } = $props();
+	}: { consent: ConsentRecord; privacyHref?: string } = $props();
 
 	let saving = $state(false);
 	let detailsOpen = $state(false);
@@ -41,13 +41,27 @@
 		aria-live="polite"
 		aria-label={m.cookie_banner_title()}
 	>
-		<div class="container mx-auto px-4 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-			<div class="flex-1 text-sm text-muted-foreground">
+		<div
+			class="container mx-auto max-w-7xl px-4 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+		>
+			<!--
+				max-w-prose on the copy: without it this paragraph ran the full
+				viewport width — measured at 163 characters per line on a 1920px
+				display, against the 45-75ch typographic guideline. Past ~90ch the
+				eye loses its place tracking back to the next line, which is the
+				worst possible property for text asking someone to make a privacy
+				decision.
+			-->
+			<div class="flex-1 max-w-prose text-sm text-muted-foreground">
 				<p class="font-medium text-foreground mb-1">{m.cookie_banner_title()}</p>
 				<p>
 					{m.cookie_banner_body()}
-					<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- privacy href is operator-supplied (always /[locale]/privacy-policy from layout); not a build-time route -->
-					<a href={privacyHref} class="underline hover:text-foreground">{m.cookie_banner_learn_more()}</a>
+					{#if privacyHref}
+						<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- privacy href is operator-supplied; not a build-time route -->
+						<a href={privacyHref} class="underline hover:text-foreground"
+							>{m.cookie_banner_learn_more()}</a
+						>
+					{/if}
 				</p>
 				{#if detailsOpen}
 					<div class="mt-3 space-y-2 border border-border rounded-md p-3 bg-muted/30">

@@ -7,6 +7,19 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
   const siteSettings = await locals.content.getSettings().catch(() => null);
   const consent = parseConsent(cookies.get(CONSENT_COOKIE));
 
+  // Only offer the cookie banner's "learn more" link when a privacy page
+  // actually exists. The href used to be hardcoded, so every install
+  // without a page at /privacy-policy shipped a 404 on its consent
+  // banner — the one link on that banner that legally ought to work.
+  // Looked up rather than configured so it self-corrects when an operator
+  // publishes (or unpublishes) the page.
+  const privacyPage = await locals.content
+    .getPageBySlug("privacy-policy")
+    .catch(() => null);
+  const hasPrivacyPage =
+    !!privacyPage &&
+    (privacyPage as { status?: string }).status === "published";
+
   // v1.7b: pre-resolve the primary + footer menus into render-ready
   // arrays so the layout's header/footer can iterate without doing
   // any database work itself.
@@ -30,6 +43,7 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
     locale: locals.locale,
     siteSettings,
     consent,
+    hasPrivacyPage,
     nav: {
       primary: renderMenu("primary"),
       footer: renderMenu("footer"),

@@ -80,5 +80,7 @@
 
 <CookieBanner
 	consent={data.consent}
-	privacyHref={localePath(toLocale(data.locale), '/privacy-policy')}
+	privacyHref={data.hasPrivacyPage
+		? localePath(toLocale(data.locale), '/privacy-policy')
+		: undefined}
 />
