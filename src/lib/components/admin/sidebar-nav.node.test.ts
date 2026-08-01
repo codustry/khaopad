@@ -69,4 +69,16 @@ describe("sidebar-nav module initialization", () => {
     // than left as cargo cult.
     expect(source).toMatch(/import ["']\$lib\/plugins\/registrations["']/);
   });
+
+  it("declares the registry with `var`, not `let` — TDZ safety", () => {
+    // `let` sits in the Temporal Dead Zone until its declaration runs.
+    // This module side-effect-imports $lib/plugins/registrations at the
+    // bottom, and the bundler hoisted those plugin calls ABOVE the
+    // declaration in production — every admin page threw
+    // "Cannot access 'pe' before initialization" and rendered 500.
+    // `var` is hoisted and initialized to undefined, so the lazy guard
+    // works no matter the evaluation order.
+    expect(source).toMatch(/var _registry:/);
+    expect(source).not.toMatch(/let _registry:/);
+  });
 });

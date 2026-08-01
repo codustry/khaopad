@@ -74,7 +74,28 @@ type RegistryEntry = { title: () => string; items: NavItem[] };
  * Reading through this accessor makes the order irrelevant: whoever
  * touches the registry first creates it.
  */
-let _registry: Map<string, RegistryEntry> | undefined;
+// `var`, deliberately — NOT `let`. This is the one case where var is
+// correct and let is a bug.
+//
+// `let` is block-scoped and lives in the Temporal Dead Zone until its
+// declaration executes: touching it before then throws
+// `ReferenceError: Cannot access '_registry' before initialization`.
+// `var` is hoisted and initialized to `undefined`, so the guard below
+// simply sees undefined and creates the Map.
+//
+// That matters because this module imports `$lib/plugins/registrations`
+// as a side effect at the bottom of the file, and a bundler is free to
+// hoist those plugin registration calls ABOVE this declaration. It did:
+// production minified the shop plugin's registerPaymentProvider call
+// directly before `let pe;` (this variable), so every admin page threw
+// on hydration and rendered "500 Internal Error".
+//
+// The lazy accessor added after the earlier outage fixed the Map being
+// undefined, but not the TDZ on the binding itself — the accessor cannot
+// run at all if reaching the variable throws. `var` closes that gap.
+//
+// eslint-disable-next-line no-var
+var _registry: Map<string, RegistryEntry> | undefined;
 function registry(): Map<string, RegistryEntry> {
   if (!_registry) _registry = new Map<string, RegistryEntry>();
   return _registry;
