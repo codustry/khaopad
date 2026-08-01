@@ -334,19 +334,16 @@ const cacheHook: Handle = async ({ event, resolve }) => {
  * the admin session cookie. HttpOnly on the cookie blocks the primary
  * `document.cookie` vector; CSP closes off script injection at the source.
  *
- * We ship separate CSP for public and admin surfaces:
+ * The CSP itself is defined in svelte.config.js (`kit.csp`), NOT here.
+ * SvelteKit must own it so it can nonce its own inline hydration
+ * bootstrap. This file previously set `script-src 'self'` by hand on the
+ * reasoning that "public HTML never legitimately needs inline JS" — but
+ * SvelteKit's bootstrap IS inline JS on every page, so the browser
+ * refused it and the entire app shipped as inert HTML.
  *
- * - Public: strict — script-src 'self', no inline scripts, no eval.
- *   Public HTML never legitimately needs inline JS; a stored-XSS payload
- *   that would `<script>` under a permissive policy just gets refused.
- *   `img-src` and `media-src` include `data:` and `blob:` for markdown-
- *   embedded images/media; `connect-src` allows same-origin fetch for
- *   comment forms + newsletter subscribe.
- *
- * - Admin: relaxed only where the shadcn/svelte-sonner stack needs it
- *   (inline style attributes from bits-ui components). Scripts still
- *   locked to 'self'. Admin is authenticated so external content injection
- *   isn't the same threat class.
+ * `csp.mode: "auto"` keeps the policy strict (nonce per response, hashes
+ * where prerendered) rather than resorting to 'unsafe-inline', which
+ * would reopen the stored-XSS hole this policy exists to close.
  *
  * Same-origin defenses beyond CSP:
  * - `X-Content-Type-Options: nosniff` — kills MIME sniffing attacks
@@ -361,34 +358,6 @@ const SECURITY_HEADERS_STATIC: Record<string, string> = {
   "X-Frame-Options": "DENY",
 };
 
-const CSP_PUBLIC = [
-  "default-src 'self'",
-  "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'", // Tailwind emits some inline styles at build; svelte hydration attaches per-component styles
-  "img-src 'self' data: blob: https:", // https: allows R2 CDN + external cover images
-  "media-src 'self' data: blob: https:",
-  "font-src 'self' data:",
-  "connect-src 'self'",
-  "frame-ancestors 'none'",
-  "form-action 'self'",
-  "base-uri 'self'",
-  "object-src 'none'",
-].join("; ");
-
-const CSP_ADMIN = [
-  "default-src 'self'",
-  "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https:",
-  "media-src 'self' data: blob: https:",
-  "font-src 'self' data:",
-  "connect-src 'self'",
-  "frame-ancestors 'none'",
-  "form-action 'self'",
-  "base-uri 'self'",
-  "object-src 'none'",
-].join("; ");
-
 const securityHeadersHook: Handle = async ({ event, resolve }) => {
   const response = await resolve(event);
 
@@ -396,13 +365,12 @@ const securityHeadersHook: Handle = async ({ event, resolve }) => {
     if (!response.headers.has(name)) response.headers.set(name, value);
   }
 
-  if (!response.headers.has("Content-Security-Policy")) {
-    const isAdmin = event.locals.surface === "admin";
-    response.headers.set(
-      "Content-Security-Policy",
-      isAdmin ? CSP_ADMIN : CSP_PUBLIC,
-    );
-  }
+  // NOTE: the CSP is deliberately NOT set here. SvelteKit generates it
+  // (svelte.config.js `kit.csp`) so it can attach a nonce to its own
+  // inline hydration bootstrap. A hand-written policy here would clobber
+  // that nonce — which is exactly what the previous `script-src 'self'`
+  // did: the browser refused the bootstrap, hydration never ran, and the
+  // whole app was served as inert HTML with non-functioning forms.
 
   return response;
 };
