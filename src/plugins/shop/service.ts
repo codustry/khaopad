@@ -760,6 +760,65 @@ export class ShopService {
       .all();
   }
 
+  /**
+   * Collections with their localized title and product count, for the
+   * admin list view.
+   *
+   * `listCollections` returns bare rows, which are not renderable on
+   * their own — the title lives in `shop_collection_localizations` and
+   * the count in `shop_collection_products`. Both are fetched in ONE
+   * query each and joined in memory rather than per-row, so the page
+   * costs 3 queries regardless of how many collections exist.
+   */
+  async listCollectionsForAdmin(locale = "en"): Promise<
+    Array<
+      ShopCollection & {
+        title: string;
+        productCount: number;
+      }
+    >
+  > {
+    const rows = await this.listCollections();
+    if (rows.length === 0) return [];
+
+    const ids = rows.map((r) => r.id);
+    const [locs, links] = await Promise.all([
+      this.db
+        .select()
+        .from(shopCollectionLocalizations)
+        .where(inArray(shopCollectionLocalizations.collectionId, ids))
+        .all(),
+      this.db
+        .select()
+        .from(shopCollectionProducts)
+        .where(inArray(shopCollectionProducts.collectionId, ids))
+        .all(),
+    ]);
+
+    // Prefer the requested locale, fall back to English, then anything —
+    // a collection with only a Thai title should still show a title
+    // rather than an empty cell.
+    const titleFor = (id: string) => {
+      const forId = locs.filter((l) => l.collectionId === id);
+      return (
+        forId.find((l) => l.locale === locale)?.title ??
+        forId.find((l) => l.locale === "en")?.title ??
+        forId[0]?.title ??
+        ""
+      );
+    };
+    const counts = new Map<string, number>();
+    for (const l of links) {
+      counts.set(l.collectionId, (counts.get(l.collectionId) ?? 0) + 1);
+    }
+
+    return rows.map((r) => ({
+      ...r,
+      title: titleFor(r.id),
+      productCount: counts.get(r.id) ?? 0,
+    }));
+  }
+
   async createCollection(input: {
     slug?: string;
     status?: "draft" | "active" | "archived";

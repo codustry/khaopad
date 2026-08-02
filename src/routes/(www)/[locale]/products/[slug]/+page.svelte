@@ -63,6 +63,46 @@
 			// sessionStorage disabled (private mode etc.) — skip
 		}
 	});
+
+	// ─── Add to cart ────────────────────────────────────────────────
+	// POSTs the selected variant to /api/shop/cart, which is same-origin
+	// guarded and handles session creation. Previously the page had no
+	// way to add anything: cart and checkout existed and worked, but
+	// nothing on the product page was wired to them, and a footer note
+	// still promised the feature for a release that had long since gone
+	// out — so the shop could not take an order at all.
+	let adding = $state(false);
+	let addError = $state<string | null>(null);
+	let added = $state(false);
+
+	async function addToCart() {
+		if (!selectedVariant || adding) return;
+		adding = true;
+		addError = null;
+		added = false;
+		try {
+			const res = await fetch('/api/shop/cart', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ variantId: selectedVariant.id, quantity: 1 })
+			});
+			if (!res.ok) {
+				// Surface the server's reason (out of stock, unknown variant)
+				// rather than a generic failure — the customer can act on it.
+				const body = await res.json().catch(() => null);
+				addError =
+					(body && typeof body === 'object' && 'message' in body
+						? String(body.message)
+						: null) ?? 'Could not add to cart. Please try again.';
+				return;
+			}
+			added = true;
+		} catch {
+			addError = 'Network error. Please try again.';
+		} finally {
+			adding = false;
+		}
+	}
 </script>
 
 <!-- SEO is rendered by the layout via page.data.seo. Only the Product
@@ -141,13 +181,21 @@
 	{/if}
 
 	<footer class="mt-10 border-t border-border pt-6">
-		<p class="text-sm text-muted-foreground">
-			Cart + checkout ship in v3.2 (<a
-				href="https://github.com/codustry/khaopad/issues/57"
-				class="underline"
-				target="_blank"
-				rel="noopener">#57</a
-			>). Currently browse-only.
-		</p>
+		<div class="flex flex-wrap items-center gap-3">
+			<button
+				type="button"
+				onclick={addToCart}
+				disabled={adding || !selectedVariant}
+				class="h-11 rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground disabled:opacity-50 sm:h-10"
+			>
+				{adding ? 'Adding…' : 'Add to cart'}
+			</button>
+			{#if added}
+				<a href="/cart" class="text-sm underline">View cart →</a>
+			{/if}
+		</div>
+		{#if addError}
+			<p class="mt-3 text-sm text-destructive">{addError}</p>
+		{/if}
 	</footer>
 </article>
