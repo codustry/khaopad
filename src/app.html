@@ -4,6 +4,33 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="%sveltekit.assets%/favicon.png" />
+    <!--
+      Applies the stored theme before first paint, so a dark-mode admin
+      never flashes white. Svelte state initialises after hydration,
+      which is at least one paint too late.
+
+      The nonce is required: `csp.mode: "auto"` emits a nonce-based
+      policy, and an un-nonced inline script is exactly what broke the
+      downstream fork in #133. `%sveltekit.nonce%` is incompatible with
+      prerendering — no route in this app prerenders, and adding one
+      would fail the build loudly rather than silently.
+
+      Kept in sync with THEME_INIT_SCRIPT in
+      $lib/components/admin/theme.svelte.ts, which a test asserts.
+    -->
+    <script nonce="%sveltekit.nonce%">
+      (function () {
+        try {
+          var stored = localStorage.getItem("khaopad-theme");
+          var dark =
+            stored === "dark" ||
+            ((stored === "system" || stored === null) &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          if (dark) document.documentElement.classList.add("dark");
+          document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        } catch (e) {}
+      })();
+    </script>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">

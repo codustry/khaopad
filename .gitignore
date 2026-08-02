@@ -15,6 +15,10 @@ build
 .env
 .env.local
 .env.production
+# Wrangler's local secret file. Holds BETTER_AUTH_SECRET for `pnpm dev`,
+# which is a real signing key even in development — committing it would
+# leak the value that every local session token is signed with.
+.dev.vars
 .DS_Store
 *.db
 *.db-journal

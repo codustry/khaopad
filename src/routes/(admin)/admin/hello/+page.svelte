@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { Button, Input } from '$lib/components/ui';
+	import { PageShell, PageHeader } from '$lib/components/admin';
+	import { Plug } from 'lucide-svelte';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -9,15 +11,14 @@
 	let submitting = $state(false);
 </script>
 
-<div class="max-w-2xl space-y-6 p-6">
-	<header>
-		<h1 class="text-2xl font-semibold">Hello plugin</h1>
-		<p class="text-sm text-muted-foreground">
-			Reference plugin for the v3.0 plugin runtime. Sends a ping, logs an audit
-			action, fires the <code>hello.pinged</code> webhook event.
-		</p>
-	</header>
+<PageShell width="form">
+	<PageHeader
+		title="Hello plugin"
+		description="Reference plugin for the v3.0 plugin runtime. Sends a ping, logs an audit action, fires the hello.pinged webhook event."
+		icon={Plug}
+	/>
 
+	<div class="space-y-6">
 	<form
 		method="POST"
 		action="?/ping"
@@ -46,7 +47,7 @@
 		<p class="text-sm text-destructive">{form.error}</p>
 	{/if}
 	{#if form?.success}
-		<p class="text-sm text-green-600">Sent ✓</p>
+		<p class="text-sm text-green-700 dark:text-green-300">Sent ✓</p>
 	{/if}
 
 	<section>
@@ -68,4 +69,5 @@
 			</ul>
 		{/if}
 	</section>
-</div>
+	</div>
+</PageShell>

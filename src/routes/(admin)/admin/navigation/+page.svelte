@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import * as m from '$lib/paraglide/messages';
+	import { Menu } from 'lucide-svelte';
+	import { Button } from '$lib/components/ui';
+	import { PageShell, PageHeader } from '$lib/components/admin';
 	import type {
 		NavigationMenuRecord,
 		NavigationItemKind,
@@ -82,20 +85,23 @@
 	<title>{m.cms_navigation()} — {m.cms_app_name()}</title>
 </svelte:head>
 
-<div class="space-y-6">
-	<header class="flex items-center justify-between flex-wrap gap-3">
-		<div>
-			<h1 class="text-2xl font-bold">{m.cms_navigation()}</h1>
-			<p class="text-sm text-muted-foreground">{m.cms_navigation_help()}</p>
-		</div>
-		<button
-			type="button"
-			onclick={() => (createMenuOpen = !createMenuOpen)}
-			class="px-4 py-2 border border-border rounded-md text-sm hover:bg-muted"
-		>
-			{createMenuOpen ? m.cms_cancel() : m.cms_navigation_new_menu()}
-		</button>
-	</header>
+<PageShell width="default" class="space-y-6">
+	<PageHeader
+		title={m.cms_navigation()}
+		description={m.cms_navigation_help()}
+		icon={Menu}
+		class="mb-0"
+	>
+		{#snippet actions()}
+			<Button
+				type="button"
+				variant="outline"
+				onclick={() => (createMenuOpen = !createMenuOpen)}
+			>
+				{createMenuOpen ? m.cms_cancel() : m.cms_navigation_new_menu()}
+			</Button>
+		{/snippet}
+	</PageHeader>
 
 	{#if form?.error}
 		<div class="bg-destructive/10 text-destructive text-sm p-3 rounded-md">{form.error}</div>
@@ -122,9 +128,7 @@
 					<input name="label" required class="mt-1 w-full px-3 py-2 border border-input rounded-md bg-background text-sm" />
 				</label>
 			</div>
-			<button type="submit" class="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm">
-				{m.cms_navigation_create_menu()}
-			</button>
+			<Button type="submit">{m.cms_navigation_create_menu()}</Button>
 		</form>
 	{/if}
 
@@ -134,7 +138,7 @@
 			<button
 				type="button"
 				onclick={() => (activeMenuId = menu.id)}
-				class="px-4 py-2 text-sm border-b-2 -mb-px {activeMenuId === menu.id ? 'border-primary text-foreground font-medium' : 'border-transparent text-muted-foreground hover:text-foreground'}"
+				class="rounded-t-sm px-4 py-2 text-sm border-b-2 -mb-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring {activeMenuId === menu.id ? 'border-primary text-foreground font-medium' : 'border-transparent text-muted-foreground hover:text-foreground'}"
 			>
 				{menu.label}
 				<span class="ml-1.5 text-xs text-muted-foreground">({menu.key})</span>
@@ -162,12 +166,30 @@
 							<form method="POST" action="?/moveItem" use:enhance>
 								<input type="hidden" name="id" value={item.id} />
 								<input type="hidden" name="direction" value="up" />
-								<button type="submit" disabled={i === 0} class="px-1.5 py-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-30">↑</button>
+								<Button
+									type="submit"
+									variant="ghost"
+									size="sm"
+									disabled={i === 0}
+									class="px-1.5 text-muted-foreground"
+									aria-label="Move up"
+								>
+									↑
+								</Button>
 							</form>
 							<form method="POST" action="?/moveItem" use:enhance>
 								<input type="hidden" name="id" value={item.id} />
 								<input type="hidden" name="direction" value="down" />
-								<button type="submit" disabled={i === items.length - 1} class="px-1.5 py-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-30">↓</button>
+								<Button
+									type="submit"
+									variant="ghost"
+									size="sm"
+									disabled={i === items.length - 1}
+									class="px-1.5 text-muted-foreground"
+									aria-label="Move down"
+								>
+									↓
+								</Button>
 							</form>
 							<form
 								method="POST"
@@ -181,9 +203,9 @@
 								}}
 							>
 								<input type="hidden" name="id" value={item.id} />
-								<button type="submit" class="px-2 py-1 text-xs text-destructive hover:underline">
+								<Button type="submit" variant="ghost" size="sm" class="text-destructive">
 									{m.cms_delete()}
-								</button>
+								</Button>
 							</form>
 						</li>
 					{/each}
@@ -251,9 +273,7 @@
 					</label>
 				{/if}
 			</div>
-			<button type="submit" class="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm">
-				{m.cms_navigation_add_item()}
-			</button>
+			<Button type="submit">{m.cms_navigation_add_item()}</Button>
 		</form>
 
 		<!-- Delete menu (only allow when it's not one of the stock keys) -->
@@ -270,10 +290,15 @@
 				}}
 			>
 				<input type="hidden" name="id" value={activeMenu.id} />
-				<button type="submit" class="px-3 py-1.5 border border-destructive text-destructive rounded-md text-xs hover:bg-destructive/10">
+				<Button
+					type="submit"
+					variant="outline"
+					size="sm"
+					class="border-destructive text-destructive hover:bg-destructive/10 hover:text-destructive"
+				>
 					{m.cms_navigation_delete_menu()}
-				</button>
+				</Button>
 			</form>
 		{/if}
 	{/if}
-</div>
+</PageShell>

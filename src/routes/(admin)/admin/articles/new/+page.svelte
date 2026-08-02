@@ -1,6 +1,8 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import * as m from '$lib/paraglide/messages';
 	import ArticleForm from '../ArticleForm.svelte';
+	import { PageShell, PageHeader } from '$lib/components/admin';
 	let { data, form } = $props();
 </script>
 
@@ -8,12 +10,18 @@
 	<title>{m.cms_new_article()} — {m.cms_app_name()}</title>
 </svelte:head>
 
-<div class="max-w-3xl mx-auto">
-	<h1 class="text-2xl font-bold mb-6">{m.cms_new_article()}</h1>
+<PageShell width="form">
+	<PageHeader
+		title={m.cms_new_article()}
+		breadcrumbs={[
+			{ label: m.cms_articles(), href: resolve('/(admin)/admin/articles') },
+			{ label: m.cms_new_article() }
+		]}
+	/>
 	<ArticleForm
 		formState={form}
 		submitLabel={m.cms_save_draft()}
 		categories={data.categories}
 		tags={data.tags}
 	/>
-</div>
+</PageShell>

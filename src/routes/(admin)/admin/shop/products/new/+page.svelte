@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
-	import { Package, ArrowLeft } from 'lucide-svelte';
+	import { Package } from 'lucide-svelte';
 	import { Button, Input, Label } from '$lib/components/ui';
+	import { PageShell, PageHeader } from '$lib/components/admin';
 	import type { ActionData } from './$types';
 
 	let { form }: { form: ActionData } = $props();
@@ -10,19 +11,15 @@
 	let submitting = $state(false);
 </script>
 
-<div class="max-w-2xl space-y-6 p-6">
-	<a
-		href={resolve('/(admin)/admin/shop/products')}
-		class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-	>
-		<ArrowLeft class="h-4 w-4" />
-		Back to products
-	</a>
-
-	<header class="flex items-center gap-3">
-		<Package class="h-6 w-6 text-muted-foreground" />
-		<h1 class="text-2xl font-semibold">New product</h1>
-	</header>
+<PageShell width="form">
+	<PageHeader
+		title="New product"
+		icon={Package}
+		breadcrumbs={[
+			{ label: 'Products', href: resolve('/(admin)/admin/shop/products') },
+			{ label: 'New product' }
+		]}
+	/>
 
 	<form
 		method="POST"
@@ -157,15 +154,10 @@
 		</section>
 
 		<div class="flex justify-end gap-2">
-			<a
-				href={resolve('/(admin)/admin/shop/products')}
-				class="inline-flex items-center rounded-md border border-input bg-background px-3 py-1.5 text-sm hover:bg-muted"
-			>
-				Cancel
-			</a>
+			<Button href={resolve('/(admin)/admin/shop/products')} variant="outline">Cancel</Button>
 			<Button type="submit" disabled={submitting}>
 				{submitting ? 'Creating…' : 'Create product'}
 			</Button>
 		</div>
 	</form>
-</div>
+</PageShell>

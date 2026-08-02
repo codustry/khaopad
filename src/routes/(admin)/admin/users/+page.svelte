@@ -4,6 +4,8 @@
 	import * as m from '$lib/paraglide/messages';
 	import { formatDate } from '$lib/utils';
 	import { Avatar, Badge, Button, Card, Input, Label } from '$lib/components/ui';
+	import { PageShell, PageHeader } from '$lib/components/admin';
+	import { Users } from 'lucide-svelte';
 	import type { UserRole } from '$lib/server/auth/types';
 	import type { PageData } from './$types';
 
@@ -101,11 +103,8 @@
 	<title>{m.cms_users()} — {m.cms_app_name()}</title>
 </svelte:head>
 
-<section class="mx-auto w-full max-w-4xl">
-	<header class="mb-8">
-		<h1 class="text-2xl font-semibold tracking-tight">{m.cms_users()}</h1>
-		<p class="mt-1.5 text-sm text-muted-foreground">{m.cms_users_help()}</p>
-	</header>
+<PageShell width="default">
+	<PageHeader title={m.cms_users()} description={m.cms_users_help()} icon={Users} />
 
 	{#if form?.error}
 		<div
@@ -327,4 +326,4 @@
 			</ul>
 		</Card>
 	{/if}
-</section>
+</PageShell>

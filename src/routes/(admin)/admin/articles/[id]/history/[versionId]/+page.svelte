@@ -2,13 +2,19 @@
 	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
 	import * as m from '$lib/paraglide/messages';
-	import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui';
+	import { Button, Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui';
+	import { History } from 'lucide-svelte';
+	import { PageShell, PageHeader } from '$lib/components/admin';
 	import type { PageData } from './$types';
 
 	let {
 		data,
 		form,
 	}: { data: PageData; form: { ok?: boolean; error?: string } | null } = $props();
+
+	// ArticleRecord carries no top-level title; the crumb label comes from the
+	// English localization, falling back to the slug.
+	const articleTitle = $derived(data.article.localizations.en?.title ?? data.article.slug);
 
 	function formatTimestamp(iso: string): string {
 		const d = new Date(iso);
@@ -26,41 +32,40 @@
 	<title>v{data.version.version} {data.version.locale.toUpperCase()} — {m.cms_app_name()}</title>
 </svelte:head>
 
-<section class="mx-auto w-full max-w-4xl">
-	<header class="mb-6 flex flex-wrap items-center justify-between gap-3">
-		<div>
-			<a
-				href={resolve('/(admin)/admin/articles/[id]/history', { id: data.article.id })}
-				class="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
+<PageShell width="default">
+	<PageHeader
+		title="v{data.version.version} · {data.version.locale.toUpperCase()}"
+		description={formatTimestamp(data.version.createdAt)}
+		icon={History}
+		breadcrumbs={[
+			{ label: 'Articles', href: resolve('/(admin)/admin/articles') },
+			{
+				label: articleTitle,
+				href: resolve('/(admin)/admin/articles/[id]', { id: data.article.id }),
+			},
+			{
+				label: m.cms_history_title(),
+				href: resolve('/(admin)/admin/articles/[id]/history', { id: data.article.id }),
+			},
+			{ label: `v${data.version.version}` },
+		]}
+	>
+		{#snippet actions()}
+			<form
+				method="POST"
+				action="?/restore"
+				use:enhance={({ cancel }) => {
+					if (!confirm(m.cms_history_restore_confirm())) {
+						cancel();
+						return;
+					}
+					return async ({ update }) => update();
+				}}
 			>
-				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-					<path d="M19 12H5M12 19l-7-7 7-7" />
-				</svg>
-				{m.cms_history_back()}
-			</a>
-			<h1 class="mt-3 text-2xl font-semibold tracking-tight">
-				<Badge variant="secondary">v{data.version.version}</Badge>
-				<Badge variant="outline" class="ml-1">{data.version.locale.toUpperCase()}</Badge>
-				<span class="ml-3 text-base font-normal text-muted-foreground">
-					{formatTimestamp(data.version.createdAt)}
-				</span>
-			</h1>
-		</div>
-
-		<form
-			method="POST"
-			action="?/restore"
-			use:enhance={({ cancel }) => {
-				if (!confirm(m.cms_history_restore_confirm())) {
-					cancel();
-					return;
-				}
-				return async ({ update }) => update();
-			}}
-		>
-			<Button type="submit">{m.cms_history_restore()}</Button>
-		</form>
-	</header>
+				<Button type="submit">{m.cms_history_restore()}</Button>
+			</form>
+		{/snippet}
+	</PageHeader>
 
 	{#if form?.error}
 		<div
@@ -84,10 +89,10 @@
 						<CardTitle class="text-sm">{m.cms_title_en()} / {m.cms_title_th()}</CardTitle>
 					</CardHeader>
 					<CardContent class="space-y-2 text-sm">
-						<div class="rounded bg-red-50 px-3 py-1.5 text-red-900 line-through dark:bg-red-950/30 dark:text-red-200">
+						<div class="rounded bg-red-100 px-3 py-1.5 text-red-800 line-through dark:bg-red-500/15 dark:text-red-300">
 							{data.diff.title.before}
 						</div>
-						<div class="rounded bg-green-50 px-3 py-1.5 text-green-900 dark:bg-green-950/30 dark:text-green-200">
+						<div class="rounded bg-green-100 px-3 py-1.5 text-green-800 dark:bg-green-500/15 dark:text-green-300">
 							{data.diff.title.after}
 						</div>
 					</CardContent>
@@ -100,10 +105,10 @@
 						<CardTitle class="text-sm">{m.cms_excerpt()}</CardTitle>
 					</CardHeader>
 					<CardContent class="space-y-2 text-sm">
-						<div class="rounded bg-red-50 px-3 py-1.5 text-red-900 line-through dark:bg-red-950/30 dark:text-red-200">
+						<div class="rounded bg-red-100 px-3 py-1.5 text-red-800 line-through dark:bg-red-500/15 dark:text-red-300">
 							{data.diff.excerpt.before || '—'}
 						</div>
-						<div class="rounded bg-green-50 px-3 py-1.5 text-green-900 dark:bg-green-950/30 dark:text-green-200">
+						<div class="rounded bg-green-100 px-3 py-1.5 text-green-800 dark:bg-green-500/15 dark:text-green-300">
 							{data.diff.excerpt.after || '—'}
 						</div>
 					</CardContent>
@@ -117,12 +122,12 @@
 					</CardHeader>
 					<CardContent class="p-0">
 						<pre class="overflow-x-auto p-4 text-xs leading-snug font-mono"><code>{#each data.diff.body as op, i (i)}{#if op.kind === 'equal'}<span class="text-muted-foreground">  {op.line}</span>
-{:else if op.kind === 'del'}<span class="bg-red-50 text-red-900 dark:bg-red-950/40 dark:text-red-200">- {op.line}</span>
-{:else}<span class="bg-green-50 text-green-900 dark:bg-green-950/40 dark:text-green-200">+ {op.line}</span>
+{:else if op.kind === 'del'}<span class="bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300">- {op.line}</span>
+{:else}<span class="bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300">+ {op.line}</span>
 {/if}{/each}</code></pre>
 					</CardContent>
 				</Card>
 			{/if}
 		</div>
 	{/if}
-</section>
+</PageShell>

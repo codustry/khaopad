@@ -2,6 +2,9 @@
 	import { enhance } from '$app/forms';
 	import * as m from '$lib/paraglide/messages';
 	import { slugify } from '$lib/utils';
+	import { Button } from '$lib/components/ui';
+	import { PageShell, PageHeader } from '$lib/components/admin';
+	import { Tags } from 'lucide-svelte';
 
 	let { data, form } = $props();
 
@@ -23,196 +26,191 @@
 	<title>{m.cms_tags()} — {m.cms_app_name()}</title>
 </svelte:head>
 
-<div class="space-y-6">
-	<header class="flex items-center justify-between flex-wrap gap-3">
-		<div>
-			<h1 class="text-2xl font-bold">{m.cms_tags()}</h1>
-			<p class="text-sm text-muted-foreground">{m.cms_tags_help()}</p>
-		</div>
-		{#if canManage}
-			<button
-				type="button"
-				class="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm hover:opacity-90"
-				onclick={() => (createOpen = !createOpen)}
-			>
-				{createOpen ? m.cms_cancel() : m.cms_new_tag()}
-			</button>
+<PageShell width="wide">
+	<PageHeader title={m.cms_tags()} description={m.cms_tags_help()} icon={Tags}>
+		{#snippet actions()}
+			{#if canManage}
+				<Button type="button" onclick={() => (createOpen = !createOpen)}>
+					{createOpen ? m.cms_cancel() : m.cms_new_tag()}
+				</Button>
+			{/if}
+		{/snippet}
+	</PageHeader>
+
+	<div class="space-y-6">
+		{#if form?.error}
+			<div class="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{form.error}</div>
 		{/if}
-	</header>
 
-	{#if form?.error}
-		<div class="bg-destructive/10 text-destructive text-sm p-3 rounded-md">{form.error}</div>
-	{/if}
+		{#if createOpen && canManage}
+			<form
+				method="POST"
+				action="?/create"
+				use:enhance={() => async ({ result, update }) => {
+					await update();
+					if (result.type === 'success') {
+						createOpen = false;
+						createNameEn = '';
+						createNameTh = '';
+						createSlug = '';
+					}
+				}}
+				class="space-y-3 rounded-lg border border-border bg-card p-4"
+			>
+				<h2 class="font-semibold">{m.cms_new_tag()}</h2>
+				<div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+					<label class="block">
+						<span class="text-sm font-medium">{m.cms_name_en()}</span>
+						<input
+							name="name_en"
+							bind:value={createNameEn}
+							required
+							class="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+						/>
+					</label>
+					<label class="block">
+						<span class="text-sm font-medium">{m.cms_name_th()}</span>
+						<input
+							name="name_th"
+							bind:value={createNameTh}
+							class="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+						/>
+					</label>
+					<label class="block">
+						<span class="text-sm font-medium">{m.cms_slug()}</span>
+						<input
+							name="slug"
+							bind:value={createSlug}
+							placeholder={derivedSlug}
+							class="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
+						/>
+					</label>
+				</div>
+				<div class="flex justify-end">
+					<Button type="submit">{m.cms_create()}</Button>
+				</div>
+			</form>
+		{/if}
 
-	{#if createOpen && canManage}
-		<form
-			method="POST"
-			action="?/create"
-			use:enhance={() => async ({ result, update }) => {
-				await update();
-				if (result.type === 'success') {
-					createOpen = false;
-					createNameEn = '';
-					createNameTh = '';
-					createSlug = '';
-				}
-			}}
-			class="border border-border rounded-lg p-4 space-y-3 bg-card"
-		>
-			<h2 class="font-semibold">{m.cms_new_tag()}</h2>
-			<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-				<label class="block">
-					<span class="text-sm font-medium">{m.cms_name_en()}</span>
-					<input
-						name="name_en"
-						bind:value={createNameEn}
-						required
-						class="mt-1 w-full px-3 py-2 border border-input rounded-md bg-background text-sm"
-					/>
-				</label>
-				<label class="block">
-					<span class="text-sm font-medium">{m.cms_name_th()}</span>
-					<input
-						name="name_th"
-						bind:value={createNameTh}
-						class="mt-1 w-full px-3 py-2 border border-input rounded-md bg-background text-sm"
-					/>
-				</label>
-				<label class="block">
-					<span class="text-sm font-medium">{m.cms_slug()}</span>
-					<input
-						name="slug"
-						bind:value={createSlug}
-						placeholder={derivedSlug}
-						class="mt-1 w-full px-3 py-2 border border-input rounded-md bg-background text-sm font-mono"
-					/>
-				</label>
-			</div>
-			<div class="flex justify-end">
-				<button
-					type="submit"
-					class="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm hover:opacity-90"
-				>
-					{m.cms_create()}
-				</button>
-			</div>
-		</form>
-	{/if}
-
-	{#if data.items.length === 0}
-		<p class="text-sm text-muted-foreground">{m.cms_tags_empty()}</p>
-	{:else}
-		<div class="border border-border rounded-lg overflow-x-auto">
-			<table class="w-full text-sm">
-				<thead class="bg-muted">
-					<tr>
-						<th class="text-left px-4 py-3 font-medium">{m.cms_name_en()}</th>
-						<th class="text-left px-4 py-3 font-medium">{m.cms_name_th()}</th>
-						<th class="text-left px-4 py-3 font-medium">{m.cms_slug()}</th>
-						{#if canManage}
-							<th class="text-right px-4 py-3 font-medium">{m.col_actions()}</th>
-						{/if}
-					</tr>
-				</thead>
-				<tbody>
-					{#each data.items as tag (tag.id)}
-						{@const isEditing = editingId === tag.id}
-						<tr class="border-t border-border align-top">
-							{#if isEditing}
-								<td colspan={canManage ? 4 : 3} class="px-4 py-3">
-									<form
-										method="POST"
-										action="?/update"
-										use:enhance={() => async ({ result, update }) => {
-											await update();
-											if (result.type === 'success') editingId = null;
-										}}
-										class="space-y-3"
-									>
-										<input type="hidden" name="id" value={tag.id} />
-										<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-											<label class="block">
-												<span class="text-xs font-medium">{m.cms_name_en()}</span>
-												<input
-													name="name_en"
-													value={tag.localizations.en?.name ?? ''}
-													required
-													class="mt-1 w-full px-3 py-2 border border-input rounded-md bg-background text-sm"
-												/>
-											</label>
-											<label class="block">
-												<span class="text-xs font-medium">{m.cms_name_th()}</span>
-												<input
-													name="name_th"
-													value={tag.localizations.th?.name ?? ''}
-													class="mt-1 w-full px-3 py-2 border border-input rounded-md bg-background text-sm"
-												/>
-											</label>
-											<label class="block">
-												<span class="text-xs font-medium">{m.cms_slug()}</span>
-												<input
-													name="slug"
-													value={tag.slug}
-													class="mt-1 w-full px-3 py-2 border border-input rounded-md bg-background text-sm font-mono"
-												/>
-											</label>
-										</div>
-										<div class="flex items-center gap-2">
-											<button
-												type="submit"
-												class="px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-xs hover:opacity-90"
-											>
-												{m.cms_save()}
-											</button>
-											<button
-												type="button"
-												onclick={() => (editingId = null)}
-												class="px-3 py-1.5 text-muted-foreground hover:underline text-xs"
-											>
-												{m.cms_cancel()}
-											</button>
-										</div>
-									</form>
-								</td>
-							{:else}
-								<td class="px-4 py-3 font-medium">{tag.localizations.en?.name ?? '—'}</td>
-								<td class="px-4 py-3 text-muted-foreground">
-									{tag.localizations.th?.name ?? '—'}
-								</td>
-								<td class="px-4 py-3 font-mono text-xs text-muted-foreground">{tag.slug}</td>
-								{#if canManage}
-									<td class="px-4 py-3 text-right space-x-3">
-										<button
-											type="button"
-											class="text-xs hover:underline"
-											onclick={() => (editingId = tag.id)}
-										>
-											{m.cms_edit()}
-										</button>
-										<form
-											method="POST"
-											action="?/delete"
-											use:enhance={({ cancel }) => {
-												if (!confirm(m.cms_tag_delete_confirm())) {
-													cancel();
-													return;
-												}
-												return async ({ update }) => update();
-											}}
-											class="inline"
-										>
-											<input type="hidden" name="id" value={tag.id} />
-											<button type="submit" class="text-destructive hover:underline text-xs">
-												{m.cms_delete()}
-											</button>
-										</form>
-									</td>
-								{/if}
+		{#if data.items.length === 0}
+			<p class="text-sm text-muted-foreground">{m.cms_tags_empty()}</p>
+		{:else}
+			<!--
+				Left as a raw table: an editing row replaces the whole row with a
+				single colspan cell holding a form, which DataTable's per-column
+				cell model cannot express.
+			-->
+			<div class="overflow-x-auto rounded-lg border border-border">
+				<table class="w-full text-sm">
+					<thead class="bg-muted">
+						<tr>
+							<th class="px-4 py-3 text-left font-medium">{m.cms_name_en()}</th>
+							<th class="px-4 py-3 text-left font-medium">{m.cms_name_th()}</th>
+							<th class="px-4 py-3 text-left font-medium">{m.cms_slug()}</th>
+							{#if canManage}
+								<th class="px-4 py-3 text-right font-medium">{m.col_actions()}</th>
 							{/if}
 						</tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
-	{/if}
-</div>
+					</thead>
+					<tbody>
+						{#each data.items as tag (tag.id)}
+							{@const isEditing = editingId === tag.id}
+							<tr class="border-t border-border align-top">
+								{#if isEditing}
+									<td colspan={canManage ? 4 : 3} class="px-4 py-3">
+										<form
+											method="POST"
+											action="?/update"
+											use:enhance={() => async ({ result, update }) => {
+												await update();
+												if (result.type === 'success') editingId = null;
+											}}
+											class="space-y-3"
+										>
+											<input type="hidden" name="id" value={tag.id} />
+											<div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+												<label class="block">
+													<span class="text-xs font-medium">{m.cms_name_en()}</span>
+													<input
+														name="name_en"
+														value={tag.localizations.en?.name ?? ''}
+														required
+														class="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+													/>
+												</label>
+												<label class="block">
+													<span class="text-xs font-medium">{m.cms_name_th()}</span>
+													<input
+														name="name_th"
+														value={tag.localizations.th?.name ?? ''}
+														class="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+													/>
+												</label>
+												<label class="block">
+													<span class="text-xs font-medium">{m.cms_slug()}</span>
+													<input
+														name="slug"
+														value={tag.slug}
+														class="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
+													/>
+												</label>
+											</div>
+											<div class="flex items-center gap-2">
+												<Button type="submit" size="sm">{m.cms_save()}</Button>
+												<Button
+													type="button"
+													variant="ghost"
+													size="sm"
+													onclick={() => (editingId = null)}
+												>
+													{m.cms_cancel()}
+												</Button>
+											</div>
+										</form>
+									</td>
+								{:else}
+									<td class="px-4 py-3 font-medium">{tag.localizations.en?.name ?? '—'}</td>
+									<td class="px-4 py-3 text-muted-foreground">
+										{tag.localizations.th?.name ?? '—'}
+									</td>
+									<td class="px-4 py-3 font-mono text-xs text-muted-foreground">{tag.slug}</td>
+									{#if canManage}
+										<td class="px-4 py-3 text-right">
+											<div class="flex items-center justify-end gap-1">
+												<Button
+													type="button"
+													variant="ghost"
+													size="sm"
+													onclick={() => (editingId = tag.id)}
+												>
+													{m.cms_edit()}
+												</Button>
+												<form
+													method="POST"
+													action="?/delete"
+													use:enhance={({ cancel }) => {
+														if (!confirm(m.cms_tag_delete_confirm())) {
+															cancel();
+															return;
+														}
+														return async ({ update }) => update();
+													}}
+													class="inline"
+												>
+													<input type="hidden" name="id" value={tag.id} />
+													<Button type="submit" variant="ghost" size="sm" class="text-destructive">
+														{m.cms_delete()}
+													</Button>
+												</form>
+											</div>
+										</td>
+									{/if}
+								{/if}
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	</div>
+</PageShell>

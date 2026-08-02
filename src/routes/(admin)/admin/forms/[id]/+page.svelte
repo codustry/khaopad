@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { resolve } from '$app/paths';
 	import * as m from '$lib/paraglide/messages';
-	import { Badge } from '$lib/components/ui';
+	import { Button } from '$lib/components/ui';
+	import { PageShell, PageHeader, StatusBadge } from '$lib/components/admin';
 	import FormEditor from '../FormEditor.svelte';
 	import type { FormRecord, FormSubmissionRecord } from '$lib/server/content/types';
 
@@ -18,40 +20,38 @@
 		if (Number.isNaN(d.getTime())) return iso;
 		return d.toLocaleString();
 	}
-
-	function variantFor(status: FormSubmissionRecord['status']) {
-		if (status === 'new') return 'default' as const;
-		if (status === 'spam') return 'destructive' as const;
-		return 'secondary' as const;
-	}
 </script>
 
 <svelte:head>
 	<title>{m.cms_forms_edit()} — {m.cms_app_name()}</title>
 </svelte:head>
 
-<div class="max-w-4xl mx-auto">
-	<div class="flex items-center justify-between mb-6 gap-3 flex-wrap">
-		<h1 class="text-2xl font-bold">{m.cms_forms_edit()}</h1>
-		<form
-			method="POST"
-			action="?/delete"
-			use:enhance={({ cancel }) => {
-				if (!confirm(m.cms_delete_confirm())) {
-					cancel();
-					return;
-				}
-				return async ({ update }) => update();
-			}}
-		>
-			<button
-				type="submit"
-				class="px-3 py-1.5 border border-destructive text-destructive rounded-md text-sm hover:bg-destructive/10"
+<PageShell width="form">
+	<PageHeader
+		title={m.cms_forms_edit()}
+		breadcrumbs={[
+			{ label: m.cms_forms(), href: resolve('/(admin)/admin/forms') },
+			{ label: data.form.label },
+		]}
+	>
+		{#snippet actions()}
+			<form
+				method="POST"
+				action="?/delete"
+				use:enhance={({ cancel }) => {
+					if (!confirm(m.cms_delete_confirm())) {
+						cancel();
+						return;
+					}
+					return async ({ update }) => update();
+				}}
 			>
-				{m.cms_delete()}
-			</button>
-		</form>
-	</div>
+				<Button type="submit" variant="destructive" size="sm">
+					{m.cms_delete()}
+				</Button>
+			</form>
+		{/snippet}
+	</PageHeader>
 
 	<FormEditor
 		existing={data.form}
@@ -82,7 +82,14 @@
 				{#each data.submissions as s (s.id)}
 					<details class="border border-border rounded-md overflow-hidden">
 						<summary class="flex items-center gap-3 px-4 py-2.5 cursor-pointer bg-muted/20 hover:bg-muted/40">
-							<Badge variant={variantFor(s.status)}>{s.status}</Badge>
+							<StatusBadge
+								status={s.status}
+								tone={s.status === 'new'
+									? 'info'
+									: s.status === 'spam'
+										? 'danger'
+										: 'neutral'}
+							/>
 							<span class="text-xs text-muted-foreground tabular-nums">
 								{fmtTime(s.submittedAt)}
 							</span>
@@ -106,12 +113,9 @@
 										<form method="POST" action="?/setSubmissionStatus" use:enhance>
 											<input type="hidden" name="submission_id" value={s.id} />
 											<input type="hidden" name="status" value={status} />
-											<button
-												type="submit"
-												class="px-2.5 py-1 border border-border rounded-md text-xs hover:bg-muted capitalize"
-											>
+											<Button type="submit" variant="outline" size="sm" class="capitalize">
 												Mark {status}
-											</button>
+											</Button>
 										</form>
 									{/if}
 								{/each}
@@ -128,12 +132,14 @@
 									class="ml-auto"
 								>
 									<input type="hidden" name="submission_id" value={s.id} />
-									<button
+									<Button
 										type="submit"
-										class="px-2.5 py-1 border border-destructive text-destructive rounded-md text-xs hover:bg-destructive/10"
+										variant="outline"
+										size="sm"
+										class="border-destructive text-destructive hover:bg-destructive/10 hover:text-destructive"
 									>
 										{m.cms_delete()}
-									</button>
+									</Button>
 								</form>
 							</div>
 						</div>
@@ -142,4 +148,4 @@
 			</div>
 		{/if}
 	</section>
-</div>
+</PageShell>

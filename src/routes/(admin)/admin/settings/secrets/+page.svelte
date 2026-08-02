@@ -1,6 +1,9 @@
 <script lang="ts">
   import { enhance } from "$app/forms";
   import { resolve } from "$app/paths";
+  import { KeyRound } from "lucide-svelte";
+  import { Button } from "$lib/components/ui";
+  import { PageShell, PageHeader, StatusBadge } from "$lib/components/admin";
   import type { ActionData, PageData } from "./$types";
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -10,27 +13,27 @@
 
 <svelte:head><title>Integration credentials — Khao Pad</title></svelte:head>
 
-<div class="mx-auto max-w-3xl p-6">
-  <header class="mb-6">
-    <a
-      href={resolve("/(admin)/admin/settings")}
-      class="text-sm text-muted-foreground hover:underline">← Settings</a
-    >
-    <h1 class="mt-2 text-2xl font-semibold">Integration credentials</h1>
-    <p class="mt-1 text-sm text-muted-foreground">
-      API keys for payments and email. Stored encrypted; never shown again after
-      saving.
-    </p>
-  </header>
+<PageShell width="form">
+  <PageHeader
+    title="Integration credentials"
+    description="API keys for payments and email. Stored encrypted; never shown again after saving."
+    icon={KeyRound}
+    breadcrumbs={[
+      { label: "Settings", href: resolve("/(admin)/admin/settings") },
+      { label: "Integration credentials" },
+    ]}
+  />
 
   {#if !data.platformReady}
-    <div class="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm">
+    <div
+      class="rounded-md border border-amber-300 bg-amber-100 p-4 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200"
+    >
       Database binding unavailable — credentials cannot be read or stored.
     </div>
   {:else}
     {#if !data.hasMasterSecret}
       <div
-        class="mb-6 rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-900"
+        class="mb-6 rounded-md border border-red-300 bg-red-100 p-4 text-sm text-red-800 dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-300"
       >
         <strong>BETTER_AUTH_SECRET is not set.</strong> It is the key-derivation
         root for encrypting these values, so nothing can be saved until it exists.
@@ -43,13 +46,13 @@
 
     {#if form?.error}
       <div
-        class="mb-4 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-900"
+        class="mb-4 rounded-md border border-red-300 bg-red-100 p-3 text-sm text-red-800 dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-300"
       >
         {form.error}
       </div>
     {:else if form?.success}
       <div
-        class="mb-4 rounded-md border border-green-300 bg-green-50 p-3 text-sm text-green-900"
+        class="mb-4 rounded-md border border-green-300 bg-green-100 p-3 text-sm text-green-800 dark:border-green-500/40 dark:bg-green-500/15 dark:text-green-300"
       >
         {form.removed ? "Removed" : "Saved"}
         {form.key}. Takes effect on the next request.
@@ -65,7 +68,7 @@
         <div class="space-y-4">
           {#each group.defs as def (def.key)}
             {@const status = statusFor(def.key)}
-            <div class="rounded-lg border p-4">
+            <div class="rounded-lg border border-border p-4">
               <div class="flex items-start justify-between gap-4">
                 <div>
                   <label for={def.key} class="text-sm font-medium">
@@ -77,25 +80,33 @@
                 </div>
 
                 {#if status?.source === "env"}
-                  <span
-                    class="shrink-0 rounded bg-blue-100 px-2 py-0.5 text-xs text-blue-800"
-                    >Set in Cloudflare</span
-                  >
+                  <StatusBadge
+                    status="env"
+                    tone="info"
+                    label="Set in Cloudflare"
+                    class="shrink-0"
+                  />
                 {:else if status?.undecryptable}
-                  <span
-                    class="shrink-0 rounded bg-red-100 px-2 py-0.5 text-xs text-red-800"
-                    >Cannot decrypt</span
-                  >
+                  <StatusBadge
+                    status="undecryptable"
+                    tone="danger"
+                    label="Cannot decrypt"
+                    class="shrink-0"
+                  />
                 {:else if status?.configured}
-                  <span
-                    class="shrink-0 rounded bg-green-100 px-2 py-0.5 text-xs text-green-800"
-                    >Configured</span
-                  >
+                  <StatusBadge
+                    status="configured"
+                    tone="success"
+                    label="Configured"
+                    class="shrink-0"
+                  />
                 {:else}
-                  <span
-                    class="shrink-0 rounded bg-neutral-100 px-2 py-0.5 text-xs text-neutral-700"
-                    >Not set</span
-                  >
+                  <StatusBadge
+                    status="not_set"
+                    tone="neutral"
+                    label="Not set"
+                    class="shrink-0"
+                  />
                 {/if}
               </div>
 
@@ -110,7 +121,7 @@
               {/if}
 
               {#if status?.undecryptable}
-                <p class="mt-2 text-xs text-red-700">
+                <p class="mt-2 text-xs text-red-700 dark:text-red-300">
                   A value is stored but could not be decrypted — this happens
                   when BETTER_AUTH_SECRET is rotated. Re-enter the value below.
                 </p>
@@ -138,27 +149,25 @@
                     placeholder={status?.configured
                       ? "Enter a new value to replace"
                       : "Paste value"}
-                    class="flex-1 rounded-md border px-3 py-1.5 text-sm"
+                    class="flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
                     disabled={!data.hasMasterSecret}
                   />
-                  <button
-                    type="submit"
-                    class="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50"
-                    disabled={!data.hasMasterSecret}
-                  >
+                  <Button type="submit" size="sm" disabled={!data.hasMasterSecret}>
                     Save
-                  </button>
+                  </Button>
                 </form>
 
                 {#if status?.configured || status?.undecryptable}
                   <form method="POST" action="?/remove" use:enhance class="mt-2">
                     <input type="hidden" name="key" value={def.key} />
-                    <button
+                    <Button
                       type="submit"
-                      class="text-xs text-red-700 hover:underline"
+                      variant="ghost"
+                      size="sm"
+                      class="h-auto px-0 text-xs text-destructive hover:bg-transparent hover:underline"
                     >
                       Remove stored value
-                    </button>
+                    </Button>
                   </form>
                 {/if}
               {/if}
@@ -168,7 +177,7 @@
       </section>
     {/each}
 
-    <section class="mt-10 rounded-lg border border-dashed p-4">
+    <section class="mt-10 rounded-lg border border-dashed border-border p-4">
       <h2 class="text-sm font-semibold">Managed in Cloudflare only</h2>
       <p class="mt-2 text-xs text-muted-foreground">
         <code class="font-mono">BETTER_AUTH_SECRET</code> cannot be moved here.
@@ -184,4 +193,4 @@
       </p>
     </section>
   {/if}
-</div>
+</PageShell>

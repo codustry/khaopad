@@ -15,10 +15,17 @@ import { readFileSync } from "node:fs";
  */
 const PAGE = new URL("./+page.svelte", import.meta.url).pathname;
 const SERVER = new URL("./+page.server.ts", import.meta.url).pathname;
+// The table markup moved into the shared admin DataTable, so the
+// horizontal-scroll guarantee is now asserted where it actually lives.
+const DATA_TABLE = new URL(
+  "../../../../../lib/components/admin/DataTable.svelte",
+  import.meta.url,
+).pathname;
 
 describe("collections admin page", () => {
   const page = readFileSync(PAGE, "utf8");
   const server = readFileSync(SERVER, "utf8");
+  const dataTable = readFileSync(DATA_TABLE, "utf8");
 
   it("makes no 'ships in vX.Y' promise", () => {
     // The exact failure mode: a future-tense version claim that nobody
@@ -50,8 +57,11 @@ describe("collections admin page", () => {
 
   it("keeps the table horizontally scrollable on mobile", () => {
     // overflow-hidden clips rather than scrolls — the bug fixed across
-    // 13 admin tables in v3.8.0.
-    expect(page).toMatch(/overflow-x-auto/);
+    // 13 admin tables in v3.8.0. The page renders its table through
+    // DataTable, so that is where the wrapper class has to be correct;
+    // the page itself must not hand-roll a clipping wrapper either.
+    expect(dataTable).toMatch(/overflow-x-auto/);
+    expect(dataTable).not.toMatch(/overflow-hidden[^"]*">\s*<table/);
     expect(page).not.toMatch(/border-border overflow-hidden">\s*<table/);
   });
 });

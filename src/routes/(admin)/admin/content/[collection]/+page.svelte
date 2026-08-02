@@ -1,8 +1,15 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { resolve } from '$app/paths';
-	import { ArrowLeft, Plus, Star } from 'lucide-svelte';
+	import { Plus, Star } from 'lucide-svelte';
 	import { Badge, Button, Input, Label } from '$lib/components/ui';
+	import {
+		PageShell,
+		PageHeader,
+		DataTable,
+		StatusBadge,
+	} from '$lib/components/admin';
+	import type { Column } from '$lib/components/admin';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -29,42 +36,138 @@
 	const relationTargets = $derived(
 		data.collectionChoices.filter((x) => x.kind !== 'component')
 	);
+
+	type Field = PageData['collection']['fields'][number];
+	type Entry = PageData['entries'][number];
+
+	const fieldColumns: Column<Field>[] = $derived([
+		{ key: 'apiId', header: 'API id', cell: fieldApiIdCell },
+		{ key: 'type', header: 'Type', cell: fieldTypeCell },
+		{ key: 'flags', header: 'Flags', cell: fieldFlagsCell },
+		...(data.canEditSchema
+			? [
+					{
+						key: 'actions',
+						header: '',
+						align: 'right' as const,
+						class: 'w-20',
+						cell: fieldActionsCell,
+					},
+				]
+			: []),
+	]);
+
+	const entryColumns: Column<Entry>[] = $derived([
+		{ key: 'slug', header: 'Slug', cell: entrySlugCell },
+		{ key: 'status', header: 'Status', cell: entryStatusCell },
+		{ key: 'updatedAt', header: 'Updated', cell: entryUpdatedCell },
+		{
+			key: 'actions',
+			header: '',
+			align: 'right',
+			class: 'w-32',
+			cell: entryActionsCell,
+		},
+	]);
 </script>
 
-<div class="max-w-5xl space-y-6 p-6">
-	<header class="space-y-2">
+{#snippet fieldApiIdCell(f: Field)}
+	<code class="font-mono">{f.apiId}</code>
+{/snippet}
+
+{#snippet fieldTypeCell(f: Field)}
+	<span class="text-xs text-muted-foreground">{f.type}</span>
+{/snippet}
+
+{#snippet fieldFlagsCell(f: Field)}
+	<div class="flex flex-wrap gap-1">
+		{#if f.required}<Badge variant="outline">required</Badge>{/if}
+		{#if f.localized}<Badge variant="outline">i18n</Badge>{/if}
+		{#if f.unique}<Badge variant="outline">unique</Badge>{/if}
+		{#if f.promoted}
+			<Badge title="Indexed generated column">
+				<Star class="mr-1 h-3 w-3" />indexed
+			</Badge>
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet fieldActionsCell(f: Field)}
+	<form method="POST" action="?/removeField" use:enhance>
+		<input type="hidden" name="apiId" value={f.apiId} />
+		<Button type="submit" variant="ghost" size="sm" class="text-destructive">
+			Remove
+		</Button>
+	</form>
+{/snippet}
+
+{#snippet entrySlugCell(e: Entry)}
+	<code class="font-mono text-xs">{e.slug ?? e.id}</code>
+{/snippet}
+
+{#snippet entryStatusCell(e: Entry)}
+	<StatusBadge status={e.status} />
+{/snippet}
+
+{#snippet entryUpdatedCell(e: Entry)}
+	<span class="text-xs text-muted-foreground">
+		{e.updatedAt.slice(0, 16).replace('T', ' ')}
+	</span>
+{/snippet}
+
+{#snippet entryActionsCell(e: Entry)}
+	<div class="flex items-center justify-end gap-1">
 		<Button
-			href={resolve('/(admin)/admin/content')}
+			href={resolve('/(admin)/admin/content/[collection]/[id]', {
+				collection: c.apiId,
+				id: e.id,
+			})}
 			variant="ghost"
 			size="sm"
-			class="-ml-2"
 		>
-			<ArrowLeft class="mr-1 h-4 w-4" /> Content types
+			Edit
 		</Button>
-		<div class="flex items-center gap-3">
-			<h1 class="font-mono text-2xl font-semibold">{c.apiId}</h1>
+		<form method="POST" action="?/deleteEntry" use:enhance>
+			<input type="hidden" name="id" value={e.id} />
+			<Button type="submit" variant="ghost" size="sm" class="text-destructive">
+				Delete
+			</Button>
+		</form>
+	</div>
+{/snippet}
+
+<PageShell width="wide">
+	<PageHeader
+		title={c.apiId}
+		breadcrumbs={[
+			{ label: 'Content types', href: resolve('/(admin)/admin/content') },
+			{ label: c.apiId },
+		]}
+		class="[&_h1]:font-mono"
+	>
+		{#snippet actions()}
 			<Badge variant="outline">{c.kind}</Badge>
 			{#if c.localized}<Badge variant="outline">i18n</Badge>{/if}
-		</div>
-	</header>
+		{/snippet}
+	</PageHeader>
 
 	{#if form?.error}
 		<div
-			class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive"
+			class="mb-6 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive"
 		>
 			{form.error}
 		</div>
 	{/if}
 	{#if form?.success && form.message}
 		<div
-			class="rounded-md border border-green-600/50 bg-green-600/10 p-3 text-sm text-green-700"
+			class="mb-6 rounded-md border border-green-600/50 bg-green-600/10 p-3 text-sm text-green-700 dark:border-green-500/40 dark:bg-green-500/10 dark:text-green-300"
 		>
 			{form.message}
 		</div>
 	{/if}
 
 	<!-- ── Fields ───────────────────────────────────────────── -->
-	<section class="space-y-3">
+	<section class="mb-6 space-y-3">
 		<h2
 			class="text-sm font-semibold uppercase tracking-wider text-muted-foreground"
 		>
@@ -72,60 +175,12 @@
 		</h2>
 
 		{#if c.fields.length > 0}
-			<div class="overflow-x-auto rounded-lg border border-border">
-				<table class="w-full text-sm">
-					<thead
-						class="bg-muted/50 text-left text-xs uppercase text-muted-foreground"
-					>
-						<tr>
-							<th class="px-4 py-2">API id</th>
-							<th class="px-4 py-2">Type</th>
-							<th class="px-4 py-2">Flags</th>
-							{#if data.canEditSchema}<th class="w-20 px-4 py-2"></th>{/if}
-						</tr>
-					</thead>
-					<tbody class="divide-y divide-border">
-						{#each c.fields as f (f.id)}
-							<tr>
-								<td class="px-4 py-2.5">
-									<code class="font-mono">{f.apiId}</code>
-								</td>
-								<td class="px-4 py-2.5 text-xs text-muted-foreground">
-									{f.type}
-								</td>
-								<td class="px-4 py-2.5">
-									<div class="flex flex-wrap gap-1">
-										{#if f.required}<Badge variant="outline">required</Badge
-											>{/if}
-										{#if f.localized}<Badge variant="outline">i18n</Badge>{/if}
-										{#if f.unique}<Badge variant="outline">unique</Badge>{/if}
-										{#if f.promoted}
-											<Badge title="Indexed generated column">
-												<Star class="mr-1 h-3 w-3" />indexed
-											</Badge>
-										{/if}
-									</div>
-								</td>
-								{#if data.canEditSchema}
-									<td class="px-4 py-2.5 text-right">
-										<form method="POST" action="?/removeField" use:enhance>
-											<input type="hidden" name="apiId" value={f.apiId} />
-											<Button
-												type="submit"
-												variant="ghost"
-												size="sm"
-												class="text-destructive"
-											>
-												Remove
-											</Button>
-										</form>
-									</td>
-								{/if}
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
+			<DataTable
+				columns={fieldColumns}
+				rows={c.fields}
+				getKey={(f) => f.id}
+				caption="Fields"
+			/>
 		{:else}
 			<p class="text-sm text-muted-foreground">
 				No fields yet — add one below before creating entries.
@@ -316,81 +371,25 @@
 			{/if}
 		</div>
 
-		{#if data.entries.length === 0}
-			<div
-				class="rounded-lg border border-dashed border-border p-8 text-center"
-			>
+		<DataTable
+			columns={entryColumns}
+			rows={data.entries}
+			getKey={(e) => e.id}
+			caption="Entries"
+		>
+			{#snippet empty()}
 				<p class="text-sm text-muted-foreground">
 					{c.fields.length === 0
 						? 'Add a field first, then create entries.'
 						: 'No entries yet.'}
 				</p>
-			</div>
-		{:else}
-			<div class="overflow-x-auto rounded-lg border border-border">
-				<table class="w-full text-sm">
-					<thead
-						class="bg-muted/50 text-left text-xs uppercase text-muted-foreground"
-					>
-						<tr>
-							<th class="px-4 py-2">Slug</th>
-							<th class="px-4 py-2">Status</th>
-							<th class="px-4 py-2">Updated</th>
-							<th class="w-32 px-4 py-2"></th>
-						</tr>
-					</thead>
-					<tbody class="divide-y divide-border">
-						{#each data.entries as e (e.id)}
-							<tr>
-								<td class="px-4 py-2.5">
-									<code class="font-mono text-xs">
-										{e.slug ?? e.id}
-									</code>
-								</td>
-								<td class="px-4 py-2.5">
-									<Badge variant={e.status === 'published' ? 'default' : 'outline'}>
-										{e.status}
-									</Badge>
-								</td>
-								<td class="px-4 py-2.5 text-xs text-muted-foreground">
-									{e.updatedAt.slice(0, 16).replace('T', ' ')}
-								</td>
-								<td class="px-4 py-2.5">
-									<div class="flex items-center justify-end gap-1">
-										<Button
-											href={resolve(
-												'/(admin)/admin/content/[collection]/[id]',
-												{ collection: c.apiId, id: e.id },
-											)}
-											variant="ghost"
-											size="sm"
-										>
-											Edit
-										</Button>
-										<form method="POST" action="?/deleteEntry" use:enhance>
-											<input type="hidden" name="id" value={e.id} />
-											<Button
-												type="submit"
-												variant="ghost"
-												size="sm"
-												class="text-destructive"
-											>
-												Delete
-											</Button>
-										</form>
-									</div>
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-			{#if data.entries.length === data.entryPageSize}
-				<p class="text-xs text-muted-foreground">
-					Showing the {data.entryPageSize} most recently updated. Paging lands
-					with the list-view work.
-				</p>
-			{/if}
+			{/snippet}
+		</DataTable>
+		{#if data.entries.length > 0 && data.entries.length === data.entryPageSize}
+			<p class="text-xs text-muted-foreground">
+				Showing the {data.entryPageSize} most recently updated. Paging lands
+				with the list-view work.
+			</p>
 		{/if}
 	</section>
-</div>
+</PageShell>

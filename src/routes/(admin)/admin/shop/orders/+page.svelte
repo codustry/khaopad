@@ -1,25 +1,57 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { ShoppingCart } from 'lucide-svelte';
-	import { Badge } from '$lib/components/ui';
+	import { PageShell, PageHeader, DataTable, StatusBadge, type Column } from '$lib/components/admin';
 	import { formatSatang, type Satang } from '$plugins/shop/money';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 
+	type Order = PageData['orders'][number];
+
 	const statuses = ['pending', 'paid', 'fulfilled', 'delivered', 'refunded', 'cancelled'] as const;
+
+	const columns: Column<Order>[] = [
+		{ key: 'order', header: 'Order', cell: orderCell },
+		{ key: 'email', header: 'Customer', cell: emailCell },
+		{ key: 'placed', header: 'Placed', cell: placedCell },
+		{ key: 'status', header: 'Status', cell: statusCell },
+		{ key: 'total', header: 'Total', align: 'right', numeric: true, cell: totalCell }
+	];
 </script>
 
-<div class="max-w-6xl space-y-6 p-6">
-	<header class="flex items-center gap-3">
-		<ShoppingCart class="h-6 w-6 text-muted-foreground" />
-		<h1 class="text-2xl font-semibold">Orders</h1>
-	</header>
+{#snippet orderCell(order: Order)}
+	<a
+		href={resolve('/(admin)/admin/shop/orders/[id]', { id: order.id })}
+		class="rounded-sm font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+	>
+		{order.orderNumber}
+	</a>
+{/snippet}
 
-	<nav class="flex flex-wrap gap-2 text-sm">
+{#snippet emailCell(order: Order)}
+	<span class="text-muted-foreground">{order.email}</span>
+{/snippet}
+
+{#snippet placedCell(order: Order)}
+	<span class="text-xs text-muted-foreground">{new Date(order.createdAt).toLocaleString()}</span>
+{/snippet}
+
+{#snippet statusCell(order: Order)}
+	<StatusBadge status={order.status} tone={order.status === 'delivered' ? 'success' : undefined} />
+{/snippet}
+
+{#snippet totalCell(order: Order)}
+	{formatSatang(order.totalSatang as Satang)}
+{/snippet}
+
+<PageShell width="wide">
+	<PageHeader title="Orders" icon={ShoppingCart} />
+
+	<nav class="mb-6 flex flex-wrap gap-2 text-sm">
 		<a
 			href={resolve('/(admin)/admin/shop/orders')}
-			class="rounded px-3 py-1 {!data.statusFilter
+			class="rounded px-3 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring {!data.statusFilter
 				? 'bg-muted font-medium'
 				: 'text-muted-foreground hover:text-foreground'}"
 		>
@@ -28,7 +60,8 @@
 		{#each statuses as status (status)}
 			<a
 				href={resolve(`/(admin)/admin/shop/orders?status=${status}`)}
-				class="rounded px-3 py-1 {data.statusFilter === status
+				class="rounded px-3 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring {data.statusFilter ===
+				status
 					? 'bg-muted font-medium'
 					: 'text-muted-foreground hover:text-foreground'}"
 			>
@@ -37,55 +70,9 @@
 		{/each}
 	</nav>
 
-	{#if data.orders.length === 0}
-		<div class="rounded-lg border border-dashed border-border p-12 text-center">
+	<DataTable {columns} rows={data.orders} getKey={(o) => o.id}>
+		{#snippet empty()}
 			<p class="text-sm text-muted-foreground">No orders yet.</p>
-		</div>
-	{:else}
-		<div class="overflow-x-auto rounded-lg border border-border">
-			<table class="w-full text-sm">
-				<thead class="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
-					<tr>
-						<th class="px-4 py-2">Order</th>
-						<th class="px-4 py-2">Customer</th>
-						<th class="px-4 py-2">Placed</th>
-						<th class="px-4 py-2">Status</th>
-						<th class="px-4 py-2 text-right">Total</th>
-					</tr>
-				</thead>
-				<tbody class="divide-y divide-border">
-					{#each data.orders as order (order.id)}
-						<tr>
-							<td class="px-4 py-3">
-								<a
-									href={resolve('/(admin)/admin/shop/orders/[id]', { id: order.id })}
-									class="font-medium hover:underline"
-								>
-									{order.orderNumber}
-								</a>
-							</td>
-							<td class="px-4 py-3 text-muted-foreground">{order.email}</td>
-							<td class="px-4 py-3 text-xs text-muted-foreground">
-								{new Date(order.createdAt).toLocaleString()}
-							</td>
-							<td class="px-4 py-3">
-								<Badge
-									variant={order.status === 'paid' || order.status === 'delivered'
-										? 'default'
-										: order.status === 'pending'
-											? 'secondary'
-											: 'outline'}
-								>
-									{order.status}
-								</Badge>
-							</td>
-							<td class="px-4 py-3 text-right tabular-nums">
-								{formatSatang(order.totalSatang as Satang)}
-							</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
-	{/if}
-</div>
+		{/snippet}
+	</DataTable>
+</PageShell>

@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
-	import { ArrowLeft, Package, RefreshCw } from 'lucide-svelte';
-	import { Button, Badge, Input, Label } from '$lib/components/ui';
+	import { Package, RefreshCw } from 'lucide-svelte';
+	import { Button, Input, Label } from '$lib/components/ui';
+	import { PageShell, PageHeader, StatusBadge } from '$lib/components/admin';
 	import { formatSatang, type Satang } from '$plugins/shop/money';
 	import type { PageData, ActionData } from './$types';
 
@@ -13,43 +14,34 @@
 	);
 </script>
 
-<div class="max-w-4xl space-y-6 p-6">
-	<a
-		href={resolve('/(admin)/admin/shop/orders')}
-		class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+<PageShell>
+	<PageHeader
+		title={order.orderNumber}
+		description="{order.email} · {new Date(order.createdAt).toLocaleString()}"
+		icon={Package}
+		breadcrumbs={[
+			{ label: 'Orders', href: resolve('/(admin)/admin/shop/orders') },
+			{ label: order.orderNumber }
+		]}
 	>
-		<ArrowLeft class="h-4 w-4" />
-		Back to orders
-	</a>
+		{#snippet actions()}
+			<StatusBadge
+				status={order.status}
+				tone={order.status === 'delivered' ? 'success' : undefined}
+			/>
+		{/snippet}
+	</PageHeader>
 
-	<header class="flex items-start justify-between gap-4">
-		<div class="flex items-start gap-3">
-			<Package class="mt-1 h-6 w-6 text-muted-foreground" />
-			<div>
-				<h1 class="text-2xl font-semibold">{order.orderNumber}</h1>
-				<div class="text-sm text-muted-foreground">
-					{order.email} · {new Date(order.createdAt).toLocaleString()}
-				</div>
-			</div>
-		</div>
-		<Badge
-			variant={order.status === 'paid' || order.status === 'delivered'
-				? 'default'
-				: order.status === 'pending'
-					? 'secondary'
-					: 'outline'}
-		>
-			{order.status}
-		</Badge>
-	</header>
-
+	<div class="space-y-6">
 	{#if form?.error}
 		<div class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
 			{form.error}
 		</div>
 	{/if}
 	{#if form?.success && form.message}
-		<div class="rounded-md border border-green-600/50 bg-green-600/10 p-3 text-sm text-green-700">
+		<div
+			class="rounded-md border border-green-600/50 bg-green-100 p-3 text-sm text-green-800 dark:bg-green-500/15 dark:text-green-300"
+		>
 			{form.message}
 		</div>
 	{/if}
@@ -180,7 +172,7 @@
 								<select
 									id="kind"
 									name="kind"
-									class="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
+									class="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
 								>
 									<option value="refund_partial">Partial</option>
 									<option value="refund_full">Full (marks order refunded)</option>
@@ -202,4 +194,5 @@
 			{/if}
 		</div>
 	</section>
-</div>
+	</div>
+</PageShell>

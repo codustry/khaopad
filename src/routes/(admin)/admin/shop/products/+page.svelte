@@ -2,32 +2,95 @@
 	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
 	import { Package, Plus, Archive, Trash2 } from 'lucide-svelte';
-	import { Button, Badge } from '$lib/components/ui';
+	import { Button } from '$lib/components/ui';
+	import { PageShell, PageHeader, DataTable, StatusBadge, type Column } from '$lib/components/admin';
 	import { formatSatang, type Satang } from '$plugins/shop/money';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+
+	type Product = PageData['products'][number];
+
+	const columns: Column<Product>[] = [
+		{ key: 'title', header: 'Title', cell: titleCell },
+		{ key: 'slug', header: 'Slug', cell: slugCell },
+		{ key: 'status', header: 'Status', cell: statusCell },
+		{ key: 'price', header: 'Price from', align: 'right', numeric: true, cell: priceCell },
+		{ key: 'stock', header: 'Stock', cell: stockCell },
+		{ key: 'actions', header: '', align: 'right', class: 'w-32', cell: actionsCell }
+	];
 </script>
 
-<div class="max-w-6xl space-y-6 p-6">
-	<header class="flex items-center justify-between">
-		<div class="flex items-center gap-3">
-			<Package class="h-6 w-6 text-muted-foreground" />
-			<h1 class="text-2xl font-semibold">Products</h1>
-		</div>
-		<a
-			href={resolve('/(admin)/admin/shop/products/new')}
-			class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-		>
-			<Plus class="h-4 w-4" />
-			New product
-		</a>
-	</header>
+{#snippet titleCell(product: Product)}
+	<a
+		href={resolve('/(admin)/admin/shop/products/[id]', { id: product.id })}
+		class="rounded-sm font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+	>
+		{product.title}
+	</a>
+{/snippet}
 
-	<nav class="flex gap-2 text-sm">
+{#snippet slugCell(product: Product)}
+	<code class="text-xs text-muted-foreground">{product.slug}</code>
+{/snippet}
+
+{#snippet statusCell(product: Product)}
+	<StatusBadge status={product.status} />
+{/snippet}
+
+{#snippet priceCell(product: Product)}
+	{product.priceFromSatang != null ? formatSatang(product.priceFromSatang as Satang) : '—'}
+{/snippet}
+
+{#snippet stockCell(product: Product)}
+	{#if product.inStock}
+		<StatusBadge status="active" tone="success" label="In stock" />
+	{:else}
+		<StatusBadge status="out" tone="danger" label="Out" />
+	{/if}
+{/snippet}
+
+{#snippet actionsCell(product: Product)}
+	<div class="flex justify-end gap-1">
+		{#if product.status !== 'archived'}
+			<form method="POST" action="?/archive" use:enhance class="inline">
+				<input type="hidden" name="id" value={product.id} />
+				<Button type="submit" variant="ghost" size="sm" title="Archive">
+					<Archive class="h-4 w-4" />
+				</Button>
+			</form>
+		{/if}
+		<form
+			method="POST"
+			action="?/delete"
+			use:enhance={() => async ({ update }) => {
+				if (!confirm(`Delete "${product.title}"? This is permanent.`)) return;
+				await update();
+			}}
+			class="inline"
+		>
+			<input type="hidden" name="id" value={product.id} />
+			<Button type="submit" variant="ghost" size="sm" title="Delete" class="text-destructive">
+				<Trash2 class="h-4 w-4" />
+			</Button>
+		</form>
+	</div>
+{/snippet}
+
+<PageShell width="wide">
+	<PageHeader title="Products" icon={Package}>
+		{#snippet actions()}
+			<Button href={resolve('/(admin)/admin/shop/products/new')}>
+				<Plus class="h-4 w-4" />
+				New product
+			</Button>
+		{/snippet}
+	</PageHeader>
+
+	<nav class="mb-6 flex gap-2 text-sm">
 		<a
 			href={resolve('/(admin)/admin/shop/products')}
-			class="rounded px-3 py-1 {!data.statusFilter
+			class="rounded px-3 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring {!data.statusFilter
 				? 'bg-muted font-medium'
 				: 'text-muted-foreground hover:text-foreground'}"
 		>
@@ -36,7 +99,8 @@
 		{#each ['draft', 'active', 'archived'] as status (status)}
 			<a
 				href={resolve(`/(admin)/admin/shop/products?status=${status}`)}
-				class="rounded px-3 py-1 {data.statusFilter === status
+				class="rounded px-3 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring {data.statusFilter ===
+				status
 					? 'bg-muted font-medium'
 					: 'text-muted-foreground hover:text-foreground'}"
 			>
@@ -45,117 +109,13 @@
 		{/each}
 	</nav>
 
-	{#if data.products.length === 0}
-		<div class="rounded-lg border border-dashed border-border p-12 text-center">
+	<DataTable {columns} rows={data.products} getKey={(p) => p.id}>
+		{#snippet empty()}
 			<p class="mb-4 text-sm text-muted-foreground">No products yet.</p>
-			<a
-				href={resolve('/(admin)/admin/shop/products/new')}
-				class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-			>
+			<Button href={resolve('/(admin)/admin/shop/products/new')}>
 				<Plus class="h-4 w-4" />
 				Create your first product
-			</a>
-		</div>
-	{:else}
-		<div class="overflow-x-auto rounded-lg border border-border">
-			<table class="w-full text-sm">
-				<thead class="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
-					<tr>
-						<th class="px-4 py-2">Title</th>
-						<th class="px-4 py-2">Slug</th>
-						<th class="px-4 py-2">Status</th>
-						<th class="px-4 py-2 text-right">Price from</th>
-						<th class="px-4 py-2">Stock</th>
-						<th class="px-4 py-2 w-32"></th>
-					</tr>
-				</thead>
-				<tbody class="divide-y divide-border">
-					{#each data.products as product (product.id)}
-						<tr>
-							<td class="px-4 py-3">
-								<a
-									href={resolve('/(admin)/admin/shop/products/[id]', { id: product.id })}
-									class="font-medium hover:underline"
-								>
-									{product.title}
-								</a>
-							</td>
-							<td class="px-4 py-3 text-muted-foreground">
-								<code class="text-xs">{product.slug}</code>
-							</td>
-							<td class="px-4 py-3">
-								<Badge
-									variant={product.status === 'active'
-										? 'default'
-										: product.status === 'draft'
-											? 'secondary'
-											: 'outline'}
-								>
-									{product.status}
-								</Badge>
-							</td>
-							<td class="px-4 py-3 text-right tabular-nums">
-								{product.priceFromSatang != null
-									? formatSatang(product.priceFromSatang as Satang)
-									: '—'}
-							</td>
-							<td class="px-4 py-3">
-								{#if product.inStock}
-									<span class="text-xs text-green-600">In stock</span>
-								{:else}
-									<span class="text-xs text-destructive">Out</span>
-								{/if}
-							</td>
-							<td class="px-4 py-3">
-								<div class="flex justify-end gap-1">
-									{#if product.status !== 'archived'}
-										<form
-											method="POST"
-											action="?/archive"
-											use:enhance
-											class="inline"
-										>
-											<input type="hidden" name="id" value={product.id} />
-											<Button
-												type="submit"
-												variant="ghost"
-												size="sm"
-												title="Archive"
-											>
-												<Archive class="h-4 w-4" />
-											</Button>
-										</form>
-									{/if}
-									<form
-										method="POST"
-										action="?/delete"
-										use:enhance={() => async ({ update }) => {
-											if (
-												!confirm(
-													`Delete "${product.title}"? This is permanent.`,
-												)
-											)
-												return;
-											await update();
-										}}
-										class="inline"
-									>
-										<input type="hidden" name="id" value={product.id} />
-										<Button
-											type="submit"
-											variant="ghost"
-											size="sm"
-											title="Delete"
-										>
-											<Trash2 class="h-4 w-4 text-destructive" />
-										</Button>
-									</form>
-								</div>
-							</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
-	{/if}
-</div>
+			</Button>
+		{/snippet}
+	</DataTable>
+</PageShell>

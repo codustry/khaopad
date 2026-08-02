@@ -5,6 +5,8 @@
 	import ArticleForm from '../ArticleForm.svelte';
 	import Sparkline from '$lib/components/analytics/Sparkline.svelte';
 	import RelatedProductsEditor from '$lib/components/admin/RelatedProductsEditor.svelte';
+	import { PageShell, PageHeader } from '$lib/components/admin';
+	import { Button } from '$lib/components/ui';
 	import type { ArticleRecord, CategoryRecord, TagRecord } from '$lib/server/content/types';
 
 	type RefKind = 'featured' | 'mentioned' | 'promoted';
@@ -39,23 +41,25 @@
 	<title>{m.cms_edit_article()} — {m.cms_app_name()}</title>
 </svelte:head>
 
-<div class="max-w-3xl mx-auto">
-	<div class="flex items-center justify-between mb-6 gap-3 flex-wrap">
-		<h1 class="text-2xl font-bold">{m.cms_edit_article()}</h1>
-		<div class="flex items-center gap-2">
-			<a
+<PageShell width="form">
+	<PageHeader
+		title={m.cms_edit_article()}
+		breadcrumbs={[
+			{ label: m.cms_articles(), href: resolve('/(admin)/admin/articles') },
+			{ label: data.article.localizations.en?.title || data.article.slug }
+		]}
+	>
+		{#snippet actions()}
+			<Button
+				variant="outline"
 				href={resolve('/(admin)/admin/articles/[id]/history', { id: data.article.id })}
-				class="px-3 py-1.5 border border-border rounded-md text-sm hover:bg-muted"
 			>
 				{m.cms_history_link()}
-			</a>
+			</Button>
 			<form method="POST" action="?/togglePublish" use:enhance>
-				<button
-					type="submit"
-					class="px-3 py-1.5 border border-border rounded-md text-sm hover:bg-muted"
-				>
+				<Button type="submit" variant="outline">
 					{isPublished ? m.cms_unpublish() : m.cms_publish()}
-				</button>
+				</Button>
 			</form>
 			<form
 				method="POST"
@@ -68,15 +72,12 @@
 					return async ({ update }) => update();
 				}}
 			>
-				<button
-					type="submit"
-					class="px-3 py-1.5 border border-destructive text-destructive rounded-md text-sm hover:bg-destructive/10"
-				>
+				<Button type="submit" variant="destructive">
 					{m.cms_delete()}
-				</button>
+				</Button>
 			</form>
-		</div>
-	</div>
+		{/snippet}
+	</PageHeader>
 
 	{#if data.sparkline.length > 0 && data.totalViews > 0}
 		<div class="mb-6 flex items-center justify-between gap-4 rounded-lg border border-border p-4 bg-card">
@@ -110,4 +111,4 @@
 			productChoices={data.productChoices}
 		/>
 	</div>
-</div>
+</PageShell>

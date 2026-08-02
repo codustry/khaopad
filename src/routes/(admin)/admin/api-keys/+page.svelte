@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import * as m from '$lib/paraglide/messages';
-	import { Badge } from '$lib/components/ui';
+	import { Button } from '$lib/components/ui';
+	import { PageShell, PageHeader, DataTable, StatusBadge, type Column } from '$lib/components/admin';
+	import { KeyRound } from 'lucide-svelte';
 	import type { ApiKeyRecord, ApiKeyScope } from '$lib/server/content/types';
 
 	let {
@@ -28,181 +30,182 @@
 	}
 
 	function statusBadge(k: ApiKeyRecord) {
-		if (k.revokedAt) return { label: m.cms_api_keys_revoked(), variant: 'destructive' as const };
+		if (k.revokedAt) return { label: m.cms_api_keys_revoked(), status: 'cancelled' };
 		if (k.expiresAt && k.expiresAt < new Date().toISOString())
-			return { label: m.cms_api_keys_expired(), variant: 'secondary' as const };
-		return { label: m.cms_api_keys_active(), variant: 'default' as const };
+			return { label: m.cms_api_keys_expired(), status: 'expired' };
+		return { label: m.cms_api_keys_active(), status: 'active' };
 	}
+
+	const columns: Column<ApiKeyRecord>[] = [
+		{ key: 'label', header: m.cms_api_keys_col_label(), cell: labelCell },
+		{ key: 'prefix', header: m.cms_api_keys_col_prefix(), cell: prefixCell },
+		{ key: 'scopes', header: m.cms_api_keys_col_scopes(), cell: scopesCell },
+		{ key: 'lastUsed', header: m.cms_api_keys_col_last_used(), cell: lastUsedCell },
+		{ key: 'status', header: m.col_status(), cell: statusCell },
+		{ key: 'actions', header: '', align: 'right', cell: actionsCell }
+	];
 </script>
+
+{#snippet labelCell(k: ApiKeyRecord)}
+	<span class="font-medium">{k.label}</span>
+{/snippet}
+
+{#snippet prefixCell(k: ApiKeyRecord)}
+	<span class="font-mono text-xs text-muted-foreground">{k.prefix}…</span>
+{/snippet}
+
+{#snippet scopesCell(k: ApiKeyRecord)}
+	<span class="text-xs text-muted-foreground">{k.scopes.join(', ')}</span>
+{/snippet}
+
+{#snippet lastUsedCell(k: ApiKeyRecord)}
+	<span class="text-xs text-muted-foreground">{fmt(k.lastUsedAt)}</span>
+{/snippet}
+
+{#snippet statusCell(k: ApiKeyRecord)}
+	{@const s = statusBadge(k)}
+	<StatusBadge status={s.status} label={s.label} />
+{/snippet}
+
+{#snippet actionsCell(k: ApiKeyRecord)}
+	<div class="flex items-center justify-end gap-2">
+		{#if !k.revokedAt}
+			<form
+				method="POST"
+				action="?/revoke"
+				use:enhance={({ cancel }) => {
+					if (!confirm(m.cms_api_keys_revoke_confirm())) {
+						cancel();
+						return;
+					}
+					return async ({ update }) => update();
+				}}
+				class="inline"
+			>
+				<input type="hidden" name="id" value={k.id} />
+				<Button type="submit" variant="outline" size="sm">{m.cms_api_keys_revoke()}</Button>
+			</form>
+		{/if}
+		<form
+			method="POST"
+			action="?/delete"
+			use:enhance={({ cancel }) => {
+				if (!confirm(m.cms_delete_confirm())) {
+					cancel();
+					return;
+				}
+				return async ({ update }) => update();
+			}}
+			class="inline"
+		>
+			<input type="hidden" name="id" value={k.id} />
+			<Button type="submit" variant="destructive" size="sm">{m.cms_delete()}</Button>
+		</form>
+	</div>
+{/snippet}
 
 <svelte:head>
 	<title>{m.cms_api_keys()} — {m.cms_app_name()}</title>
 </svelte:head>
 
-<div class="space-y-6">
-	<header class="flex items-center justify-between flex-wrap gap-3">
-		<div>
-			<h1 class="text-2xl font-bold">{m.cms_api_keys()}</h1>
-			<p class="text-sm text-muted-foreground">{m.cms_api_keys_help()}</p>
-		</div>
-		<button
-			type="button"
-			onclick={() => (createOpen = !createOpen)}
-			class="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm hover:opacity-90"
-		>
-			{createOpen ? m.cms_cancel() : m.cms_api_keys_new()}
-		</button>
-	</header>
+<PageShell width="wide">
+	<PageHeader title={m.cms_api_keys()} description={m.cms_api_keys_help()} icon={KeyRound}>
+		{#snippet actions()}
+			<Button type="button" onclick={() => (createOpen = !createOpen)}>
+				{createOpen ? m.cms_cancel() : m.cms_api_keys_new()}
+			</Button>
+		{/snippet}
+	</PageHeader>
 
-	{#if form?.error}
-		<div class="bg-destructive/10 text-destructive text-sm p-3 rounded-md">
-			{form.error}
-		</div>
-	{/if}
-
-	{#if form?.ok && form.created}
-		<!-- One-time secret display. The raw key is never reachable again. -->
-		<div class="rounded-md border-2 border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30 p-4 space-y-3">
-			<div>
-				<p class="font-semibold text-amber-900 dark:text-amber-100">
-					{m.cms_api_keys_created_title({ label: form.created.label })}
-				</p>
-				<p class="text-xs text-amber-800 dark:text-amber-200 mt-1">
-					{m.cms_api_keys_created_warning()}
-				</p>
+	<div class="space-y-6">
+		{#if form?.error}
+			<div class="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+				{form.error}
 			</div>
-			<code class="block break-all px-3 py-2 bg-white dark:bg-black/30 border border-amber-300 dark:border-amber-700 rounded font-mono text-xs">
-				{form.created.rawKey}
-			</code>
-			<button
-				type="button"
-				onclick={() => navigator.clipboard.writeText(form?.created?.rawKey ?? '')}
-				class="px-3 py-1.5 border border-amber-300 dark:border-amber-700 rounded-md text-xs hover:bg-amber-100 dark:hover:bg-amber-900"
+		{/if}
+
+		{#if form?.ok && form.created}
+			<!-- One-time secret display. The raw key is never reachable again. -->
+			<div
+				class="space-y-3 rounded-md border-2 border-amber-300 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-950/30"
 			>
-				{m.cms_api_keys_copy()}
-			</button>
-		</div>
-	{/if}
-
-	{#if createOpen}
-		<form
-			method="POST"
-			action="?/create"
-			use:enhance={() =>
-				async ({ update, result }) => {
-					await update();
-					if (result.type === 'success') createOpen = false;
-				}}
-			class="space-y-3 border border-border rounded-lg p-4 bg-muted/20"
-		>
-			<h2 class="font-semibold">{m.cms_api_keys_new()}</h2>
-			<div class="grid sm:grid-cols-2 gap-3">
-				<label class="block">
-					<span class="text-xs font-medium">{m.cms_api_keys_label()}</span>
-					<input
-						name="label"
-						required
-						placeholder="e.g. mobile-app-prod"
-						class="mt-1 w-full px-3 py-2 border border-input rounded-md bg-background text-sm"
-					/>
-				</label>
-				<label class="block">
-					<span class="text-xs font-medium">{m.cms_api_keys_expires_at()}</span>
-					<input
-						name="expires_at"
-						type="datetime-local"
-						class="mt-1 w-full px-3 py-2 border border-input rounded-md bg-background text-sm"
-					/>
-					<span class="text-xs text-muted-foreground">{m.cms_api_keys_expires_at_help()}</span>
-				</label>
-			</div>
-			<fieldset>
-				<legend class="text-xs font-medium mb-1">{m.cms_api_keys_scopes()}</legend>
-				<div class="flex flex-wrap gap-2">
-					{#each data.knownScopes as scope (scope)}
-						<label class="inline-flex items-center gap-1.5 px-2 py-1 border border-input rounded-md text-xs">
-							<input type="checkbox" name="scopes" value={scope} class="h-3.5 w-3.5" />
-							<code>{scope}</code>
-						</label>
-					{/each}
+				<div>
+					<p class="font-semibold text-amber-900 dark:text-amber-100">
+						{m.cms_api_keys_created_title({ label: form.created.label })}
+					</p>
+					<p class="mt-1 text-xs text-amber-800 dark:text-amber-200">
+						{m.cms_api_keys_created_warning()}
+					</p>
 				</div>
-			</fieldset>
-			<button type="submit" class="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm">
-				{m.cms_api_keys_create()}
-			</button>
-		</form>
-	{/if}
+				<code
+					class="block break-all rounded border border-amber-300 bg-background px-3 py-2 font-mono text-xs dark:border-amber-700"
+				>
+					{form.created.rawKey}
+				</code>
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					onclick={() => navigator.clipboard.writeText(form?.created?.rawKey ?? '')}
+				>
+					{m.cms_api_keys_copy()}
+				</Button>
+			</div>
+		{/if}
 
-	{#if data.keys.length === 0}
-		<div class="border border-dashed border-border rounded-lg p-8 text-center">
-			<p class="text-sm text-muted-foreground">{m.cms_api_keys_empty()}</p>
-		</div>
-	{:else}
-		<div class="border border-border rounded-lg overflow-x-auto">
-			<table class="w-full text-sm">
-				<thead class="bg-muted/30 text-xs uppercase tracking-wider text-muted-foreground">
-					<tr>
-						<th class="text-left px-4 py-2">{m.cms_api_keys_col_label()}</th>
-						<th class="text-left px-4 py-2">{m.cms_api_keys_col_prefix()}</th>
-						<th class="text-left px-4 py-2">{m.cms_api_keys_col_scopes()}</th>
-						<th class="text-left px-4 py-2">{m.cms_api_keys_col_last_used()}</th>
-						<th class="text-left px-4 py-2">{m.col_status()}</th>
-						<th class="text-right px-4 py-2"></th>
-					</tr>
-				</thead>
-				<tbody class="divide-y divide-border">
-					{#each data.keys as k (k.id)}
-						{@const status = statusBadge(k)}
-						<tr class="hover:bg-muted/20">
-							<td class="px-4 py-3 font-medium">{k.label}</td>
-							<td class="px-4 py-3 font-mono text-xs text-muted-foreground">
-								{k.prefix}…
-							</td>
-							<td class="px-4 py-3 text-xs text-muted-foreground">
-								{k.scopes.join(', ')}
-							</td>
-							<td class="px-4 py-3 text-xs text-muted-foreground">{fmt(k.lastUsedAt)}</td>
-							<td class="px-4 py-3">
-								<Badge variant={status.variant}>{status.label}</Badge>
-							</td>
-							<td class="px-4 py-3 text-right">
-								{#if !k.revokedAt}
-									<form method="POST" action="?/revoke" use:enhance={({ cancel }) => {
-										if (!confirm(m.cms_api_keys_revoke_confirm())) {
-											cancel();
-											return;
-										}
-										return async ({ update }) => update();
-									}} class="inline">
-										<input type="hidden" name="id" value={k.id} />
-										<button
-											type="submit"
-											class="px-2.5 py-1 border border-border rounded-md text-xs hover:bg-muted"
-										>
-											{m.cms_api_keys_revoke()}
-										</button>
-									</form>
-								{/if}
-								<form method="POST" action="?/delete" use:enhance={({ cancel }) => {
-									if (!confirm(m.cms_delete_confirm())) {
-										cancel();
-										return;
-									}
-									return async ({ update }) => update();
-								}} class="inline">
-									<input type="hidden" name="id" value={k.id} />
-									<button
-										type="submit"
-										class="px-2.5 py-1 border border-destructive text-destructive rounded-md text-xs hover:bg-destructive/10"
-									>
-										{m.cms_delete()}
-									</button>
-								</form>
-							</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
-	{/if}
-</div>
+		{#if createOpen}
+			<form
+				method="POST"
+				action="?/create"
+				use:enhance={() =>
+					async ({ update, result }) => {
+						await update();
+						if (result.type === 'success') createOpen = false;
+					}}
+				class="space-y-3 rounded-lg border border-border bg-muted/20 p-4"
+			>
+				<h2 class="font-semibold">{m.cms_api_keys_new()}</h2>
+				<div class="grid gap-3 sm:grid-cols-2">
+					<label class="block">
+						<span class="text-xs font-medium">{m.cms_api_keys_label()}</span>
+						<input
+							name="label"
+							required
+							placeholder="e.g. mobile-app-prod"
+							class="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+						/>
+					</label>
+					<label class="block">
+						<span class="text-xs font-medium">{m.cms_api_keys_expires_at()}</span>
+						<input
+							name="expires_at"
+							type="datetime-local"
+							class="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+						/>
+						<span class="text-xs text-muted-foreground">{m.cms_api_keys_expires_at_help()}</span>
+					</label>
+				</div>
+				<fieldset>
+					<legend class="mb-1 text-xs font-medium">{m.cms_api_keys_scopes()}</legend>
+					<div class="flex flex-wrap gap-2">
+						{#each data.knownScopes as scope (scope)}
+							<label
+								class="inline-flex items-center gap-1.5 rounded-md border border-input px-2 py-1 text-xs"
+							>
+								<input type="checkbox" name="scopes" value={scope} class="h-3.5 w-3.5" />
+								<code>{scope}</code>
+							</label>
+						{/each}
+					</div>
+				</fieldset>
+				<Button type="submit">{m.cms_api_keys_create()}</Button>
+			</form>
+		{/if}
+
+		<DataTable columns={columns} rows={data.keys} getKey={(k) => k.id}>
+			{#snippet empty()}
+				<p class="text-sm text-muted-foreground">{m.cms_api_keys_empty()}</p>
+			{/snippet}
+		</DataTable>
+	</div>
+</PageShell>

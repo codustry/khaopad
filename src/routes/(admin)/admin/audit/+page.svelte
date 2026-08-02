@@ -1,6 +1,8 @@
 <script lang="ts">
 	import * as m from '$lib/paraglide/messages';
 	import { Avatar, Badge, Button, Card } from '$lib/components/ui';
+	import { PageShell, PageHeader } from '$lib/components/admin';
+	import { ScrollText } from 'lucide-svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -22,11 +24,8 @@
 	<title>{m.cms_audit_log()} — {m.cms_app_name()}</title>
 </svelte:head>
 
-<section class="mx-auto w-full max-w-5xl">
-	<header class="mb-8">
-		<h1 class="text-2xl font-semibold tracking-tight">{m.cms_audit_log()}</h1>
-		<p class="mt-1.5 text-sm text-muted-foreground">{m.cms_audit_help()}</p>
-	</header>
+<PageShell>
+	<PageHeader title={m.cms_audit_log()} description={m.cms_audit_help()} icon={ScrollText} />
 
 	{#if data.items.length === 0}
 		<Card>
@@ -89,4 +88,4 @@
 			</div>
 		</nav>
 	{/if}
-</section>
+</PageShell>

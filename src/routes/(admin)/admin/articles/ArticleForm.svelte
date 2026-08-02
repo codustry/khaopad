@@ -10,6 +10,8 @@
 		TagRecord,
 	} from '$lib/server/content/types';
 	import MarkdownEditor from '$lib/components/editor/MarkdownEditor.svelte';
+	import SaveBar from '$lib/components/admin/SaveBar.svelte';
+	import { DirtyState, guardUnsavedChanges } from '$lib/components/admin/dirty-state.svelte';
 
 	type Values = {
 		titleEn: string;
@@ -172,6 +174,25 @@
 	const draftScope = $derived(existing?.id ?? 'new');
 	let editorEn = $state<{ clearDraft: () => void } | null>(null);
 	let editorTh = $state<{ clearDraft: () => void } | null>(null);
+
+	// Dirty tracking drives both the SaveBar's visibility and the
+	// navigate-away guard. Serialising the tracked fields (rather than
+	// counting mutations) means typing a character and deleting it again
+	// correctly reports clean — a mutation counter would report dirty
+	// forever after the first keystroke, which trains people to click
+	// through the prompt without reading it.
+	const snapshot = () =>
+		JSON.stringify([
+			titleEn, excerptEn, bodyEn, seoTitleEn, seoDescriptionEn,
+			titleTh, excerptTh, bodyTh, seoTitleTh, seoDescriptionTh,
+			slugInput, status, coverMediaId, categoryId,
+			[...tagIds].sort(), publishedAtLocal, commentsMode,
+		]);
+
+	const dirty = new DirtyState(snapshot());
+	$effect(() => dirty.update(snapshot()));
+
+	guardUnsavedChanges(() => dirty.dirty, m.admin_leave_confirm());
 </script>
 
 <form
@@ -483,16 +504,17 @@
 		</div>
 	</section>
 
-	<div class="flex items-center justify-between">
+	<div>
 		<a href={resolve('/(admin)/admin/articles')} class="text-sm text-muted-foreground hover:underline">
 			← {m.cms_back_to_list()}
 		</a>
-		<button
-			type="submit"
-			disabled={loading}
-			class="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm hover:opacity-90 disabled:opacity-50"
-		>
-			{loading ? m.cms_saving() : submitLabel}
-		</button>
 	</div>
+
+	<!--
+		The save action used to sit here, at the very bottom of a 6050px
+		page — 5860px down, against a 900px viewport, with nothing sticky.
+		Saving an edit meant scrolling past the entire markdown body.
+		SaveBar keeps it reachable from wherever the caret is.
+	-->
+	<SaveBar dirty={dirty.dirty} saving={loading} saveLabel={submitLabel} />
 </form>

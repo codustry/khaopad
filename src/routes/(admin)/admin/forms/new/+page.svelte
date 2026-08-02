@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import * as m from '$lib/paraglide/messages';
+	import { PageShell, PageHeader } from '$lib/components/admin';
 	import FormEditor from '../FormEditor.svelte';
 
 	let { form } = $props();
@@ -9,7 +11,13 @@
 	<title>{m.cms_forms_new()} — {m.cms_app_name()}</title>
 </svelte:head>
 
-<div class="max-w-3xl mx-auto">
-	<h1 class="text-2xl font-bold mb-6">{m.cms_forms_new()}</h1>
+<PageShell width="form">
+	<PageHeader
+		title={m.cms_forms_new()}
+		breadcrumbs={[
+			{ label: m.cms_forms(), href: resolve('/(admin)/admin/forms') },
+			{ label: m.cms_forms_new() },
+		]}
+	/>
 	<FormEditor formState={form} action="" submitLabel={m.cms_forms_create()} />
-</div>
+</PageShell>

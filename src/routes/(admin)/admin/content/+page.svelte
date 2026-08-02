@@ -3,6 +3,8 @@
 	import { resolve } from '$app/paths';
 	import { Database, Plus, Layers, Box } from 'lucide-svelte';
 	import { Badge, Button, Input, Label } from '$lib/components/ui';
+	import { PageShell, PageHeader, DataTable } from '$lib/components/admin';
+	import type { Column } from '$lib/components/admin';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -10,35 +12,124 @@
 	let confirmFor = $state<string | null>(null);
 
 	const KIND_ICON = { collection: Layers, single: Box, component: Box };
+
+	type Collection = PageData['collections'][number];
+
+	const columns: Column<Collection>[] = [
+		{ key: 'apiId', header: 'API id', cell: apiIdCell },
+		{ key: 'kind', header: 'Kind', cell: kindCell },
+		{ key: 'fieldCount', header: 'Fields', align: 'right', numeric: true, cell: fieldsCell },
+		{ key: 'entryCount', header: 'Entries', align: 'right', numeric: true },
+		{ key: 'flags', header: 'Flags', cell: flagsCell },
+		{ key: 'actions', header: '', align: 'right', class: 'w-40', cell: actionsCell },
+	];
 </script>
 
-<div class="max-w-5xl space-y-6 p-6">
-	<header class="flex items-center gap-3">
-		<Database class="h-6 w-6 text-muted-foreground" />
-		<div>
-			<h1 class="text-2xl font-semibold">Content types</h1>
-			<p class="text-sm text-muted-foreground">
-				Define content types as data — no migration, no deploy.
-			</p>
-		</div>
-	</header>
+{#snippet apiIdCell(c: Collection)}
+	{@const Icon = KIND_ICON[c.kind] ?? Layers}
+	<div class="flex items-center gap-2">
+		<Icon class="h-4 w-4 text-muted-foreground" />
+		<code class="font-mono font-medium">{c.apiId}</code>
+	</div>
+	{#if c.description}
+		<div class="mt-0.5 text-xs text-muted-foreground">{c.description}</div>
+	{/if}
+{/snippet}
+
+{#snippet kindCell(c: Collection)}
+	<span class="text-xs text-muted-foreground">{c.kind}</span>
+{/snippet}
+
+{#snippet fieldsCell(c: Collection)}
+	{c.fieldCount}
+	{#if c.promotedCount > 0}
+		<span
+			class="text-muted-foreground"
+			title="{c.promotedCount} promoted to indexed columns"
+		>
+			({c.promotedCount}★)
+		</span>
+	{/if}
+{/snippet}
+
+{#snippet flagsCell(c: Collection)}
+	<div class="flex flex-wrap gap-1">
+		{#if c.localized}<Badge variant="outline">i18n</Badge>{/if}
+		{#if c.draftPublish}<Badge variant="outline">draft</Badge>{/if}
+		{#if c.system}<Badge>system</Badge>{/if}
+	</div>
+{/snippet}
+
+{#snippet actionsCell(c: Collection)}
+	<div class="flex items-center justify-end gap-1">
+		<Button
+			href={resolve('/(admin)/admin/content/[collection]', {
+				collection: c.apiId,
+			})}
+			variant="ghost"
+			size="sm"
+		>
+			Manage
+		</Button>
+		{#if !c.system}
+			{#if confirmFor === c.apiId}
+				<form
+					method="POST"
+					action="?/deleteCollection"
+					use:enhance={() => {
+						return async ({ update }) => {
+							confirmFor = null;
+							await update();
+						};
+					}}
+					class="flex items-center gap-1"
+				>
+					<input type="hidden" name="apiId" value={c.apiId} />
+					<Input
+						name="confirm"
+						placeholder={c.apiId}
+						class="h-8 w-28 text-xs"
+						required
+					/>
+					<Button type="submit" variant="destructive" size="sm">Confirm</Button>
+				</form>
+			{:else}
+				<Button
+					variant="ghost"
+					size="sm"
+					class="text-destructive"
+					onclick={() => (confirmFor = c.apiId)}
+				>
+					Delete
+				</Button>
+			{/if}
+		{/if}
+	</div>
+{/snippet}
+
+<PageShell width="wide">
+	<PageHeader
+		title="Content types"
+		description="Define content types as data — no migration, no deploy."
+		icon={Database}
+	/>
 
 	{#if form?.error}
 		<div
-			class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive"
+			class="mb-6 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive"
 		>
 			{form.error}
 		</div>
 	{/if}
 	{#if form?.success && form.message}
 		<div
-			class="rounded-md border border-green-600/50 bg-green-600/10 p-3 text-sm text-green-700"
+			class="mb-6 rounded-md border border-green-600/50 bg-green-600/10 p-3 text-sm text-green-700 dark:border-green-500/40 dark:bg-green-500/10 dark:text-green-300"
 		>
 			{form.message}
 		</div>
 	{/if}
 
-	<section class="space-y-4 rounded-lg border border-border p-4">
+	<section class="mb-6 space-y-4 rounded-lg border border-border p-4">
 		<h2
 			class="text-sm font-semibold uppercase tracking-wider text-muted-foreground"
 		>
@@ -139,127 +230,17 @@
 			</p>
 		</div>
 
-		{#if data.collections.length === 0}
-			<div
-				class="rounded-lg border border-dashed border-border p-8 text-center"
-			>
+		<DataTable
+			columns={columns}
+			rows={data.collections}
+			getKey={(c) => c.id}
+			caption="Content types"
+		>
+			{#snippet empty()}
 				<p class="text-sm text-muted-foreground">
 					No content types yet. Create one above.
 				</p>
-			</div>
-		{:else}
-			<div class="overflow-x-auto rounded-lg border border-border">
-				<table class="w-full text-sm">
-					<thead
-						class="bg-muted/50 text-left text-xs uppercase text-muted-foreground"
-					>
-						<tr>
-							<th class="px-4 py-2">API id</th>
-							<th class="px-4 py-2">Kind</th>
-							<th class="px-4 py-2 text-right">Fields</th>
-							<th class="px-4 py-2 text-right">Entries</th>
-							<th class="px-4 py-2">Flags</th>
-							<th class="w-40 px-4 py-2"></th>
-						</tr>
-					</thead>
-					<tbody class="divide-y divide-border">
-						{#each data.collections as c (c.id)}
-							{@const Icon = KIND_ICON[c.kind] ?? Layers}
-							<tr>
-								<td class="px-4 py-3">
-									<div class="flex items-center gap-2">
-										<Icon class="h-4 w-4 text-muted-foreground" />
-										<code class="font-mono font-medium">{c.apiId}</code>
-									</div>
-									{#if c.description}
-										<div class="mt-0.5 text-xs text-muted-foreground">
-											{c.description}
-										</div>
-									{/if}
-								</td>
-								<td class="px-4 py-3 text-xs text-muted-foreground">
-									{c.kind}
-								</td>
-								<td class="px-4 py-3 text-right tabular-nums">
-									{c.fieldCount}
-									{#if c.promotedCount > 0}
-										<span
-											class="text-muted-foreground"
-											title="{c.promotedCount} promoted to indexed columns"
-										>
-											({c.promotedCount}★)
-										</span>
-									{/if}
-								</td>
-								<td class="px-4 py-3 text-right tabular-nums">
-									{c.entryCount}
-								</td>
-								<td class="px-4 py-3">
-									<div class="flex flex-wrap gap-1">
-										{#if c.localized}<Badge variant="outline">i18n</Badge>{/if}
-										{#if c.draftPublish}<Badge variant="outline">draft</Badge
-											>{/if}
-										{#if c.system}<Badge>system</Badge>{/if}
-									</div>
-								</td>
-								<td class="px-4 py-3">
-									<div class="flex items-center justify-end gap-1">
-										<Button
-											href={resolve('/(admin)/admin/content/[collection]', {
-												collection: c.apiId,
-											})}
-											variant="ghost"
-											size="sm"
-										>
-											Manage
-										</Button>
-										{#if !c.system}
-											{#if confirmFor === c.apiId}
-												<form
-													method="POST"
-													action="?/deleteCollection"
-													use:enhance={() => {
-														return async ({ update }) => {
-															confirmFor = null;
-															await update();
-														};
-													}}
-													class="flex items-center gap-1"
-												>
-													<input type="hidden" name="apiId" value={c.apiId} />
-													<Input
-														name="confirm"
-														placeholder={c.apiId}
-														class="h-8 w-28 text-xs"
-														required
-													/>
-													<Button
-														type="submit"
-														variant="ghost"
-														size="sm"
-														class="text-destructive"
-													>
-														Confirm
-													</Button>
-												</form>
-											{:else}
-												<Button
-													variant="ghost"
-													size="sm"
-													class="text-destructive"
-													onclick={() => (confirmFor = c.apiId)}
-												>
-													Delete
-												</Button>
-											{/if}
-										{/if}
-									</div>
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-		{/if}
+			{/snippet}
+		</DataTable>
 	</section>
-</div>
+</PageShell>

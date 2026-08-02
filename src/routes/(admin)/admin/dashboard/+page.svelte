@@ -2,7 +2,9 @@
 	import { resolve } from '$app/paths';
 	import * as m from '$lib/paraglide/messages';
 	import { getLocale } from '$lib/paraglide/runtime';
-	import { Badge, Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui';
+	import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui';
+	import { LayoutDashboard } from 'lucide-svelte';
+	import { PageShell, PageHeader } from '$lib/components/admin';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -62,66 +64,91 @@
 	<title>{m.cms_dashboard()} — {m.cms_app_name()}</title>
 </svelte:head>
 
-<div class="space-y-6">
-	<header class="flex items-end justify-between gap-4 flex-wrap">
-		<div>
-			<h1 class="text-2xl font-bold">{m.cms_dashboard()}</h1>
-			<p class="text-sm text-muted-foreground mt-1">
-				{m.cms_dashboard_welcome()}
-			</p>
-		</div>
-		{#if stats.newThisWeek > 0}
-			<Badge variant="secondary">
-				{m.cms_dashboard_new_this_week({ count: stats.newThisWeek })}
-			</Badge>
-		{/if}
-	</header>
+<PageShell width="wide">
+	<PageHeader
+		title={m.cms_dashboard()}
+		description={m.cms_dashboard_welcome()}
+		icon={LayoutDashboard}
+	>
+		{#snippet actions()}
+			{#if stats.newThisWeek > 0}
+				<Badge variant="secondary">
+					{m.cms_dashboard_new_this_week({ count: stats.newThisWeek })}
+				</Badge>
+			{/if}
+			<Button href={resolve('/(admin)/admin/articles/new')}>
+				{m.cms_quick_new_article()}
+			</Button>
+		{/snippet}
+	</PageHeader>
 
-	<!-- Stats row -->
-	<section class="grid gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
-		<Card>
-			<CardContent class="p-4">
-				<div class="text-xs font-medium text-muted-foreground">{m.cms_stat_articles()}</div>
-				<div class="text-2xl font-semibold mt-1">{stats.total}</div>
+	<div class="space-y-6">
+	<!--
+		Hierarchy: published count is the one number that answers "is the site
+		healthy?", so it gets a full card and 5xl type. The other five stats
+		were previously the same visual weight, which flattened the page into
+		six equal claims on attention; they are now a dense secondary row.
+	-->
+	<section class="grid gap-3 lg:grid-cols-3">
+		<Card class="lg:col-span-1">
+			<CardContent class="p-6">
+				<div class="text-sm font-medium text-muted-foreground">{m.cms_stat_published()}</div>
+				<div class="mt-2 text-5xl font-semibold tabular-nums tracking-tight">
+					{stats.published}
+				</div>
+				<div class="mt-2 text-xs text-muted-foreground">
+					{m.cms_stat_articles()}: {stats.total}
+				</div>
+				<Button
+					variant="outline"
+					size="sm"
+					class="mt-4"
+					href={resolve('/(admin)/admin/articles')}
+				>
+					{m.cms_quick_browse_articles()}
+				</Button>
 			</CardContent>
 		</Card>
-		<Card>
-			<CardContent class="p-4">
-				<div class="text-xs font-medium text-muted-foreground">{m.cms_stat_published()}</div>
-				<div class="text-2xl font-semibold mt-1">{stats.published}</div>
-			</CardContent>
-		</Card>
-		<Card>
-			<CardContent class="p-4">
-				<div class="text-xs font-medium text-muted-foreground">{m.cms_stat_drafts()}</div>
-				<div class="text-2xl font-semibold mt-1">{stats.drafts}</div>
-			</CardContent>
-		</Card>
-		<Card>
-			<CardContent class="p-4">
-				<div class="text-xs font-medium text-muted-foreground">{m.cms_stat_scheduled()}</div>
-				<div class="text-2xl font-semibold mt-1">{stats.scheduled}</div>
-			</CardContent>
-		</Card>
-		<Card>
-			<CardContent class="p-4">
-				<div class="text-xs font-medium text-muted-foreground">{m.cms_stat_media()}</div>
-				<div class="text-2xl font-semibold mt-1">{stats.media}</div>
-			</CardContent>
-		</Card>
-		<Card>
-			<CardContent class="p-4">
-				<div class="text-xs font-medium text-muted-foreground">{m.cms_stat_users()}</div>
-				<div class="text-2xl font-semibold mt-1">{stats.users}</div>
-			</CardContent>
-		</Card>
+
+		<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:col-span-2 lg:content-start">
+			<Card>
+				<CardContent class="p-3">
+					<div class="text-xs font-medium text-muted-foreground">{m.cms_stat_articles()}</div>
+					<div class="mt-0.5 text-xl font-semibold tabular-nums">{stats.total}</div>
+				</CardContent>
+			</Card>
+			<Card>
+				<CardContent class="p-3">
+					<div class="text-xs font-medium text-muted-foreground">{m.cms_stat_drafts()}</div>
+					<div class="mt-0.5 text-xl font-semibold tabular-nums">{stats.drafts}</div>
+				</CardContent>
+			</Card>
+			<Card>
+				<CardContent class="p-3">
+					<div class="text-xs font-medium text-muted-foreground">{m.cms_stat_scheduled()}</div>
+					<div class="mt-0.5 text-xl font-semibold tabular-nums">{stats.scheduled}</div>
+				</CardContent>
+			</Card>
+			<Card>
+				<CardContent class="p-3">
+					<div class="text-xs font-medium text-muted-foreground">{m.cms_stat_media()}</div>
+					<div class="mt-0.5 text-xl font-semibold tabular-nums">{stats.media}</div>
+				</CardContent>
+			</Card>
+			<Card>
+				<CardContent class="p-3">
+					<div class="text-xs font-medium text-muted-foreground">{m.cms_stat_users()}</div>
+					<div class="mt-0.5 text-xl font-semibold tabular-nums">{stats.users}</div>
+				</CardContent>
+			</Card>
+		</div>
 	</section>
 
-	<!-- Quick actions -->
+	<!-- Quick actions: secondary to the metrics above, so ghost-weight links. -->
 	<section class="grid gap-3 grid-cols-2 md:grid-cols-4">
 		<a
 			href={resolve('/(admin)/admin/articles/new')}
-			class="group rounded-lg border border-border bg-card p-4 hover:border-primary hover:bg-muted/40 transition-colors"
+			class="group rounded-lg border border-border bg-card p-3 transition-colors hover:border-primary hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
 		>
 			<div class="flex items-center gap-2 text-sm font-medium">
 				<svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
@@ -131,7 +158,7 @@
 		</a>
 		<a
 			href={resolve('/(admin)/admin/media')}
-			class="group rounded-lg border border-border bg-card p-4 hover:border-primary hover:bg-muted/40 transition-colors"
+			class="group rounded-lg border border-border bg-card p-3 transition-colors hover:border-primary hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
 		>
 			<div class="flex items-center gap-2 text-sm font-medium">
 				<svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5-5 5 5M12 5v12" /></svg>
@@ -141,7 +168,7 @@
 		</a>
 		<a
 			href={resolve('/(admin)/admin/categories')}
-			class="group rounded-lg border border-border bg-card p-4 hover:border-primary hover:bg-muted/40 transition-colors"
+			class="group rounded-lg border border-border bg-card p-3 transition-colors hover:border-primary hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
 		>
 			<div class="flex items-center gap-2 text-sm font-medium">
 				<svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7h18M3 12h18M3 17h18" /></svg>
@@ -151,7 +178,7 @@
 		</a>
 		<a
 			href={data.showActivity ? resolve('/(admin)/admin/users') : resolve('/(admin)/admin/articles')}
-			class="group rounded-lg border border-border bg-card p-4 hover:border-primary hover:bg-muted/40 transition-colors"
+			class="group rounded-lg border border-border bg-card p-3 transition-colors hover:border-primary hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
 		>
 			<div class="flex items-center gap-2 text-sm font-medium">
 				<svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4" /><path d="M4 21v-1a8 8 0 0 1 16 0v1" /></svg>
@@ -231,9 +258,9 @@
 
 	<!-- i18n coverage -->
 	{#if coverage.total > 0}
-		<Card>
+		<Card class="border-primary/30">
 			<CardHeader>
-				<CardTitle class="text-sm">{m.cms_dashboard_coverage_title()}</CardTitle>
+				<CardTitle class="text-base">{m.cms_dashboard_coverage_title()}</CardTitle>
 			</CardHeader>
 			<CardContent class="space-y-3">
 				<p class="text-xs text-muted-foreground">{m.cms_dashboard_coverage_help()}</p>
@@ -394,4 +421,5 @@
 			</CardContent>
 		</Card>
 	{/if}
-</div>
+	</div>
+</PageShell>

@@ -2,6 +2,8 @@
 	import { enhance } from '$app/forms';
 	import * as m from '$lib/paraglide/messages';
 	import { Button, Card, CardContent, CardHeader, CardTitle, Input, Label } from '$lib/components/ui';
+	import { PageShell, PageHeader } from '$lib/components/admin';
+	import { Settings } from 'lucide-svelte';
 	import type { PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: { ok?: boolean; error?: string } | null } =
@@ -35,11 +37,12 @@
 	<title>{m.cms_settings()} — {m.cms_app_name()}</title>
 </svelte:head>
 
-<section class="mx-auto w-full max-w-2xl">
-	<header class="mb-8">
-		<h1 class="text-2xl font-semibold tracking-tight">{m.cms_settings()}</h1>
-		<p class="mt-1.5 text-sm text-muted-foreground">{m.cms_settings_help()}</p>
-	</header>
+<PageShell width="form">
+	<PageHeader
+		title={m.cms_settings()}
+		description={m.cms_settings_help()}
+		icon={Settings}
+	/>
 
 	<form
 		method="POST"
@@ -206,4 +209,4 @@
 			</Button>
 		</div>
 	</form>
-</section>
+</PageShell>

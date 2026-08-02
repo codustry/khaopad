@@ -14,8 +14,15 @@ export const load: PageServerLoad = async ({ locals, url }) => {
   ) {
     filter.status = statusParam as ArticleRecord["status"];
   }
+
+  // Trimmed, because a search of only spaces would otherwise LIKE-match
+  // every title containing a space — i.e. all of them — while looking to
+  // the user like a filter that silently failed.
+  const search = url.searchParams.get("q")?.trim();
+  if (search) filter.search = search;
+
   const articles = await locals.content.listArticles(filter);
-  return { articles, status: filter.status ?? null };
+  return { articles, status: filter.status ?? null, search: search ?? "" };
 };
 
 export const actions: Actions = {

@@ -58,6 +58,11 @@ export default defineConfig(
       "src/routes/(www)/**/*.svelte",
       "src/lib/components/cms/**/*.svelte",
       "src/lib/components/ui/**/*.svelte",
+      // The admin design system (PageHeader breadcrumbs, DataTable
+      // rowHref, CommandPalette, TableToolbar) takes hrefs as props or
+      // navigates to the current route with new query params. There is no
+      // build-time route ID for any of them to resolve.
+      "src/lib/components/admin/**/*.svelte",
     ],
     rules: {
       "svelte/no-navigation-without-resolve": "off",

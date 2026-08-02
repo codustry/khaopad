@@ -4,6 +4,9 @@
 	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
 	import * as m from '$lib/paraglide/messages';
+	import { Image } from 'lucide-svelte';
+	import { Button } from '$lib/components/ui';
+	import { PageShell, PageHeader } from '$lib/components/admin';
 	import type { MediaFolderRecord, MediaRecord } from '$lib/server/media/types';
 
 	let {
@@ -130,14 +133,10 @@
 	<title>{m.cms_media()} — {m.cms_app_name()}</title>
 </svelte:head>
 
-<div class="space-y-6">
-	<header class="flex items-center justify-between flex-wrap gap-3">
-		<div>
-			<h1 class="text-2xl font-bold">{m.cms_media()}</h1>
-			<p class="text-sm text-muted-foreground">{m.cms_media_help()}</p>
-		</div>
-	</header>
+<PageShell width="wide">
+	<PageHeader title={m.cms_media()} description={m.cms_media_help()} icon={Image} />
 
+	<div class="space-y-6">
 	<form onsubmit={onUpload} class="border border-border rounded-lg p-4 space-y-3 bg-card">
 		<div class="flex flex-col sm:flex-row gap-3 sm:items-end">
 			<label class="block flex-1">
@@ -158,13 +157,9 @@
 					class="mt-1 w-full px-3 py-2 border border-input rounded-md bg-background text-sm"
 				/>
 			</label>
-			<button
-				type="submit"
-				disabled={uploading}
-				class="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm hover:opacity-90 disabled:opacity-50 h-10"
-			>
+			<Button type="submit" disabled={uploading}>
 				{uploading ? m.cms_media_uploading() : m.cms_media_upload()}
-			</button>
+			</Button>
 		</div>
 		{#if activeFolderId}
 			{@const f = folderById.get(activeFolderId)}
@@ -185,13 +180,14 @@
 			<div class="flex items-center justify-between">
 				<h2 class="text-sm font-semibold">{m.cms_media_folders()}</h2>
 				{#if canManage}
-					<button
+					<Button
 						type="button"
+						variant="outline"
+						size="sm"
 						onclick={() => (creatingFolder = !creatingFolder)}
-						class="text-xs px-2 py-1 border border-border rounded-md hover:bg-muted"
 					>
 						{creatingFolder ? m.cms_cancel() : m.cms_media_folder_new()}
-					</button>
+					</Button>
 				{/if}
 			</div>
 
@@ -224,12 +220,9 @@
 							})}
 						</p>
 					{/if}
-					<button
-						type="submit"
-						class="w-full px-2 py-1.5 bg-primary text-primary-foreground rounded-md text-xs hover:opacity-90"
-					>
+					<Button type="submit" size="sm" class="w-full">
 						{m.cms_media_folder_create()}
-					</button>
+					</Button>
 				</form>
 			{/if}
 
@@ -288,7 +281,7 @@
 										required
 										class="flex-1 px-1.5 py-0.5 border border-input rounded text-xs bg-background"
 									/>
-									<button type="submit" class="text-xs text-primary hover:underline">{m.cms_save()}</button>
+									<Button type="submit" variant="link" size="sm" class="px-1">{m.cms_save()}</Button>
 								</form>
 							{:else}
 								<a href={resolve(`/(admin)/admin/media?folder=${folder.id}`)} class="flex-1 flex items-center gap-2 truncate">
@@ -298,16 +291,19 @@
 									<span class="truncate">{folder.name}</span>
 								</a>
 								{#if canManage}
-									<button
+									<Button
 										type="button"
+										variant="ghost"
+										size="sm"
 										onclick={() => startRename(folder)}
 										title={m.cms_media_folder_rename()}
-										class="opacity-0 hover:opacity-100 text-muted-foreground hover:text-foreground"
+										aria-label={m.cms_media_folder_rename()}
+										class="h-7 w-7 px-0 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
 									>
 										<svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
 											><path d="M15 5l4 4L8 20H4v-4z" /></svg
 										>
-									</button>
+									</Button>
 									<form
 										method="POST"
 										action="?/deleteFolder"
@@ -320,15 +316,18 @@
 										}}
 									>
 										<input type="hidden" name="id" value={folder.id} />
-										<button
+										<Button
 											type="submit"
+											variant="ghost"
+											size="sm"
 											title={m.cms_delete()}
-											class="text-muted-foreground hover:text-destructive"
+											aria-label={m.cms_delete()}
+											class="h-7 w-7 px-0 text-muted-foreground hover:text-destructive sm:h-7 sm:w-7"
 										>
 											<svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
 												><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg
 											>
-										</button>
+										</Button>
 									</form>
 								{/if}
 							{/if}
@@ -374,14 +373,16 @@
 								<p class="text-xs font-medium truncate" title={item.filename}>{item.filename}</p>
 								<p class="text-[10px] text-muted-foreground">{fmtBytes(item.size)}</p>
 								<div class="flex items-center justify-between gap-1">
-									<button
+									<Button
 										type="button"
-										class="text-[10px] text-muted-foreground hover:underline"
+										variant="ghost"
+										size="sm"
+										class="h-7 px-1.5 text-[10px] text-muted-foreground sm:h-7"
 										onclick={() => navigator.clipboard.writeText(item.id)}
 										title={item.id}
 									>
 										{m.cms_media_copy_id()}
-									</button>
+									</Button>
 									{#if data.user?.role === 'super_admin' || data.user?.role === 'admin'}
 										<form
 											method="POST"
@@ -392,15 +393,17 @@
 												}}
 										>
 											<input type="hidden" name="id" value={item.id} />
-											<button
+											<Button
 												type="submit"
-												class="text-[10px] text-destructive hover:underline"
-												onclick={(e) => {
+												variant="ghost"
+												size="sm"
+												class="h-7 px-1.5 text-[10px] text-destructive hover:text-destructive sm:h-7"
+												onclick={(e: MouseEvent) => {
 													if (!confirm(m.cms_media_delete_confirm())) e.preventDefault();
 												}}
 											>
 												{m.cms_delete()}
-											</button>
+											</Button>
 										</form>
 									{/if}
 								</div>
@@ -411,5 +414,6 @@
 			{/if}
 		</div>
 	</div>
-</div>
+	</div>
+</PageShell>
 

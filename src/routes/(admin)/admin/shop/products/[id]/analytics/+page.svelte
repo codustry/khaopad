@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { ArrowLeft, BarChart3 } from 'lucide-svelte';
+	import { BarChart3 } from 'lucide-svelte';
+	import { PageShell, PageHeader } from '$lib/components/admin';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -10,24 +11,20 @@
 	}
 </script>
 
-<div class="max-w-4xl space-y-6 p-6">
-	<a
-		href={resolve('/(admin)/admin/shop/products/[id]', { id: data.productId })}
-		class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-	>
-		<ArrowLeft class="h-4 w-4" />
-		Back to product
-	</a>
-
-	<header class="flex items-center gap-3">
-		<BarChart3 class="h-6 w-6 text-muted-foreground" />
-		<div>
-			<h1 class="text-2xl font-semibold">Analytics</h1>
-			<div class="text-sm text-muted-foreground">
-				{data.productTitle} · past {a.windowDays} days
-			</div>
-		</div>
-	</header>
+<PageShell>
+	<PageHeader
+		title="Analytics"
+		description="{data.productTitle} · past {a.windowDays} days"
+		icon={BarChart3}
+		breadcrumbs={[
+			{ label: 'Products', href: resolve('/(admin)/admin/shop/products') },
+			{
+				label: data.productTitle,
+				href: resolve('/(admin)/admin/shop/products/[id]', { id: data.productId })
+			},
+			{ label: 'Analytics' }
+		]}
+	/>
 
 	<div class="grid gap-4 sm:grid-cols-3">
 		<div class="rounded-lg border border-border p-4">
@@ -60,9 +57,11 @@
 		</div>
 	</div>
 
-	<section class="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">
+	<section
+		class="mt-6 rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground"
+	>
 		Revenue attribution + per-line purchase events land in 4c.
 		Until then, purchase count is 0 — purchases are only recorded
 		at the order level, not per-product.
 	</section>
-</div>
+</PageShell>

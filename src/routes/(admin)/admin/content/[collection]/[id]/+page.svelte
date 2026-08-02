@@ -10,8 +10,9 @@
 	import { enhance } from '$app/forms';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { ArrowLeft, Save, History } from 'lucide-svelte';
-	import { Badge, Button, Input, Label } from '$lib/components/ui';
+	import { Save, History } from 'lucide-svelte';
+	import { Button, Input, Label } from '$lib/components/ui';
+	import { PageShell, PageHeader, StatusBadge } from '$lib/components/admin';
 	import RegistryField from '$lib/components/admin/registry/RegistryField.svelte';
 	import type { PageData, ActionData } from './$types';
 
@@ -32,57 +33,54 @@
 	}
 </script>
 
-<div class="max-w-3xl space-y-6 p-6">
-	<header class="space-y-2">
-		<Button
-			href={resolve('/(admin)/admin/content/[collection]', {
-				collection: c.apiId,
-			})}
-			variant="ghost"
-			size="sm"
-			class="-ml-2"
+{#snippet headerActions()}
+	{#if data.entry}
+		<StatusBadge status={data.entry.status} />
+	{/if}
+	{#if data.versionCount > 0}
+		<span
+			class="flex items-center gap-1 text-xs text-muted-foreground"
+			title="Snapshots taken on each save"
 		>
-			<ArrowLeft class="mr-1 h-4 w-4" /> {c.apiId}
-		</Button>
-		<div class="flex items-center gap-3">
-			<h1 class="text-2xl font-semibold">
-				{data.isNew ? 'New entry' : (data.entry?.slug ?? 'Entry')}
-			</h1>
-			{#if data.entry}
-				<Badge variant={data.entry.status === 'published' ? 'default' : 'outline'}>
-					{data.entry.status}
-				</Badge>
-			{/if}
-			{#if data.versionCount > 0}
-				<span
-					class="flex items-center gap-1 text-xs text-muted-foreground"
-					title="Snapshots taken on each save"
-				>
-					<History class="h-3 w-3" />
-					{data.versionCount}
-					{data.versionCount === 1 ? 'version' : 'versions'}
-				</span>
-			{/if}
-		</div>
-	</header>
+			<History class="h-3 w-3" />
+			{data.versionCount}
+			{data.versionCount === 1 ? 'version' : 'versions'}
+		</span>
+	{/if}
+{/snippet}
+
+<PageShell width="form">
+	<PageHeader
+		title={data.isNew ? 'New entry' : (data.entry?.slug ?? 'Entry')}
+		breadcrumbs={[
+			{
+				label: c.apiId,
+				href: resolve('/(admin)/admin/content/[collection]', {
+					collection: c.apiId,
+				}),
+			},
+			{ label: data.isNew ? 'New entry' : (data.entry?.slug ?? 'Entry') },
+		]}
+		actions={headerActions}
+	/>
 
 	{#if justCreated}
 		<div
-			class="rounded-md border border-green-600/50 bg-green-600/10 p-3 text-sm text-green-700"
+			class="mb-6 rounded-md border border-green-600/50 bg-green-600/10 p-3 text-sm text-green-700 dark:border-green-500/40 dark:bg-green-500/10 dark:text-green-300"
 		>
 			Entry created.
 		</div>
 	{/if}
 	{#if form?.error}
 		<div
-			class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive"
+			class="mb-6 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive"
 		>
 			{form.error}
 		</div>
 	{/if}
 	{#if form?.success && form.message}
 		<div
-			class="rounded-md border border-green-600/50 bg-green-600/10 p-3 text-sm text-green-700"
+			class="mb-6 rounded-md border border-green-600/50 bg-green-600/10 p-3 text-sm text-green-700 dark:border-green-500/40 dark:bg-green-500/10 dark:text-green-300"
 		>
 			{form.message}
 		</div>
@@ -230,4 +228,4 @@
 			</div>
 		</form>
 	{/if}
-</div>
+</PageShell>

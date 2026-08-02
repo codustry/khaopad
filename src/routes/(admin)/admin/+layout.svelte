@@ -5,6 +5,10 @@
 	import { Menu, X } from 'lucide-svelte';
 	import Sidebar from '$lib/components/admin/Sidebar.svelte';
 	import AdminLocaleToggle from '$lib/components/admin/AdminLocaleToggle.svelte';
+	import ThemeToggle from '$lib/components/admin/ThemeToggle.svelte';
+	import CommandPalette from '$lib/components/admin/CommandPalette.svelte';
+	import { theme } from '$lib/components/admin/theme.svelte';
+	import { onMount } from 'svelte';
 	import type { Snippet } from 'svelte';
 	import type { LayoutData } from './$types';
 
@@ -17,6 +21,11 @@
 	} = $props();
 
 	let mobileOpen = $state(false);
+
+	// Picks up the stored preference and follows OS changes while mounted.
+	// The pre-paint class is set by the inline script in app.html; this
+	// takes over ownership after hydration.
+	onMount(() => theme.init());
 
 	async function logout() {
 		try {
@@ -97,13 +106,22 @@
 
 				<div class="flex-1"></div>
 
+				<ThemeToggle />
 				<AdminLocaleToggle />
 			</header>
 
-			<!-- Page content -->
-			<main class="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+			<!--
+				Page content. Padding and max-width belong to <PageShell>,
+				which every page wraps its content in — applying them here
+				too would double the padding on all 41 pages.
+			-->
+			<main class="flex-1">
 				{@render children()}
 			</main>
+
+			<!-- ⌘K. Reads the same nav registry the sidebar does. -->
+			<CommandPalette role={data.user.role} />
+
 		</div>
 	</div>
 {/if}
