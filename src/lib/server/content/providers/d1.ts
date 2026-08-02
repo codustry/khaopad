@@ -169,6 +169,7 @@ export class D1ContentProvider implements ContentProvider {
       tagId,
       authorId,
       search,
+      locale,
       page = 1,
       limit = 20,
       onlyPublished = false,
@@ -191,6 +192,34 @@ export class D1ContentProvider implements ContentProvider {
           isNull(schema.articles.publishedAt),
           lte(schema.articles.publishedAt, nowIso),
         )!,
+      );
+    }
+
+    // Locale filter: only articles that actually HAVE a localization in
+    // this locale.
+    //
+    // `ArticleFilter.locale` was declared and passed by five callers —
+    // the blog index, RSS feed, sitemap, public API and newsletter digest
+    // — but never read here, so it was silently dropped. TypeScript
+    // cannot catch that: an unread property is legal.
+    //
+    // The visible symptom was sitemap-th.xml advertising every published
+    // article, including ones with no Thai translation. Google's rule is
+    // that "localized versions are only considered duplicates if the main
+    // content of the page remains untranslated" — which is exactly what a
+    // Thai URL falling back to English body copy is.
+    //
+    // Expressed with inArray over a subquery rather than a join so the
+    // shape of the outer query (and its pagination) stays unchanged.
+    if (locale) {
+      conditions.push(
+        inArray(
+          schema.articles.id,
+          this.db
+            .select({ id: schema.articleLocalizations.articleId })
+            .from(schema.articleLocalizations)
+            .where(eq(schema.articleLocalizations.locale, locale)),
+        ),
       );
     }
 
