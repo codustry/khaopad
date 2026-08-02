@@ -45,11 +45,32 @@ const bindingsHook: Handle = async ({ event, resolve }) => {
     .split(",")
     .map((s) => s.trim());
   const defaultLocale = env?.DEFAULT_LOCALE ?? "en";
-  event.locals.locale = localeFromPathname(
-    event.url.pathname,
-    supportedLocales,
-    defaultLocale,
-  );
+  // Locale resolution differs by surface, deliberately.
+  //
+  //   (www)   → URL segment. /en/blog vs /th/blog is SEO-visible and
+  //             shareable, so the path is the source of truth.
+  //   (admin) → COOKIE. The CMS is intentionally locale-prefix-free: it
+  //             is a private surface with no SEO need, and prefixing
+  //             would turn /admin/articles into /th/admin/articles.
+  //
+  // The admin case was previously missing. `localeFromPathname` sees
+  // "admin" as the first segment, finds it isn't a supported locale, and
+  // falls back to DEFAULT_LOCALE — so the CMS was pinned to English no
+  // matter what. AdminLocaleToggle wrote PARAGLIDE_LOCALE and reloaded,
+  // but nothing ever read that cookie, so the toggle did nothing.
+  if (event.locals.surface === "admin") {
+    const cookieLocale = event.cookies.get(paraglideRuntime.cookieName);
+    event.locals.locale =
+      cookieLocale && supportedLocales.includes(cookieLocale)
+        ? cookieLocale
+        : defaultLocale;
+  } else {
+    event.locals.locale = localeFromPathname(
+      event.url.pathname,
+      supportedLocales,
+      defaultLocale,
+    );
+  }
 
   const validation = validatePlatformEnv(env);
 
