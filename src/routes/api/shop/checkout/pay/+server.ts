@@ -10,9 +10,15 @@
 import { error, json } from "@sveltejs/kit";
 import { OrderService } from "$plugins/shop/order-service";
 import { resolveProviderForRequest } from "$plugins/shop/beam-config.server";
+import { requireSameOrigin } from "$lib/server/http/same-origin";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ request, platform, url }) => {
+  // Checkout creates orders and initiates charges — the highest-value
+  // state change in the app, and it had no provenance check at all
+  // while the lower-stakes cart routes did.
+  const originGuard = requireSameOrigin(request, url);
+  if (originGuard) return originGuard;
   const env = platform?.env;
   if (!env) throw error(503, "Platform not ready");
 

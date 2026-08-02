@@ -18,34 +18,8 @@ import { ensureCartSession } from "$plugins/shop/cart-cookie";
 import { ShopValidationError } from "$plugins/shop/service";
 import { shopProductVariants } from "$plugins/shop/schema";
 import { track, buildEventContext } from "$lib/server/analytics/track";
+import { requireSameOrigin } from "$lib/server/http/same-origin";
 import type { RequestHandler } from "./$types";
-
-/**
- * Same-origin CSRF guard for mutating cart endpoints. SameSite=Lax
- * on the cart cookie blocks most cross-site cookie carriage, but
- * PATCH/DELETE with certain content types can slip past preflight —
- * an explicit Origin check is cheap belt-and-braces.
- *
- * Returns null on pass, or a Response to short-circuit on fail.
- */
-function requireSameOrigin(request: Request, url: URL): Response | null {
-  // GET is safe to serve without an Origin check (read-only).
-  if (request.method === "GET") return null;
-  const origin = request.headers.get("origin") ?? "";
-  if (!origin) return null; // same-origin fetch from same document usually omits it
-  try {
-    const originHost = new URL(origin).host;
-    if (originHost !== url.host) {
-      return json(
-        { ok: false, code: "CROSS_ORIGIN_FORBIDDEN" },
-        { status: 403 },
-      );
-    }
-  } catch {
-    return json({ ok: false, code: "MALFORMED_ORIGIN" }, { status: 400 });
-  }
-  return null;
-}
 
 export const GET: RequestHandler = async ({ platform, cookies, locals }) => {
   const env = platform?.env;

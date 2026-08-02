@@ -20,29 +20,8 @@ import { CartService } from "$plugins/shop/cart-service";
 import { ensureCartSession } from "$plugins/shop/cart-cookie";
 import { validateDiscount } from "$plugins/shop/discount-service";
 import { shopCarts } from "$plugins/shop/schema-cart";
+import { requireSameOrigin } from "$lib/server/http/same-origin";
 import type { RequestHandler } from "./$types";
-
-function requireSameOrigin(request: Request, url: URL): Response | null {
-  if (request.method === "GET") return null;
-  // A same-origin fetch from any current browser sends Origin on
-  // POST/DELETE. Treating a missing header as "allow" would hand the
-  // guard to any non-browser client, so require it.
-  const origin = request.headers.get("origin") ?? "";
-  if (!origin) {
-    return json({ ok: false, code: "MISSING_ORIGIN" }, { status: 403 });
-  }
-  try {
-    if (new URL(origin).host !== url.host) {
-      return json(
-        { ok: false, code: "CROSS_ORIGIN_FORBIDDEN" },
-        { status: 403 },
-      );
-    }
-  } catch {
-    return json({ ok: false, code: "MALFORMED_ORIGIN" }, { status: 400 });
-  }
-  return null;
-}
 
 export const POST: RequestHandler = async ({
   request,

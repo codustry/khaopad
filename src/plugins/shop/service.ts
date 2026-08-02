@@ -782,24 +782,53 @@ export class ShopService {
     if (rows.length === 0) return [];
 
     const ids = rows.map((r) => r.id);
-    const [locs, links] = await Promise.all([
-      this.db
-        .select()
-        .from(shopCollectionLocalizations)
-        .where(inArray(shopCollectionLocalizations.collectionId, ids))
-        .all(),
-      this.db
-        .select()
-        .from(shopCollectionProducts)
-        .where(inArray(shopCollectionProducts.collectionId, ids))
-        .all(),
+
+    // D1 binds at most 100 parameters per statement (see MAX_BIND_PARAMS
+    // in the content query engine, which solves the same problem). A bare
+    // `inArray(ids)` silently breaks the page at 101 collections, so
+    // chunk it.
+    const CHUNK = 100;
+    const chunks: string[][] = [];
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      chunks.push(ids.slice(i, i + CHUNK));
+    }
+
+    const [locGroups, linkGroups] = await Promise.all([
+      Promise.all(
+        chunks.map((c) =>
+          this.db
+            .select()
+            .from(shopCollectionLocalizations)
+            .where(inArray(shopCollectionLocalizations.collectionId, c))
+            .all(),
+        ),
+      ),
+      Promise.all(
+        chunks.map((c) =>
+          this.db
+            .select()
+            .from(shopCollectionProducts)
+            .where(inArray(shopCollectionProducts.collectionId, c))
+            .all(),
+        ),
+      ),
     ]);
+    const locs = locGroups.flat();
+    const links = linkGroups.flat();
 
     // Prefer the requested locale, fall back to English, then anything —
     // a collection with only a Thai title should still show a title
     // rather than an empty cell.
+    // Index once rather than filtering the full array per row — that was
+    // O(collections x localizations), which is fine at 5 and not at 500.
+    const byCollection = new Map<string, typeof locs>();
+    for (const l of locs) {
+      const list = byCollection.get(l.collectionId);
+      if (list) list.push(l);
+      else byCollection.set(l.collectionId, [l]);
+    }
     const titleFor = (id: string) => {
-      const forId = locs.filter((l) => l.collectionId === id);
+      const forId = byCollection.get(id) ?? [];
       return (
         forId.find((l) => l.locale === locale)?.title ??
         forId.find((l) => l.locale === "en")?.title ??
