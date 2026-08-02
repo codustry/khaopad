@@ -17,7 +17,8 @@ import { join } from "node:path";
  * the admin looks good; they prove the specific regressions that
  * produced the mess cannot silently return.
  */
-const ADMIN_ROUTES = new URL("../../../routes/(admin)/admin", import.meta.url).pathname;
+const ADMIN_ROUTES = new URL("../../../routes/(admin)/admin", import.meta.url)
+  .pathname;
 const COMPONENTS = new URL(".", import.meta.url).pathname;
 
 /** Pages that render outside the admin shell and own their full-bleed layout. */
@@ -33,7 +34,9 @@ function adminPages(dir = ADMIN_ROUTES, acc: string[] = []): string[] {
 }
 
 const pages = adminPages();
-const shelled = pages.filter((p) => !UNSHELLED.some((u) => p.includes(`/admin/${u}`)));
+const shelled = pages.filter(
+  (p) => !UNSHELLED.some((u) => p.includes(`/admin/${u}`)),
+);
 const read = (p: string) => readFileSync(p, "utf8");
 const rel = (p: string) => p.slice(p.indexOf("/admin/"));
 
@@ -46,7 +49,9 @@ describe("admin design system", () => {
   });
 
   it("routes every page through PageShell", () => {
-    const missing = shelled.filter((p) => !read(p).includes("PageShell")).map(rel);
+    const missing = shelled
+      .filter((p) => !read(p).includes("PageShell"))
+      .map(rel);
     expect(missing).toEqual([]);
   });
 
@@ -65,7 +70,9 @@ describe("admin design system", () => {
     // or a progress fill is a legitimate use of the token — flagging
     // those would push authors to suppress the rule rather than fix it.
     const CLICKABLE_PRIMARY = /<(a|button)\b[^>]*class="[^"]*\bbg-primary\b/s;
-    const offenders = shelled.filter((p) => CLICKABLE_PRIMARY.test(read(p))).map(rel);
+    const offenders = shelled
+      .filter((p) => CLICKABLE_PRIMARY.test(read(p)))
+      .map(rel);
     expect(offenders).toEqual([]);
   });
 
@@ -76,7 +83,9 @@ describe("admin design system", () => {
     const offenders = pages
       .filter((p) => {
         const src = read(p);
-        return src.includes("<table") && /overflow-hidden[^"]*">\s*<table/.test(src);
+        return (
+          src.includes("<table") && /overflow-hidden[^"]*">\s*<table/.test(src)
+        );
       })
       .map(rel);
     expect(offenders).toEqual([]);
@@ -86,7 +95,8 @@ describe("admin design system", () => {
     // Literal light-mode colors don't invert: `bg-white` stays white on
     // a dark background, and text on it becomes unreadable. Paired
     // `dark:` variants are fine, so only unpaired literals are flagged.
-    const BARE_LIGHT = /class="[^"]*\b(bg-white|bg-gray-50|bg-neutral-50|text-black)\b(?![^"]*\bdark:)/;
+    const BARE_LIGHT =
+      /class="[^"]*\b(bg-white|bg-gray-50|bg-neutral-50|text-black)\b(?![^"]*\bdark:)/;
     const offenders = shelled.filter((p) => BARE_LIGHT.test(read(p))).map(rel);
     expect(offenders).toEqual([]);
   });
@@ -115,7 +125,12 @@ describe("barrel export cycle", () => {
 
   it("names the components it does export", () => {
     // Guards the assertion above from passing because the barrel emptied.
-    for (const name of ["PageShell", "PageHeader", "DataTable", "StatusBadge"]) {
+    for (const name of [
+      "PageShell",
+      "PageHeader",
+      "DataTable",
+      "StatusBadge",
+    ]) {
       expect(barrel).toContain(name);
     }
   });

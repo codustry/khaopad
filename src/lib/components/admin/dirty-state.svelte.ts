@@ -79,7 +79,10 @@ export class DirtyState {
  * navigation instead of capturing `dirty` once at setup, when it is
  * always false.
  */
-export function guardUnsavedChanges(isDirty: () => boolean, confirmMessage: string): void {
+export function guardUnsavedChanges(
+  isDirty: () => boolean,
+  confirmMessage: string,
+): void {
   // Full unloads: closing the tab, reloading, typing a new URL. The
   // browser shows its own generic wording — since Chrome 51 and Firefox
   // 44 a custom string is ignored, so `confirmMessage` deliberately
