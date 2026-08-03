@@ -1,4 +1,4 @@
-import { fail, redirect } from "@sveltejs/kit";
+import { fail, isRedirect, redirect } from "@sveltejs/kit";
 import { generateSlugFromTitle, slugify } from "$lib/utils";
 import { logAudit } from "$lib/server/audit";
 import type { Actions, PageServerLoad } from "./$types";
@@ -154,9 +154,24 @@ export const actions: Actions = {
       }
       throw redirect(303, `/admin/articles/${article.id}`);
     } catch (err) {
-      if (err instanceof Response) throw err; // let redirect through
+      // `redirect()` throws a `Redirect` object, NOT a `Response` — the
+      // previous `instanceof Response` guard never matched, so the
+      // success redirect was swallowed by this catch and every
+      // successful creation reported "Failed to create article" while
+      // the article silently existed. Retrying then hit the slug's
+      // UNIQUE constraint, surfacing a raw D1 error.
+      if (isRedirect(err)) throw err;
       return fail(400, {
-        error: err instanceof Error ? err.message : "Failed to create article",
+        // A slug collision is the one failure a user can actually fix
+        // themselves — name it, instead of leaking the raw D1 error
+        // ("D1_ERROR: UNIQUE constraint failed: articles.slug").
+        error:
+          err instanceof Error &&
+          /UNIQUE constraint failed: articles\.slug/.test(err.message)
+            ? `An article with the slug "${slug}" already exists. Change the title or set a different slug.`
+            : err instanceof Error
+              ? err.message
+              : "Failed to create article",
         values: {
           titleEn,
           excerptEn,

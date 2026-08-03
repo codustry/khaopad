@@ -1,4 +1,4 @@
-import { error, fail, redirect } from "@sveltejs/kit";
+import { error, fail, isRedirect, redirect } from "@sveltejs/kit";
 import { canManageTaxonomy } from "$lib/server/auth/permissions";
 import { logAudit } from "$lib/server/audit";
 import { generateSlugFromTitle, slugify } from "$lib/utils";
@@ -130,9 +130,18 @@ export const actions: Actions = {
       }
       throw redirect(303, `/admin/pages/${page.id}`);
     } catch (err) {
-      if (err instanceof Response) throw err;
+      // `redirect()` throws a `Redirect` object, not a `Response`; the
+      // old guard never matched and the success redirect was reported
+      // as "Failed to create page". Same bug as articles/new.
+      if (isRedirect(err)) throw err;
       return fail(400, {
-        error: err instanceof Error ? err.message : "Failed to create page",
+        error:
+          err instanceof Error &&
+          /UNIQUE constraint failed: pages\.slug/.test(err.message)
+            ? `A page with this slug already exists. Change the title or set a different slug.`
+            : err instanceof Error
+              ? err.message
+              : "Failed to create page",
         values: {
           titleEn,
           bodyEn,

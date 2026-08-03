@@ -201,14 +201,27 @@
 	class="space-y-6"
 	use:enhance={() => {
 		loading = true;
+		// Mutes the navigate-away guard while the save is in flight.
+		// Creating a new article ends in a 303 redirect to the editor;
+		// without this, `beforeNavigate` fires during that redirect with
+		// dirty still true, and the user is asked to confirm "losing"
+		// changes they just successfully saved.
+		dirty.beginSave();
 		return async ({ update, result }) => {
 			await update();
 			loading = false;
-			// On a successful save, clear the localStorage drafts so the
-			// recovery banner doesn't reappear with stale content.
 			if (result.type === 'success' || result.type === 'redirect') {
+				// The saved content is the new baseline — otherwise the
+				// SaveBar keeps claiming "Unsaved changes" after a save on
+				// the edit page, where the action returns without redirecting.
+				dirty.commit(snapshot());
+				// Clear the localStorage drafts so the recovery banner
+				// doesn't reappear with stale content.
 				editorEn?.clearDraft();
 				editorTh?.clearDraft();
+			} else {
+				// Validation failure: still dirty, guard re-armed.
+				dirty.abortSave();
 			}
 		};
 	}}
