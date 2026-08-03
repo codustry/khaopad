@@ -71,7 +71,7 @@
 		>
 			Manage
 		</Button>
-		{#if !c.system}
+		{#if !c.system && data.canManageTypes}
 			{#if confirmFor === c.apiId}
 				<form
 					method="POST"
@@ -129,6 +129,7 @@
 		</div>
 	{/if}
 
+	{#if data.canManageTypes}
 	<section class="mb-6 space-y-4 rounded-lg border border-border p-4">
 		<h2
 			class="text-sm font-semibold uppercase tracking-wider text-muted-foreground"
@@ -213,6 +214,7 @@
 			</div>
 		</form>
 	</section>
+	{/if}
 
 	<section>
 		<div class="mb-3 flex items-baseline justify-between">

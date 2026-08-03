@@ -8,6 +8,7 @@
 	 */
 	import { Input, Label } from '$lib/components/ui';
 	import MarkdownEditor from '$lib/components/editor/MarkdownEditor.svelte';
+	import RelationPicker from './RelationPicker.svelte';
 	import { FIELD_EDITORS, fieldName, labelFor } from './field-map';
 	import type { CollectionField } from '$lib/server/content/registry/schema';
 
@@ -17,6 +18,7 @@
 		locale,
 		uiLocale = 'en',
 		relationChoices = [],
+		relationTotal = 0,
 	}: {
 		field: CollectionField;
 		value?: unknown;
@@ -26,6 +28,8 @@
 		uiLocale?: string;
 		/** Entry pick-list for relation/component fields. */
 		relationChoices?: { id: string; label: string }[];
+		/** Total matching entries server-side, for the truncation hint. */
+		relationTotal?: number;
 	} = $props();
 
 	const spec = $derived(FIELD_EDITORS[field.type]);
@@ -112,31 +116,14 @@
 			{/each}
 		</select>
 	{:else if spec.editor === 'relation' || spec.editor === 'component'}
-		{#if relationChoices.length === 0}
-			<p class="text-xs text-muted-foreground">
-				No entries available to link yet.
-			</p>
-			<input type="hidden" {name} value={selectedIds.join(',')} />
-		{:else}
-			<select
-				id={name}
-				{name}
-				multiple={config.cardinality !== 'one'}
-				size={Math.min(6, Math.max(3, relationChoices.length))}
-				class="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
-			>
-				{#each relationChoices as choice (choice.id)}
-					<option value={choice.id} selected={selectedIds.includes(choice.id)}>
-						{choice.label}
-					</option>
-				{/each}
-			</select>
-			<p class="text-xs text-muted-foreground">
-				{config.cardinality === 'one'
-					? 'Pick one.'
-					: 'Ctrl/Cmd-click for several. Selection order is preserved.'}
-			</p>
-		{/if}
+		<RelationPicker
+			{name}
+			inputId={name}
+			choices={relationChoices}
+			value={selectedIds}
+			multiple={config.cardinality !== 'one'}
+			total={relationTotal}
+		/>
 	{:else if spec.editor === 'media'}
 		<!-- Media is referenced by id; the existing picker lands in a
 		     follow-up, so this accepts an id directly for now. -->

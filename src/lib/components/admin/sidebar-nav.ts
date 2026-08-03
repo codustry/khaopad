@@ -18,6 +18,7 @@ import {
   MessageSquare,
   Webhook,
   KeyRound,
+  Ruler,
 } from "lucide-svelte";
 import * as m from "$lib/paraglide/messages";
 
@@ -189,12 +190,24 @@ registerNavGroup({
   title: m.cms_categories,
   items: [
     {
-      // Phase 4 (#68): user-defined content types. Admin-only because
-      // defining a type changes what the public API exposes.
+      // Phase 4 (#68): user-defined content types. Editors see this too
+      // (#125): the entry-editing routes beneath the index already admit
+      // editors, but the only link into the area was admin-gated — so
+      // the registry was admin-only in practice regardless of the route
+      // guards. The index now renders read-only for editors; DEFINING a
+      // type (a schema change) remains admin-gated at the action level.
       href: "/admin/content",
       label: () => "Content types",
       icon: Database,
-      roles: ["super_admin", "admin"],
+      roles: ["super_admin", "admin", "editor"],
+    },
+    {
+      // Phase 3 (#88/#130): typed spec/attribute definitions. Editors can
+      // view; create/delete actions are admin-gated server-side.
+      href: "/admin/specs",
+      label: () => "Specs",
+      icon: Ruler,
+      roles: ["super_admin", "admin", "editor"],
     },
     { href: "/admin/categories", label: m.cms_categories, icon: Folder },
     { href: "/admin/tags", label: m.cms_tags, icon: Tag },

@@ -102,6 +102,30 @@ export interface ResolvedValue {
   measureFamily: string | null;
 }
 
+/**
+ * One stored value as the entry editor needs it: sentinel locale /
+ * qualifier mapped back to null, display value and range max in the
+ * authored unit. Unlike ResolvedValue this carries the row's exact
+ * identity, so a remove can target one (attribute, locale, qualifier).
+ */
+export interface EntityValueRow {
+  attributeKey: string;
+  attributeId: string;
+  dataType: AttributeDataType;
+  /** Null when the value is not per-locale. */
+  locale: string | null;
+  /** Null when the value is unqualified. */
+  qualifier: string | null;
+  displayValue: string | number | boolean | string[] | null;
+  /** Range upper bound in the authored unit; null for scalars. */
+  displayValueMax: number | null;
+  unit: string | null;
+  standardValue: number | null;
+  standardValueMax: number | null;
+  groupKey: string | null;
+  position: number;
+}
+
 export interface DatasheetGroup {
   groupKey: string | null;
   rows: ResolvedValue[];
@@ -355,6 +379,15 @@ export class AttributeService {
       .get())!;
   }
 
+  /** All families, alphabetically — the admin index needs the full set. */
+  async listFamilies() {
+    return this.db
+      .select()
+      .from(attributeFamilies)
+      .orderBy(asc(attributeFamilies.key))
+      .all();
+  }
+
   /**
    * Add an attribute to a family.
    *
@@ -547,6 +580,136 @@ export class AttributeService {
       createdAt: now,
       updatedAt: now,
     });
+  }
+
+  /**
+   * Delete one value row — the exact (entity, attribute, locale,
+   * qualifier) tuple, mirroring setValue's identity.
+   *
+   * The sentinels matter here: an unqualified value is stored with
+   * `UNQUALIFIED_SENTINEL`, not NULL, so "remove the unqualified value"
+   * must target the sentinel row and must NOT touch the '50hz' sibling —
+   * and vice versa. Deleting by (entity, attribute) alone would wipe
+   * every qualified variant when the editor removed just one.
+   */
+  async removeValue(
+    entityType: string,
+    entityId: string,
+    attributeKey: string,
+    /** Context key ('50hz'). Omit to target the unqualified row. */
+    qualifier?: string,
+    /** Locale, for localized text values. Omit for non-localized rows. */
+    locale?: string,
+  ): Promise<void> {
+    const attr = await this.getAttributeByKey(attributeKey);
+    if (!attr) {
+      throw new AttributeError(
+        `Unknown attribute "${attributeKey}"`,
+        "UNKNOWN_ATTRIBUTE",
+      );
+    }
+    await this.db
+      .delete(attributeValues)
+      .where(
+        and(
+          eq(attributeValues.entityType, entityType),
+          eq(attributeValues.entityId, entityId),
+          eq(attributeValues.attributeId, attr.id),
+          eq(attributeValues.locale, locale ?? NON_LOCALIZED_SENTINEL),
+          eq(attributeValues.qualifier, qualifier ?? UNQUALIFIED_SENTINEL),
+        ),
+      );
+  }
+
+  /**
+   * Every raw value on one entity, display-resolved but NOT grouped —
+   * the shape a value EDITOR needs, where datasheet() doesn't fit:
+   * editing must see the locale and qualifier of each row exactly as
+   * stored (sentinels mapped back to null) so a remove targets the
+   * right row, and must see the range upper bound in the AUTHORED unit.
+   */
+  async listEntityValues(
+    entityType: string,
+    entityId: string,
+  ): Promise<EntityValueRow[]> {
+    const rows = await this.db
+      .select({
+        attributeId: attributeValues.attributeId,
+        locale: attributeValues.locale,
+        qualifier: attributeValues.qualifier,
+        valueNumberMin: attributeValues.valueNumberMin,
+        valueNumberMax: attributeValues.valueNumberMax,
+        valueUnit: attributeValues.valueUnit,
+        valueText: attributeValues.valueText,
+        valueJson: attributeValues.valueJson,
+        valueBool: attributeValues.valueBool,
+        key: attributeDefinitions.key,
+        dataType: attributeDefinitions.dataType,
+        measureFamily: attributeDefinitions.measureFamily,
+        groupKey: attributeDefinitions.groupKey,
+        position: attributeDefinitions.position,
+      })
+      .from(attributeValues)
+      .innerJoin(
+        attributeDefinitions,
+        eq(attributeDefinitions.id, attributeValues.attributeId),
+      )
+      .where(
+        and(
+          eq(attributeValues.entityType, entityType),
+          eq(attributeValues.entityId, entityId),
+        ),
+      )
+      .orderBy(
+        asc(attributeDefinitions.position),
+        asc(attributeDefinitions.key),
+      )
+      .all();
+
+    return rows.map((r) => ({
+      attributeKey: r.key,
+      attributeId: r.attributeId,
+      dataType: r.dataType,
+      locale: r.locale === NON_LOCALIZED_SENTINEL ? null : r.locale,
+      qualifier: r.qualifier === UNQUALIFIED_SENTINEL ? null : r.qualifier,
+      displayValue: this.displayValueOf(r),
+      displayValueMax: this.displayValueMaxOf(r),
+      unit: r.valueUnit,
+      standardValue: r.valueNumberMin,
+      standardValueMax: r.valueNumberMax,
+      groupKey: r.groupKey,
+      position: r.position,
+    }));
+  }
+
+  /**
+   * Range upper bound converted back into the authored unit, or null
+   * when the value is a scalar — so the editor renders "22–25 kg" while
+   * a plain "25 kg" never shows a spurious dash.
+   */
+  private displayValueMaxOf(r: {
+    dataType: AttributeDataType;
+    valueNumberMin: number | null;
+    valueNumberMax: number | null;
+    valueUnit: string | null;
+    measureFamily: string | null;
+  }): number | null {
+    if (
+      r.valueNumberMax === null ||
+      r.valueNumberMin === null ||
+      r.valueNumberMax === r.valueNumberMin
+    ) {
+      return null;
+    }
+    if (r.dataType === "number") return r.valueNumberMax;
+    if (r.dataType !== "measurement") return null;
+    if (!r.valueUnit || !r.measureFamily || !isMeasureFamily(r.measureFamily)) {
+      return r.valueNumberMax;
+    }
+    const factor = FAMILIES[r.measureFamily].units[r.valueUnit]?.factor;
+    if (!factor) return r.valueNumberMax;
+    // Same float-noise trim as displayValueOf, for the same reason.
+    return Number((r.valueNumberMax / factor).toPrecision(12));
   }
 
   /**

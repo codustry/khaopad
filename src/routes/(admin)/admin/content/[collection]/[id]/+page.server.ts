@@ -10,11 +10,11 @@
  * One route rather than two because the field rendering, validation and
  * save path are identical — only the initial values differ.
  */
-import { error, fail, redirect } from "@sveltejs/kit";
+import { error, fail, redirect, type ActionFailure } from "@sveltejs/kit";
 import { hasRole } from "$lib/server/auth/permissions";
 import { logAudit } from "$lib/server/audit";
 import { drizzle } from "drizzle-orm/d1";
-import { asc, eq, inArray } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { createRegistryQuery } from "$lib/server/content/registry";
 import {
   entries,
@@ -23,8 +23,14 @@ import {
   entryVersions,
 } from "$lib/server/content/registry/schema";
 import { RegistryError } from "$lib/server/content/registry/types";
-import { RELATIONAL_FIELD_TYPES } from "$lib/server/content/registry/types";
 import { parseFieldName } from "$lib/components/admin/registry/field-map";
+import {
+  createAttributeService,
+  AttributeError,
+  FAMILIES,
+  type RawValueInput,
+} from "$lib/server/content/attributes";
+import { buildRelationChoices } from "./relation-choices.server";
 import type { Actions, PageServerLoad } from "./$types";
 
 const NEW = "new";
@@ -32,7 +38,12 @@ const NEW = "new";
 /** Cap on entries offered in a relation picker before it needs search. */
 const RELATION_CHOICE_LIMIT = 200;
 
-export const load: PageServerLoad = async ({ params, locals, platform }) => {
+export const load: PageServerLoad = async ({
+  params,
+  locals,
+  platform,
+  url,
+}) => {
   if (!locals.user) throw redirect(302, "/admin/login");
   if (!hasRole(locals.user, "editor")) {
     throw error(
@@ -108,62 +119,51 @@ export const load: PageServerLoad = async ({ params, locals, platform }) => {
     }
   }
 
-  // Pick-lists for relation/component fields. Loaded in ONE query for
-  // every target collection this type points at, rather than per field.
-  const targetApiIds = new Set<string>();
-  for (const field of collection.fields) {
-    if (!RELATIONAL_FIELD_TYPES.has(field.type)) continue;
-    const cfg = safeParse(field.configJson ?? "{}");
-    if (typeof cfg.target === "string") targetApiIds.add(cfg.target);
-    if (Array.isArray(cfg.allowed)) {
-      for (const a of cfg.allowed) {
-        if (typeof a === "string") targetApiIds.add(a);
-      }
-    }
-  }
-
-  const relationChoices: Record<string, { id: string; label: string }[]> = {};
-  if (targetApiIds.size > 0) {
-    const all = await registry.service.listCollections();
-    const wanted = all.filter((c) => targetApiIds.has(c.apiId));
-    if (wanted.length > 0) {
-      const rows = await db
-        .select({
-          id: entries.id,
-          slug: entries.slug,
-          collectionId: entries.collectionId,
-        })
-        .from(entries)
-        .where(
-          inArray(
-            entries.collectionId,
-            wanted.map((c) => c.id),
-          ),
-        )
-        .limit(RELATION_CHOICE_LIMIT)
-        .all();
-      const apiIdById = new Map(wanted.map((c) => [c.id, c.apiId]));
-      for (const field of collection.fields) {
-        if (!RELATIONAL_FIELD_TYPES.has(field.type)) continue;
-        const cfg = safeParse(field.configJson ?? "{}");
-        const allowed = new Set<string>(
-          typeof cfg.target === "string"
-            ? [cfg.target]
-            : Array.isArray(cfg.allowed)
-              ? (cfg.allowed as string[])
-              : [],
-        );
-        relationChoices[field.apiId] = rows
-          .filter((r) => allowed.has(apiIdById.get(r.collectionId) ?? ""))
-          .map((r) => ({ id: r.id, label: r.slug ?? r.id }));
-      }
-    }
-  }
-
   const supportedLocales = (env.SUPPORTED_LOCALES ?? "en,th")
     .split(",")
     .map((l) => l.trim())
     .filter(Boolean);
+  const defaultLocale = env.DEFAULT_LOCALE ?? supportedLocales[0] ?? "en";
+
+  // Pick-lists for relation/component fields — see relation-choices.
+  // The selected targets are ALWAYS unioned in, because the picker posts
+  // the full desired id list on save: a selected target missing from
+  // the choice window would be silently dropped from the entry (#126).
+  const relationQuery = (url.searchParams.get("relationQuery") ?? "").trim();
+  const { choices: relationChoices, totals: relationTotals } =
+    await buildRelationChoices(db, {
+      fields: collection.fields,
+      targetCollections: await registry.service.listCollectionsWithFields(),
+      selected: relations,
+      defaultLocale,
+      query: relationQuery,
+      limit: RELATION_CHOICE_LIMIT,
+    });
+
+  // ── Spec/attribute values (#130) — sidecar to the entry document.
+  const attrService = createAttributeService(env);
+  const attributeDefs = await attrService.listAttributes();
+  const specAttributes = attributeDefs.map((a) => ({
+    key: a.key,
+    dataType: a.dataType,
+    measureFamily: a.measureFamily,
+    standardUnit: a.standardUnit,
+    options: safeParseArray(a.optionsJson),
+    qualifiers: safeParseArray(a.qualifiersJson),
+    groupKey: a.groupKey,
+  }));
+  const specValues =
+    isNew || !entry
+      ? []
+      : await attrService.listEntityValues("entry", entry.id);
+  // Unit pick-lists per family, shipped from the server because units.ts
+  // lives under $lib/server and cannot be imported by the component.
+  const unitsByFamily = Object.fromEntries(
+    Object.entries(FAMILIES).map(([family, def]) => [
+      family,
+      Object.keys(def.units),
+    ]),
+  );
 
   // Version count only — snapshots can be large and the editor doesn't
   // render them, so loading the JSON would be wasted bytes.
@@ -197,8 +197,13 @@ export const load: PageServerLoad = async ({ params, locals, platform }) => {
       : null,
     values: { document, localized, relations },
     relationChoices,
+    relationTotals,
+    relationQuery,
+    specAttributes,
+    specValues,
+    unitsByFamily,
     supportedLocales,
-    defaultLocale: env.DEFAULT_LOCALE ?? supportedLocales[0] ?? "en",
+    defaultLocale,
     versionCount,
   };
 };
@@ -309,7 +314,182 @@ export const actions: Actions = {
       });
     }
   },
+
+  /**
+   * Upsert one spec value on this entry (#130). Separate action rather
+   * than part of `save` because spec values are a sidecar keyed by
+   * (attribute, locale, qualifier) — folding them into the entry form
+   * would force the whole document through validation to change one
+   * number.
+   */
+  setSpecValue: async ({ params, request, locals, platform }) => {
+    const gate = specGate(params.id, locals, platform);
+    if ("fail" in gate) return gate.fail;
+
+    const fd = await request.formData();
+    const attributeKey = String(fd.get("attributeKey") ?? "").trim();
+    if (!attributeKey) {
+      return fail(400, { specError: "Pick an attribute first" });
+    }
+    const qualifier = String(fd.get("qualifier") ?? "").trim() || undefined;
+
+    try {
+      const attr = await gate.service.getAttributeByKey(attributeKey);
+      if (!attr) {
+        return fail(400, { specError: `Unknown attribute "${attributeKey}"` });
+      }
+      const input = specInputFor(attr.dataType, fd);
+      await gate.service.setValue(
+        "entry",
+        params.id,
+        attributeKey,
+        input,
+        qualifier,
+      );
+      await logAudit(gate.env.DB, gate.userId, "entry.update", params.id, {
+        collection: params.collection,
+        spec: attributeKey,
+      });
+      return { specSuccess: "Value saved" };
+    } catch (err) {
+      return fail(400, {
+        specError:
+          err instanceof AttributeError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : "Failed to save value",
+      });
+    }
+  },
+
+  removeSpecValue: async ({ params, request, locals, platform }) => {
+    const gate = specGate(params.id, locals, platform);
+    if ("fail" in gate) return gate.fail;
+
+    const fd = await request.formData();
+    const attributeKey = String(fd.get("attributeKey") ?? "").trim();
+    if (!attributeKey) return fail(400, { specError: "Missing attribute" });
+    const qualifier = String(fd.get("qualifier") ?? "").trim() || undefined;
+    const locale = String(fd.get("locale") ?? "").trim() || undefined;
+
+    try {
+      await gate.service.removeValue(
+        "entry",
+        params.id,
+        attributeKey,
+        qualifier,
+        locale,
+      );
+      await logAudit(gate.env.DB, gate.userId, "entry.update", params.id, {
+        collection: params.collection,
+        specRemoved: attributeKey,
+      });
+      return { specSuccess: "Value removed" };
+    } catch (err) {
+      return fail(400, {
+        specError:
+          err instanceof AttributeError
+            ? err.message
+            : "Failed to remove value",
+      });
+    }
+  },
 };
+
+/**
+ * Shared guard for the spec actions: auth, role, platform, and "the
+ * entry must already exist" — a value row needs a stable entity id, and
+ * `new` is not one.
+ */
+function specGate(
+  id: string,
+  locals: App.Locals,
+  platform: App.Platform | undefined,
+):
+  | { fail: ActionFailure<{ specError: string }> }
+  | {
+      env: App.Platform["env"];
+      service: ReturnType<typeof createAttributeService>;
+      userId: string;
+    } {
+  if (!locals.user) throw redirect(302, "/admin/login");
+  if (!hasRole(locals.user, "editor")) {
+    return { fail: fail(403, { specError: "Forbidden" }) };
+  }
+  const env = platform?.env;
+  if (!env) return { fail: fail(503, { specError: "Platform not ready" }) };
+  if (id === NEW) {
+    return {
+      fail: fail(400, {
+        specError: "Save the entry first, then add specifications",
+      }),
+    };
+  }
+  return { env, service: createAttributeService(env), userId: locals.user.id };
+}
+
+/**
+ * Map the posted form row onto the discriminated RawValueInput for the
+ * attribute's data type. Only the TYPE shape is enforced here — the
+ * service does the real validation (finite numbers, known units,
+ * declared options) and its AttributeError messages surface verbatim.
+ */
+function specInputFor(dataType: string, fd: FormData): RawValueInput {
+  const num = (key: string): number | undefined => {
+    const raw = String(fd.get(key) ?? "").trim();
+    if (!raw) return undefined;
+    return Number(raw);
+  };
+
+  switch (dataType) {
+    case "number": {
+      const value = num("value");
+      if (value === undefined) {
+        throw new AttributeError("A value is required", "INVALID_VALUE");
+      }
+      return { kind: "number", value, max: num("max") };
+    }
+    case "measurement": {
+      const value = num("value");
+      if (value === undefined) {
+        throw new AttributeError("A value is required", "INVALID_VALUE");
+      }
+      return {
+        kind: "measurement",
+        value,
+        unit: String(fd.get("unit") ?? "").trim(),
+        max: num("max"),
+      };
+    }
+    case "select":
+      return { kind: "select", option: String(fd.get("option") ?? "") };
+    case "multiselect":
+      return {
+        kind: "multiselect",
+        options: fd
+          .getAll("options")
+          .map((o) => String(o))
+          .filter(Boolean),
+      };
+    case "boolean":
+      // Hidden "false" companion + checkbox "true": take the last value,
+      // same convention as the entry form's checkboxes.
+      return {
+        kind: "boolean",
+        value: String(fd.getAll("bool").at(-1) ?? "false") === "true",
+      };
+    case "text": {
+      const locale = String(fd.get("locale") ?? "").trim() || undefined;
+      return { kind: "text", value: String(fd.get("text") ?? ""), locale };
+    }
+    default:
+      throw new AttributeError(
+        `Unknown data type "${dataType}"`,
+        "INVALID_DATA_TYPE",
+      );
+  }
+}
 
 /** SvelteKit signals redirects by throwing; distinguish from real errors. */
 function isRedirect(err: unknown): boolean {
@@ -344,6 +524,18 @@ function coerceForField(type: string, value: string): unknown {
       }
     default:
       return value;
+  }
+}
+
+function safeParseArray(json: string | null): string[] {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed)
+      ? parsed.filter((o): o is string => typeof o === "string")
+      : [];
+  } catch {
+    return [];
   }
 }
 

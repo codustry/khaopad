@@ -17,12 +17,17 @@ import type { Actions, PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals, platform }) => {
   if (!locals.user) throw redirect(302, "/admin/login");
-  // Defining a content type is a schema change in every meaningful sense
-  // — it alters what the public API exposes — so it sits with admins,
-  // not editors, matching how /admin/settings is gated.
-  if (!hasRole(locals.user, "admin")) {
-    throw error(403, "Only admins and super admins can access this area.");
+  // Editors may BROWSE here (#125): the entry-editing routes beneath this
+  // index already admit editors, but the only link into the whole area
+  // lived on this page behind an admin gate — so in practice the registry
+  // was admin-only regardless of the route guards. Defining a content
+  // type is still a schema change and stays with admins; the page hides
+  // the type-definition controls for editors via `canManageTypes`, and
+  // the create/update/delete ACTIONS below keep their admin guard.
+  if (!hasRole(locals.user, "editor")) {
+    throw error(403, "Editors and above can browse content collections.");
   }
+  const canManageTypes = hasRole(locals.user, "admin");
   const env = platform?.env;
   if (!env) throw error(503, "Platform not ready");
 
@@ -54,6 +59,7 @@ export const load: PageServerLoad = async ({ locals, platform }) => {
       entryCount: byCollection.get(c.id) ?? 0,
     })),
     promotionBudget,
+    canManageTypes,
   };
 };
 
