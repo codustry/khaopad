@@ -37,6 +37,13 @@
 		return d.toLocaleString();
 	}
 
+	// Localized labels for the "Mark {status}" action buttons.
+	const statusLabel: Record<string, () => string> = {
+		approved: m.cms_comments_status_approved,
+		spam: m.cms_comments_status_spam,
+		archived: m.cms_comments_status_archived,
+	};
+
 	// `approved` is not in StatusBadge's default map, and `spam` must read as
 	// a hazard rather than a neutral state, so both are pinned here.
 	function toneFor(status: CommentStatus): StatusTone {
@@ -119,14 +126,14 @@
 										<form method="POST" action="?/setStatus" use:enhance>
 											<input type="hidden" name="id" value={c.id} />
 											<input type="hidden" name="status" value={next} />
-											<Button type="submit" variant="outline" size="sm" class="capitalize">
-												Mark {next}
+											<Button type="submit" variant="outline" size="sm">
+												{m.cms_comments_mark_as({ status: statusLabel[next]() })}
 											</Button>
 										</form>
 									{/if}
 								{/each}
 								<Button
-									href={`mailto:${c.authorEmail}?subject=Re: your comment`}
+									href={`mailto:${c.authorEmail}?subject=${encodeURIComponent(m.cms_comments_reply_subject())}`}
 									variant="outline"
 									size="sm"
 									class="ml-auto"

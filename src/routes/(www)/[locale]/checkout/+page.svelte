@@ -1,10 +1,15 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import { CreditCard, ArrowLeft } from 'lucide-svelte';
 	import { Button, Input, Label } from '$lib/components/ui';
+	import * as m from '$lib/paraglide/messages';
+	import { localePath, toLocale } from '$lib/i18n';
 	import { formatSatang, type Satang } from '$plugins/shop/money';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+
+	const locale = $derived(toLocale(page.params.locale ?? 'en'));
 
 	let email = $state(data.cart.email ?? data.userEmail ?? '');
 	let submitting = $state(false);
@@ -13,7 +18,7 @@
 	async function pay(event: Event) {
 		event.preventDefault();
 		if (!email.trim() || !email.includes('@')) {
-			errorMessage = 'Enter a valid email address';
+			errorMessage = m.shop_err_invalid_email();
 			return;
 		}
 		submitting = true;
@@ -54,7 +59,7 @@
 			});
 			const startJson = (await startRes.json()) as StartResponse;
 			if (!startJson.ok) {
-				errorMessage = startJson.message ?? 'Checkout failed';
+				errorMessage = startJson.message ?? m.shop_err_checkout_failed();
 				submitting = false;
 				return;
 			}
@@ -66,7 +71,7 @@
 			});
 			const payJson = (await payRes.json()) as PayResponse;
 			if (!payJson.ok) {
-				errorMessage = payJson.message ?? 'Payment provider failed';
+				errorMessage = payJson.message ?? m.shop_err_payment_provider();
 				submitting = false;
 				return;
 			}
@@ -77,36 +82,41 @@
 			// No payment URL — provider returned inline QR or other flow.
 			// Fall back to order status page; the customer's next visit
 			// will show the pending state.
-			window.location.href = `/order/${startJson.orderNumber}`;
+			window.location.href = localePath(locale, `/order/${startJson.orderNumber}`);
 		} catch (err) {
-			errorMessage = err instanceof Error ? err.message : 'Network error';
+			errorMessage = err instanceof Error ? err.message : m.shop_err_network();
 			submitting = false;
 		}
 	}
 </script>
 
+<svelte:head>
+	<title>{m.shop_checkout_title()}</title>
+	<meta name="robots" content="noindex, follow" />
+</svelte:head>
+
 <div class="mx-auto max-w-3xl px-6 py-10">
 	<a
-		href="/cart"
+		href={localePath(locale, '/cart')}
 		class="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
 	>
 		<ArrowLeft class="h-4 w-4" />
-		Back to cart
+		{m.shop_back_to_cart()}
 	</a>
 
 	<header class="mb-6 flex items-center gap-3">
 		<CreditCard class="h-6 w-6 text-muted-foreground" />
-		<h1 class="text-2xl font-semibold">Checkout</h1>
+		<h1 class="text-2xl font-semibold">{m.shop_checkout_title()}</h1>
 	</header>
 
 	<div class="grid gap-6 md:grid-cols-3">
 		<form onsubmit={pay} class="md:col-span-2 space-y-4">
 			<section class="space-y-4 rounded-lg border border-border p-4">
 				<h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-					Contact
+					{m.shop_contact()}
 				</h2>
 				<div class="space-y-2">
-					<Label for="email">Email (for receipt)</Label>
+					<Label for="email">{m.shop_email_receipt()}</Label>
 					<Input
 						id="email"
 						name="email"
@@ -120,11 +130,10 @@
 
 			<section class="space-y-4 rounded-lg border border-border p-4">
 				<h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-					Payment
+					{m.shop_payment()}
 				</h2>
 				<p class="text-sm text-muted-foreground">
-					You'll be redirected to Beam to complete payment via PromptPay QR,
-					credit card, LINE Pay, or TrueMoney.
+					{m.shop_payment_redirect_note()}
 				</p>
 			</section>
 
@@ -135,13 +144,15 @@
 			{/if}
 
 			<Button type="submit" disabled={submitting} class="w-full">
-				{submitting ? 'Processing…' : `Pay ${formatSatang(data.totalSatang as Satang)}`}
+				{submitting
+					? m.shop_processing()
+					: m.shop_pay_amount({ amount: formatSatang(data.totalSatang as Satang) })}
 			</Button>
 		</form>
 
 		<aside class="rounded-lg border border-border p-4 h-fit">
 			<h2 class="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-				Order summary
+				{m.shop_order_summary()}
 			</h2>
 			<ul class="mb-4 divide-y divide-border">
 				{#each data.items as item (item.id)}
@@ -154,7 +165,7 @@
 								</div>
 							{/if}
 							<div class="text-xs text-muted-foreground">
-								Qty {item.quantity}
+								{m.shop_qty({ count: item.quantity })}
 							</div>
 						</div>
 						<div class="text-right tabular-nums">
@@ -165,27 +176,27 @@
 			</ul>
 			<div class="space-y-1 border-t border-border pt-3 text-sm">
 				<div class="flex justify-between text-muted-foreground">
-					<span>Subtotal</span>
+					<span>{m.shop_subtotal()}</span>
 					<span class="tabular-nums">
 						{formatSatang(data.subtotalSatang as Satang)}
 					</span>
 				</div>
 				<div class="flex justify-between text-muted-foreground">
-					<span>Shipping</span>
+					<span>{m.shop_shipping()}</span>
 					<span class="tabular-nums">
 						{data.shippingSatang > 0
 							? formatSatang(data.shippingSatang as Satang)
-							: 'Calculated at next step'}
+							: m.shop_shipping_calculated_next()}
 					</span>
 				</div>
 				<div class="flex justify-between text-muted-foreground">
-					<span>Tax</span>
+					<span>{m.shop_tax()}</span>
 					<span class="tabular-nums">
 						{data.taxSatang > 0 ? formatSatang(data.taxSatang as Satang) : '—'}
 					</span>
 				</div>
 				<div class="flex justify-between border-t border-border pt-2 font-semibold">
-					<span>Total</span>
+					<span>{m.shop_total()}</span>
 					<span class="tabular-nums">
 						{formatSatang(data.totalSatang as Satang)}
 					</span>

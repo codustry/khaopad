@@ -127,6 +127,23 @@
 		const id = e.dataTransfer?.getData('application/x-media-id');
 		if (id) void moveMedia(id, folderId);
 	}
+
+	// Tree keyboard support: ArrowUp/ArrowDown move focus between visible
+	// treeitems; Space activates the focused item (Enter is native on links).
+	function onTreeKeydown(e: KeyboardEvent) {
+		const tree = e.currentTarget as HTMLElement;
+		const target = (e.target as HTMLElement | null)?.closest<HTMLElement>('[role="treeitem"]');
+		if (!target) return;
+		if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+			e.preventDefault();
+			const items = Array.from(tree.querySelectorAll<HTMLElement>('[role="treeitem"]'));
+			const next = items[items.indexOf(target) + (e.key === 'ArrowDown' ? 1 : -1)];
+			next?.focus();
+		} else if (e.key === ' ') {
+			e.preventDefault();
+			target.click();
+		}
+	}
 </script>
 
 <svelte:head>
@@ -226,13 +243,17 @@
 				</form>
 			{/if}
 
-			<ul class="space-y-0.5">
-				<li>
+			<!-- role="tree" is a composite widget; onkeydown implements its keyboard navigation -->
+			<ul class="space-y-0.5" role="tree" aria-label={m.cms_media_folders()} onkeydown={onTreeKeydown}>
+				<li role="none">
 					<a
 						href={resolve('/(admin)/admin/media')}
 						ondragover={onDragOver}
 						ondrop={(e) => onDrop(e, null)}
-						class="flex items-center gap-2 px-2 py-1.5 text-sm rounded-md hover:bg-muted {!isFiltered ? 'bg-muted font-medium' : ''}"
+						role="treeitem"
+						aria-selected={!isFiltered}
+						tabindex={!isFiltered ? 0 : -1}
+						class="flex items-center gap-2 px-2 py-1.5 text-sm rounded-md hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring {!isFiltered ? 'bg-muted font-medium' : ''}"
 					>
 						<svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
 							><circle cx="12" cy="12" r="9" /></svg
@@ -240,12 +261,15 @@
 						{m.cms_media_folder_all()}
 					</a>
 				</li>
-				<li>
+				<li role="none">
 					<a
 						href={resolve('/(admin)/admin/media?folder=root')}
 						ondragover={onDragOver}
 						ondrop={(e) => onDrop(e, null)}
-						class="flex items-center gap-2 px-2 py-1.5 text-sm rounded-md hover:bg-muted {isFiltered && activeFolderId === null ? 'bg-muted font-medium' : ''}"
+						role="treeitem"
+						aria-selected={isFiltered && activeFolderId === null}
+						tabindex={isFiltered && activeFolderId === null ? 0 : -1}
+						class="flex items-center gap-2 px-2 py-1.5 text-sm rounded-md hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring {isFiltered && activeFolderId === null ? 'bg-muted font-medium' : ''}"
 					>
 						<svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
 							><path d="M3 7l4-4h4l2 2h8a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z" /></svg
@@ -254,14 +278,13 @@
 					</a>
 				</li>
 				{#snippet folderRow(folder: MediaFolderRecord, depth: number)}
-					<li>
+					<li role="none">
 						<div
-							class="flex items-center gap-1 px-2 py-1.5 text-sm rounded-md hover:bg-muted {activeFolderId === folder.id ? 'bg-muted font-medium' : ''}"
+							class="group flex items-center gap-1 px-2 py-1.5 text-sm rounded-md hover:bg-muted {activeFolderId === folder.id ? 'bg-muted font-medium' : ''}"
 							style="padding-left: {depth * 12 + 8}px;"
+							role="none"
 							ondragover={onDragOver}
 							ondrop={(e) => onDrop(e, folder.id)}
-							role="treeitem"
-							aria-selected={activeFolderId === folder.id}
 						>
 							{#if renamingId === folder.id}
 								<form
@@ -284,7 +307,14 @@
 									<Button type="submit" variant="link" size="sm" class="px-1">{m.cms_save()}</Button>
 								</form>
 							{:else}
-								<a href={resolve(`/(admin)/admin/media?folder=${folder.id}`)} class="flex-1 flex items-center gap-2 truncate">
+								<a
+									href={resolve(`/(admin)/admin/media?folder=${folder.id}`)}
+									role="treeitem"
+									aria-selected={activeFolderId === folder.id}
+									aria-expanded={childrenByParent.has(folder.id) ? true : undefined}
+									tabindex={activeFolderId === folder.id ? 0 : -1}
+									class="flex-1 flex items-center gap-2 truncate rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+								>
 									<svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
 										><path d="M3 7a2 2 0 0 1 2-2h3l2 2h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" /></svg
 									>
@@ -298,7 +328,7 @@
 										onclick={() => startRename(folder)}
 										title={m.cms_media_folder_rename()}
 										aria-label={m.cms_media_folder_rename()}
-										class="h-7 w-7 px-0 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
+										class="h-7 w-7 px-0 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 focus-visible:opacity-100"
 									>
 										<svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
 											><path d="M15 5l4 4L8 20H4v-4z" /></svg
@@ -322,7 +352,7 @@
 											size="sm"
 											title={m.cms_delete()}
 											aria-label={m.cms_delete()}
-											class="h-7 w-7 px-0 text-muted-foreground hover:text-destructive sm:h-7 sm:w-7"
+											class="h-7 w-7 px-0 text-muted-foreground hover:text-destructive sm:h-7 sm:w-7 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 focus-visible:opacity-100"
 										>
 											<svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
 												><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg
@@ -416,4 +446,3 @@
 	</div>
 	</div>
 </PageShell>
-

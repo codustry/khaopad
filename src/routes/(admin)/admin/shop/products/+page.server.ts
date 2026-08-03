@@ -27,11 +27,24 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
     | "active"
     | "archived"
     | null;
-  const products = await svc.listProducts({
+  let products = await svc.listProducts({
     status: statusFilter ?? undefined,
     limit: 100,
   });
-  return { products, statusFilter };
+
+  // ShopService.listProducts has no search option — filter here over
+  // the loaded page instead. The admin list is capped at 100 rows, so
+  // an in-memory substring match is fine.
+  const search = url.searchParams.get("q")?.trim();
+  if (search) {
+    const needle = search.toLowerCase();
+    products = products.filter(
+      (p) =>
+        p.title.toLowerCase().includes(needle) ||
+        p.slug.toLowerCase().includes(needle),
+    );
+  }
+  return { products, statusFilter, search: search ?? "" };
 };
 
 export const actions: Actions = {

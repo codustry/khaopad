@@ -1,7 +1,15 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { ShoppingCart } from 'lucide-svelte';
-	import { PageShell, PageHeader, DataTable, StatusBadge, type Column } from '$lib/components/admin';
+	import {
+		PageShell,
+		PageHeader,
+		DataTable,
+		TableToolbar,
+		StatusBadge,
+		type Column
+	} from '$lib/components/admin';
+	import * as m from '$lib/paraglide/messages';
 	import { formatSatang, type Satang } from '$plugins/shop/money';
 	import type { PageData } from './$types';
 
@@ -10,6 +18,14 @@
 	type Order = PageData['orders'][number];
 
 	const statuses = ['pending', 'paid', 'fulfilled', 'delivered', 'refunded', 'cancelled'] as const;
+
+	const filters = [
+		{
+			param: 'status',
+			label: m.cms_filter_status(),
+			options: statuses.map((s) => ({ value: s, label: s[0].toUpperCase() + s.slice(1) }))
+		}
+	];
 
 	const columns: Column<Order>[] = [
 		{ key: 'order', header: 'Order', cell: orderCell },
@@ -48,31 +64,13 @@
 <PageShell width="wide">
 	<PageHeader title="Orders" icon={ShoppingCart} />
 
-	<nav class="mb-6 flex flex-wrap gap-2 text-sm">
-		<a
-			href={resolve('/(admin)/admin/shop/orders')}
-			class="rounded px-3 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring {!data.statusFilter
-				? 'bg-muted font-medium'
-				: 'text-muted-foreground hover:text-foreground'}"
-		>
-			All
-		</a>
-		{#each statuses as status (status)}
-			<a
-				href={resolve(`/(admin)/admin/shop/orders?status=${status}`)}
-				class="rounded px-3 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring {data.statusFilter ===
-				status
-					? 'bg-muted font-medium'
-					: 'text-muted-foreground hover:text-foreground'}"
-			>
-				{status[0].toUpperCase() + status.slice(1)}
-			</a>
-		{/each}
-	</nav>
+	<TableToolbar searchPlaceholder={m.shop_search_orders()} {filters} />
 
 	<DataTable {columns} rows={data.orders} getKey={(o) => o.id}>
 		{#snippet empty()}
-			<p class="text-sm text-muted-foreground">No orders yet.</p>
+			<p class="text-sm text-muted-foreground">
+				{data.search || data.statusFilter ? m.admin_no_results() : 'No orders yet.'}
+			</p>
 		{/snippet}
 	</DataTable>
 </PageShell>

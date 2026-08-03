@@ -12,9 +12,16 @@ import type { RequestHandler } from "./$types";
  * crawlers find the per-locale sitemaps automatically.
  */
 export const GET: RequestHandler = async ({ url, platform, locals }) => {
+  // Fail-closed (#145): unset means "someone deployed a second worker and
+  // forgot the var" far more often than it means production — and the
+  // failure modes are asymmetric. A production site accidentally serving
+  // Disallow is noticed and fixed in a day; a preview worker accidentally
+  // serving Allow competes with production as duplicate content until
+  // someone happens to search for it. wrangler.toml now sets the var in
+  // every env template, so shipped configs are unaffected.
   const env =
     (platform?.env as { WORKERS_ENV?: string } | undefined)?.WORKERS_ENV ??
-    "production";
+    "unset";
   const settings = await locals.content.getSettings().catch(() => null);
   const origin = resolveOrigin(url, settings?.cdnBaseUrl);
 

@@ -77,7 +77,7 @@ respond within [response time].
 
 ## Cookies
 
-See the separate [Cookie Policy](/[locale]/cookie-policy) for the
+See the separate [Cookie Policy](/{locale}/cookie-policy) for the
 full list of cookies.
 
 ## Changes to this policy

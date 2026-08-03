@@ -157,8 +157,8 @@
 				<div>
 					<p class="text-sm font-medium">Delete this product</p>
 					<p class="text-xs text-muted-foreground">
-						Cascades to variants, options, and inventory. Cart/order rows referencing this product
-						will show as "Product no longer available" after v3.2 lands.
+						Cascades to variants, options, and inventory. Deletion is blocked while any cart or order
+						still references a variant; past orders keep their own title and price snapshots.
 					</p>
 				</div>
 				<form

@@ -18,6 +18,10 @@
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	let submitting = $state(false);
+	// `defaultLocale` is a site-wide setting that never varies per navigation,
+	// so seeding the tab selection once is intended. Per-record staleness is
+	// handled by the {#key data.entry?.id} wrap around the form below.
+	// svelte-ignore state_referenced_locally
 	let activeLocale = $state(data.defaultLocale);
 
 	const c = $derived(data.collection);
@@ -93,6 +97,12 @@
 			</p>
 		</div>
 	{:else}
+		<!--
+			Keyed per record: client-side navigation between two entries reuses
+			this component, and children (e.g. MarkdownEditor's draft baseline)
+			capture their seed values on mount. Remount them for each entry.
+		-->
+		{#key data.entry?.id ?? 'new'}
 		<form
 			method="POST"
 			action="?/save"
@@ -227,5 +237,6 @@
 				</Button>
 			</div>
 		</form>
+		{/key}
 	{/if}
 </PageShell>

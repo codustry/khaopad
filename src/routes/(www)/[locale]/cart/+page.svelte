@@ -1,11 +1,20 @@
 <script lang="ts">
 	import { invalidate, goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { ShoppingCart, Trash2, ArrowRight } from 'lucide-svelte';
 	import { Button } from '$lib/components/ui';
+	import * as m from '$lib/paraglide/messages';
+	import { localePath, toLocale } from '$lib/i18n';
 	import { formatSatang, type Satang } from '$plugins/shop/money';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+
+	// This page lives under /[locale]/ (#141): at the old unprefixed URL,
+	// Paraglide's `url` strategy resolved every client render to the base
+	// locale, so SSR'd Thai flashed and re-hydrated as English. Under the
+	// prefix, server and client agree.
+	const locale = $derived(toLocale(page.params.locale ?? 'en'));
 
 	let busy = $state(false);
 
@@ -39,36 +48,51 @@
 	}
 
 	function proceed() {
-		goto('/checkout');
+		goto(localePath(locale, '/checkout'));
 	}
 </script>
+
+<svelte:head>
+	<title>{m.shop_cart_head_title()}</title>
+	<!-- Funnel pages are utility surfaces — a cart in a SERP is never the
+	     right landing page (#144). `follow` keeps product links crawlable. -->
+	<meta name="robots" content="noindex, follow" />
+</svelte:head>
 
 <div class="mx-auto max-w-3xl px-6 py-10">
 	<header class="mb-6 flex items-center gap-3">
 		<ShoppingCart class="h-6 w-6 text-muted-foreground" />
-		<h1 class="text-2xl font-semibold">Your cart</h1>
+		<h1 class="text-2xl font-semibold">{m.shop_cart_title()}</h1>
 	</header>
 
 	{#if data.items.length === 0}
 		<div class="rounded-lg border border-dashed border-border p-12 text-center">
-			<p class="mb-4 text-sm text-muted-foreground">Your cart is empty.</p>
+			<p class="mb-4 text-sm text-muted-foreground">{m.shop_cart_empty()}</p>
+			<!--
+				The empty-state CTA used to hardcode a demo-catalog product
+				URL — a 404 on every real install (#142). The site home is
+				the only destination that exists everywhere.
+			-->
 			<a
-				href="/en/products/classic-tee"
+				href={localePath(locale, '/')}
 				class="inline-flex items-center gap-2 text-sm text-primary hover:underline"
 			>
-				Browse products
+				{m.shop_cart_browse_products()}
 				<ArrowRight class="h-4 w-4" />
 			</a>
 		</div>
 	{:else}
 		{#if data.priceChanges.length > 0}
 			<div class="mb-4 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
-				<p class="font-medium text-amber-900">Prices have changed</p>
-				<ul class="mt-2 text-amber-800">
+				<p class="font-medium text-amber-900 dark:text-amber-200">{m.shop_prices_changed()}</p>
+				<ul class="mt-2 text-amber-800 dark:text-amber-300">
 					{#each data.priceChanges as pc (pc.id)}
 						<li class="text-xs">
-							{pc.productTitle} — was {formatSatang(pc.priceSatangAtAdd as Satang)},
-							now {formatSatang(pc.currentPriceSatang as Satang)}
+							{m.shop_price_was_now({
+								title: pc.productTitle,
+								was: formatSatang(pc.priceSatangAtAdd as Satang),
+								now: formatSatang(pc.currentPriceSatang as Satang),
+							})}
 						</li>
 					{/each}
 				</ul>
@@ -81,7 +105,7 @@
 					<div class="flex-1 min-w-0">
 						<div class="font-medium">
 							<a
-								href="/en/products/{item.productSlug}"
+								href={localePath(locale, `/products/${item.productSlug}`)}
 								class="hover:underline"
 							>
 								{item.productTitle}
@@ -94,7 +118,7 @@
 						{/if}
 						{#if item.availableStock < item.quantity}
 							<div class="mt-1 text-xs text-destructive">
-								Only {item.availableStock} in stock
+								{m.shop_only_n_in_stock({ count: item.availableStock })}
 							</div>
 						{/if}
 					</div>
@@ -104,7 +128,7 @@
 							onclick={() => updateQty(item.id, item.quantity - 1)}
 							disabled={busy || item.quantity <= 1}
 							class="h-8 w-8 rounded-md border border-input hover:bg-muted disabled:opacity-50"
-							aria-label="Decrease quantity"
+							aria-label={m.shop_decrease_qty()}
 						>
 							−
 						</button>
@@ -114,7 +138,7 @@
 							onclick={() => updateQty(item.id, item.quantity + 1)}
 							disabled={busy || item.quantity >= item.availableStock}
 							class="h-8 w-8 rounded-md border border-input hover:bg-muted disabled:opacity-50"
-							aria-label="Increase quantity"
+							aria-label={m.shop_increase_qty()}
 						>
 							+
 						</button>
@@ -127,7 +151,7 @@
 						onclick={() => remove(item.id)}
 						disabled={busy}
 						class="text-muted-foreground hover:text-destructive"
-						aria-label="Remove item"
+						aria-label={m.shop_remove_item()}
 					>
 						<Trash2 class="h-4 w-4" />
 					</button>
@@ -137,7 +161,9 @@
 
 		<div class="mt-6 flex items-center justify-between border-t border-border pt-4">
 			<div class="text-sm text-muted-foreground">
-				Subtotal ({data.itemCount} item{data.itemCount === 1 ? '' : 's'})
+				{data.itemCount === 1
+					? m.shop_subtotal_one_item()
+					: m.shop_subtotal_n_items({ count: data.itemCount })}
 			</div>
 			<div class="text-xl font-semibold tabular-nums">
 				{formatSatang(data.subtotalSatang as Satang)}
@@ -146,7 +172,7 @@
 
 		<div class="mt-6 flex justify-end">
 			<Button onclick={proceed} disabled={busy}>
-				Proceed to checkout
+				{m.shop_proceed_checkout()}
 				<ArrowRight class="ml-2 h-4 w-4" />
 			</Button>
 		</div>

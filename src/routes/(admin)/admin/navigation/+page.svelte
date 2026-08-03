@@ -26,6 +26,10 @@
 	} = $props();
 
 	let createMenuOpen = $state(false);
+	// This page has no route params, so `data.menus` only changes when we mutate
+	// it ourselves. Defaulting the tab selection once is intended — re-seeding on
+	// invalidation would yank the user off the menu they're editing.
+	// svelte-ignore state_referenced_locally
 	let activeMenuId = $state<string | null>(data.menus[0]?.id ?? null);
 
 	// Add-item form state, scoped to the active menu.

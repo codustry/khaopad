@@ -4,13 +4,25 @@ import { logAudit } from "$lib/server/audit";
 import { seedLegalPages } from "$lib/server/content/legal-seed";
 import type { Actions, PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = async ({ locals }) => {
+export const load: PageServerLoad = async ({ locals, url }) => {
   if (!locals.user) throw redirect(302, "/admin/login");
   if (!canManageTaxonomy(locals.user)) {
     throw error(403, "Editors and above can manage pages.");
   }
-  const pages = await locals.content.listPages();
-  return { pages };
+  let pages = await locals.content.listPages();
+
+  // PageFilter has no `search` — filter here instead. A site has a
+  // handful of pages (About, Contact, legal…), so an in-memory
+  // substring match over the loaded list is fine.
+  const search = url.searchParams.get("q")?.trim();
+  if (search) {
+    const needle = search.toLowerCase();
+    pages = pages.filter((p) => {
+      const titles = Object.values(p.localizations).map((l) => l?.title);
+      return [p.slug, ...titles].some((s) => s?.toLowerCase().includes(needle));
+    });
+  }
+  return { pages, search: search ?? "" };
 };
 
 export const actions: Actions = {

@@ -72,9 +72,11 @@
 	}
 
 	// Invite form state
-	const INVITE_ROLES: ReadonlyArray<'admin' | 'editor' | 'author'> = (
-		data.me.role === 'super_admin' ? ['admin', 'editor', 'author'] : ['editor', 'author']
-	) as ReadonlyArray<'admin' | 'editor' | 'author'>;
+	const INVITE_ROLES: ReadonlyArray<'admin' | 'editor' | 'author'> = $derived(
+		(data.me.role === 'super_admin'
+			? ['admin', 'editor', 'author']
+			: ['editor', 'author']) as ReadonlyArray<'admin' | 'editor' | 'author'>,
+	);
 	let inviteEmail = $state('');
 	let inviteRole = $state<'admin' | 'editor' | 'author'>('author');
 	let inviteCopied = $state(false);

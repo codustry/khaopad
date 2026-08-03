@@ -3,7 +3,14 @@
 	import { enhance } from '$app/forms';
 	import * as m from '$lib/paraglide/messages';
 	import { Button } from '$lib/components/ui';
-	import { PageShell, PageHeader, DataTable, StatusBadge, type Column } from '$lib/components/admin';
+	import {
+		PageShell,
+		PageHeader,
+		DataTable,
+		TableToolbar,
+		StatusBadge,
+		type Column
+	} from '$lib/components/admin';
 	import { Files } from 'lucide-svelte';
 	import type { PageRecord } from '$lib/server/content/types';
 
@@ -11,7 +18,7 @@
 		data,
 		form,
 	}: {
-		data: { pages: PageRecord[] };
+		data: { pages: PageRecord[]; search: string };
 		form:
 			| {
 					ok?: boolean;
@@ -62,6 +69,8 @@
 		{/snippet}
 	</PageHeader>
 
+	<TableToolbar searchPlaceholder={m.cms_search_pages()} />
+
 	<div class="space-y-6">
 		{#if form?.ok && form.seeded && form.seeded.length > 0}
 			<div class="rounded-md border border-border bg-emerald-50 px-4 py-3 text-sm dark:bg-emerald-950/30">
@@ -83,12 +92,17 @@
 
 		<DataTable columns={columns} rows={data.pages} getKey={(p) => p.id}>
 			{#snippet empty()}
-				<div class="space-y-3">
-					<p class="text-sm text-muted-foreground">{m.cms_pages_empty()}</p>
-					<form method="POST" action="?/seedLegal" use:enhance>
-						<Button type="submit" variant="outline">{m.cms_pages_seed_legal()}</Button>
-					</form>
-				</div>
+				{#if data.search}
+					<!-- A search matching nothing must not read as "you have no pages". -->
+					<p class="text-sm text-muted-foreground">{m.admin_no_results()}</p>
+				{:else}
+					<div class="space-y-3">
+						<p class="text-sm text-muted-foreground">{m.cms_pages_empty()}</p>
+						<form method="POST" action="?/seedLegal" use:enhance>
+							<Button type="submit" variant="outline">{m.cms_pages_seed_legal()}</Button>
+						</form>
+					</div>
+				{/if}
 			{/snippet}
 		</DataTable>
 	</div>

@@ -3,13 +3,32 @@
 	import { enhance } from '$app/forms';
 	import { Package, Plus, Archive, Trash2 } from 'lucide-svelte';
 	import { Button } from '$lib/components/ui';
-	import { PageShell, PageHeader, DataTable, StatusBadge, type Column } from '$lib/components/admin';
+	import {
+		PageShell,
+		PageHeader,
+		DataTable,
+		TableToolbar,
+		StatusBadge,
+		type Column
+	} from '$lib/components/admin';
+	import * as m from '$lib/paraglide/messages';
 	import { formatSatang, type Satang } from '$plugins/shop/money';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 
 	type Product = PageData['products'][number];
+
+	const filters = [
+		{
+			param: 'status',
+			label: m.cms_filter_status(),
+			options: ['draft', 'active', 'archived'].map((s) => ({
+				value: s,
+				label: s[0].toUpperCase() + s.slice(1)
+			}))
+		}
+	];
 
 	const columns: Column<Product>[] = [
 		{ key: 'title', header: 'Title', cell: titleCell },
@@ -87,35 +106,20 @@
 		{/snippet}
 	</PageHeader>
 
-	<nav class="mb-6 flex gap-2 text-sm">
-		<a
-			href={resolve('/(admin)/admin/shop/products')}
-			class="rounded px-3 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring {!data.statusFilter
-				? 'bg-muted font-medium'
-				: 'text-muted-foreground hover:text-foreground'}"
-		>
-			All
-		</a>
-		{#each ['draft', 'active', 'archived'] as status (status)}
-			<a
-				href={resolve(`/(admin)/admin/shop/products?status=${status}`)}
-				class="rounded px-3 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring {data.statusFilter ===
-				status
-					? 'bg-muted font-medium'
-					: 'text-muted-foreground hover:text-foreground'}"
-			>
-				{status[0].toUpperCase() + status.slice(1)}
-			</a>
-		{/each}
-	</nav>
+	<TableToolbar searchPlaceholder={m.shop_search_products()} {filters} />
 
 	<DataTable {columns} rows={data.products} getKey={(p) => p.id}>
 		{#snippet empty()}
-			<p class="mb-4 text-sm text-muted-foreground">No products yet.</p>
-			<Button href={resolve('/(admin)/admin/shop/products/new')}>
-				<Plus class="h-4 w-4" />
-				Create your first product
-			</Button>
+			{#if data.search || data.statusFilter}
+				<!-- A search matching nothing must not read as "you have no products". -->
+				<p class="text-sm text-muted-foreground">{m.admin_no_results()}</p>
+			{:else}
+				<p class="mb-4 text-sm text-muted-foreground">No products yet.</p>
+				<Button href={resolve('/(admin)/admin/shop/products/new')}>
+					<Plus class="h-4 w-4" />
+					Create your first product
+				</Button>
+			{/if}
 		{/snippet}
 	</DataTable>
 </PageShell>

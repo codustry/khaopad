@@ -26,9 +26,22 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
     | "refunded"
     | "cancelled"
     | null;
-  const orders = await svc.listOrders({
+  let orders = await svc.listOrders({
     status: statusFilter ?? undefined,
     limit: 100,
   });
-  return { orders, statusFilter };
+
+  // OrderService.listOrders has no search option — filter here over
+  // the loaded page instead. The admin list is capped at 100 rows, so
+  // an in-memory substring match is fine.
+  const search = url.searchParams.get("q")?.trim();
+  if (search) {
+    const needle = search.toLowerCase();
+    orders = orders.filter(
+      (o) =>
+        o.orderNumber.toLowerCase().includes(needle) ||
+        o.email.toLowerCase().includes(needle),
+    );
+  }
+  return { orders, statusFilter, search: search ?? "" };
 };

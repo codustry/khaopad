@@ -9,11 +9,17 @@
  * If the cart is empty or expired, redirect back to /cart.
  */
 import { error, redirect } from "@sveltejs/kit";
+import { localePath, toLocale } from "$lib/i18n";
 import { CartService } from "$plugins/shop/cart-service";
 import { ensureCartSession } from "$plugins/shop/cart-cookie";
 import type { PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = async ({ platform, cookies, locals }) => {
+export const load: PageServerLoad = async ({
+  platform,
+  cookies,
+  locals,
+  params,
+}) => {
   const env = platform?.env;
   if (!env) throw error(503, "Platform not ready");
   const sessionId = ensureCartSession(cookies);
@@ -23,7 +29,8 @@ export const load: PageServerLoad = async ({ platform, cookies, locals }) => {
     userId: locals.user?.id,
   });
   const items = await svc.listCartItems(cart.id);
-  if (items.length === 0) throw redirect(303, "/cart");
+  if (items.length === 0)
+    throw redirect(303, localePath(toLocale(params.locale), "/cart"));
   const subtotal = items.reduce(
     (sum, i) => sum + i.priceSatangAtAdd * i.quantity,
     0,

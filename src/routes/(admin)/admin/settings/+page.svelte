@@ -9,24 +9,36 @@
 	let { data, form }: { data: PageData; form: { ok?: boolean; error?: string } | null } =
 		$props();
 
+	// Settings is a singleton (no route params), so `data` can only change via
+	// invalidation after our own save — seeding the form once is intended, and
+	// re-seeding would clobber in-progress edits.
+	// svelte-ignore state_referenced_locally
 	let siteName = $state(data.settings.siteName ?? '');
+	// svelte-ignore state_referenced_locally
 	let defaultLocale = $state<string>(data.settings.defaultLocale);
+	// svelte-ignore state_referenced_locally
 	let supportedLocales = $state(
 		(data.settings.supportedLocales ?? []).join(','),
 	);
+	// svelte-ignore state_referenced_locally
 	let cdnBaseUrl = $state(data.settings.cdnBaseUrl ?? '');
+	// svelte-ignore state_referenced_locally
 	let cfaToken = $state((data.settings.cfaToken as string | undefined) ?? '');
 	// v2.0b newsletter (all optional)
+	// svelte-ignore state_referenced_locally
 	let newsletterResendKey = $state(
 		(data.settings['newsletter.resendKey'] as string | undefined) ?? '',
 	);
+	// svelte-ignore state_referenced_locally
 	let newsletterSender = $state(
 		(data.settings['newsletter.senderAddress'] as string | undefined) ?? '',
 	);
+	// svelte-ignore state_referenced_locally
 	let newsletterAllowSingle = $state(
 		(data.settings['newsletter.allowSingleOptIn'] as boolean | undefined) ?? true,
 	);
 	// v2.0c — site-wide comments kill switch. Defaults to false.
+	// svelte-ignore state_referenced_locally
 	let commentsEnabled = $state(
 		(data.settings.commentsEnabled as boolean | undefined) ?? false,
 	);

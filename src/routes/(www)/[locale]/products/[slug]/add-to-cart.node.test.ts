@@ -39,7 +39,13 @@ describe("product page add to cart", () => {
     expect(page).toMatch(/disabled=\{adding/);
   });
 
-  it("offers a route to the cart after a successful add", () => {
-    expect(page).toMatch(/href="\/cart"/);
+  it("offers a locale-aware route to the cart after a successful add", () => {
+    // Was `href="/cart"` — the unprefixed funnel URL, which after #141
+    // is only a redirect stub. Linking straight to the localized page
+    // skips a 303 and keeps the visitor's locale without consulting
+    // the cookie.
+    expect(page).toMatch(
+      /href=\{localePath\((?:data\.locale|locale), '\/cart'\)\}/,
+    );
   });
 });

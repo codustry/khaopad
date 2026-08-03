@@ -57,7 +57,7 @@ To exercise these rights email [DPO or Privacy Contact Email].
 
 ## Cookies
 
-See the separate [Cookie Policy](/[locale]/cookie-policy) for the full list of cookies.
+See the separate [Cookie Policy](/{locale}/cookie-policy) for the full list of cookies.
 
 ## Contact
 
@@ -127,7 +127,17 @@ export async function seedLegalPages(
       slug: "privacy-policy",
       title: "Privacy Policy",
       template: "legal" as const,
-      body: PRIVACY_POLICY_TEMPLATE_EN.replace(/\[Site Name\]/g, siteName),
+      // `{locale}` is substituted per-localization at seed time. The
+      // previous template shipped a literal `/[locale]/cookie-policy`,
+      // which every install stored verbatim — the privacy policy's
+      // cookie-policy link (the page the GDPR banner points at) 404'd
+      // as `/%5Blocale%5D/cookie-policy` on every production install
+      // (#143). Only `en` is seeded today; the substitution keeps a
+      // future Thai template from re-growing the bug.
+      body: PRIVACY_POLICY_TEMPLATE_EN.replace(
+        /\[Site Name\]/g,
+        siteName,
+      ).replace(/\{locale\}/g, "en"),
     },
     {
       slug: "cookie-policy",

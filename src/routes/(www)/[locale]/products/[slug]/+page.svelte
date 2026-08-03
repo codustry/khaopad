@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 	import { track } from '$lib/analytics/track';
+	import { localePath } from '$lib/i18n';
 	import { formatSatang, type Satang } from '$plugins/shop/money';
 	import type { PageData } from './$types';
 
@@ -191,7 +192,7 @@
 				{adding ? 'Adding…' : 'Add to cart'}
 			</button>
 			{#if added}
-				<a href="/cart" class="text-sm underline">View cart →</a>
+				<a href={localePath(data.locale, '/cart')} class="text-sm underline">View cart →</a>
 			{/if}
 		</div>
 		{#if addError}

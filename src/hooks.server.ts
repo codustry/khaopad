@@ -302,6 +302,23 @@ function isAdminPath(path: string): boolean {
 }
 
 /**
+ * Personal-state storefront paths (#146): pages whose rendered HTML is
+ * derived from the visitor's cart cookie or an order lookup. Caching
+ * these `public` served one visitor's cart — and on /order/[n], their
+ * order details — to every other visitor on the same PoP for up to five
+ * minutes, and made every cart mutation look broken (the post-mutation
+ * reload re-served the pre-mutation copy while D1 was correct all
+ * along).
+ *
+ * Matches both the localized paths (/{locale}/cart, the real pages
+ * after #141) and the unprefixed ones (redirect stubs — a 303 keyed on
+ * a cookie is exactly as personal as the page it forwards to).
+ */
+function isShopFunnelPath(path: string): boolean {
+  return /^(?:\/[a-z]{2})?\/(cart|checkout|lookup|order)(\/|$)/.test(path);
+}
+
+/**
  * v1.9 cache-control hook.
  *
  * Sets sensible defaults at the edge so Cloudflare's cache fronts the
@@ -311,6 +328,7 @@ function isAdminPath(path: string): boolean {
  * /api/health — keep their explicit values).
  *
  * - /admin/*           → no-store (authenticated, must always be fresh)
+ * - shop funnel      → no-store (per-visitor cart/order state, #146)
  * - /api/auth/*      → no-store (auth state)
  * - /api/media/*     → public, max-age=86400, stale-while-revalidate=604800
  *                      (R2 blobs are immutable per id+key, very cacheable)
@@ -331,6 +349,11 @@ const cacheHook: Handle = async ({ event, resolve }) => {
   const path = event.url.pathname;
   let value: string;
   if (path === "/admin" || path.startsWith("/admin/")) {
+    value = "no-store";
+  } else if (isShopFunnelPath(path)) {
+    // Cart/checkout/order HTML is per-visitor state (#146). `private`
+    // would only stop shared caches; `no-store` also stops the browser
+    // from replaying a pre-mutation cart on back/forward.
     value = "no-store";
   } else if (path.startsWith("/api/auth/") || path === "/api/consent") {
     value = "no-store";
@@ -384,6 +407,27 @@ const securityHeadersHook: Handle = async ({ event, resolve }) => {
 
   for (const [name, value] of Object.entries(SECURITY_HEADERS_STATIC)) {
     if (!response.headers.has(name)) response.headers.set(name, value);
+  }
+
+  // Keep non-production workers out of search indexes (#145).
+  //
+  // robots.txt alone is not enough for two reasons the reporter hit in
+  // sequence on a real staging worker:
+  //  1. It only limits *crawling*; a Disallowed URL can still be indexed
+  //     from external links.
+  //  2. Cloudflare's managed "Content Signals" prepends its own
+  //     `User-agent: * / Allow: /` block to robots.txt, and Google's
+  //     tie-break between equal-length Allow and Disallow prefers Allow —
+  //     silently neutralizing the origin's `Disallow: /`.
+  // The header forbids indexing at the response level, which nothing in
+  // front of the Worker rewrites. Deliberately fail-closed: an unset
+  // WORKERS_ENV is treated as non-production, because a var the operator
+  // must remember in order to be safe isn't a safeguard.
+  const workersEnv =
+    (event.platform?.env as { WORKERS_ENV?: string } | undefined)
+      ?.WORKERS_ENV ?? "";
+  if (workersEnv !== "production") {
+    response.headers.set("X-Robots-Tag", "noindex, nofollow");
   }
 
   // NOTE: the CSP is deliberately NOT set here. SvelteKit generates it

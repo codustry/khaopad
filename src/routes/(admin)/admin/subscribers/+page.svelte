@@ -54,15 +54,23 @@
 			);
 			const body = (await res.json().catch(() => null)) as DigestResponse | null;
 			if (!res.ok) {
-				sendResult = `Failed: ${body?.message ?? res.status}`;
+				sendResult = m.cms_subscribers_send_failed({ message: String(body?.message ?? res.status) });
 			} else if (dryRun) {
-				sendResult = `Dry run: would send to ${body?.subscribers ?? 0} subscribers (article counts: ${JSON.stringify(body?.articleCounts ?? {})})`;
+				sendResult = m.cms_subscribers_dry_run_result({
+					count: String(body?.subscribers ?? 0),
+					counts: JSON.stringify(body?.articleCounts ?? {}),
+				});
 			} else {
-				sendResult = `Sent ${body?.sent ?? 0}, failed ${body?.failed ?? 0}.`;
+				sendResult = m.cms_subscribers_send_result({
+					sent: String(body?.sent ?? 0),
+					failed: String(body?.failed ?? 0),
+				});
 				await invalidateAll();
 			}
 		} catch (err) {
-			sendResult = `Error: ${err instanceof Error ? err.message : String(err)}`;
+			sendResult = m.cms_subscribers_send_error({
+				message: err instanceof Error ? err.message : String(err),
+			});
 		} finally {
 			sending = false;
 		}
@@ -71,7 +79,7 @@
 	const columns: Column<SubscriberRecord>[] = [
 		{ key: 'email', header: m.cms_subscribers_email(), cell: emailCell },
 		{ key: 'status', header: m.col_status(), cell: statusCell },
-		{ key: 'locale', header: 'Locale', cell: localeCell },
+		{ key: 'locale', header: m.cms_subscribers_locale(), cell: localeCell },
 		{ key: 'signedUp', header: m.cms_subscribers_signed_up(), cell: signedUpCell },
 		{ key: 'actions', header: '', align: 'right', cell: actionsCell }
 	];
