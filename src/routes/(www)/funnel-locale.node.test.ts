@@ -116,9 +116,14 @@ describe("sitemap and robots (#144, #145)", () => {
       "utf8",
     );
     // Failing closed without shipping the var would flip every install —
-    // including real production ones — to noindex.
-    const blocks = toml.match(/WORKERS_ENV\s*=/g) ?? [];
-    expect(blocks.length).toBeGreaterThanOrEqual(3);
+    // including real production ones — to noindex. Counted against the
+    // vars blocks actually present: upstream ships three environments,
+    // but a fork that trims to a single [vars] block (khaopad-example
+    // does) must not fail this test for having fewer.
+    const varsBlocks = toml.match(/^\[(?:env\.[a-z]+\.)?vars\]/gm) ?? [];
+    const declarations = toml.match(/^WORKERS_ENV\s*=/gm) ?? [];
+    expect(varsBlocks.length).toBeGreaterThanOrEqual(1);
+    expect(declarations.length).toBe(varsBlocks.length);
   });
 });
 
