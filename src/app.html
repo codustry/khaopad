@@ -21,11 +21,21 @@
     <script nonce="%sveltekit.nonce%">
       (function () {
         try {
+          // Admin-scoped (#150). Unscoped, this darkened the PUBLIC
+          // surface for every OS-dark visitor — a downstream with a
+          // light-branded storefront had prices and nav go invisible
+          // under the flipped tokens, reported by a real customer.
+          // Dark mode is an admin feature; the public site stays with
+          // whatever the site's own CSS declares.
+          var isAdmin =
+            location.pathname === "/admin" ||
+            location.pathname.indexOf("/admin/") === 0;
           var stored = localStorage.getItem("khaopad-theme");
           var dark =
-            stored === "dark" ||
-            ((stored === "system" || stored === null) &&
-              window.matchMedia("(prefers-color-scheme: dark)").matches);
+            isAdmin &&
+            (stored === "dark" ||
+              ((stored === "system" || stored === null) &&
+                window.matchMedia("(prefers-color-scheme: dark)").matches));
           if (dark) document.documentElement.classList.add("dark");
           document.documentElement.style.colorScheme = dark ? "dark" : "light";
         } catch (e) {}

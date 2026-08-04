@@ -102,6 +102,30 @@
 		<ul class="divide-y divide-border rounded-lg border border-border">
 			{#each data.items as item (item.id)}
 				<li class="flex items-center gap-4 p-4">
+					{#if item.mediaId}
+						<!--
+							#152: the service has resolved mediaId per line (variant
+							image → product featured) since v3.10; the template just
+							never rendered it. Empty alt — the adjacent linked title
+							is the accessible name, and naming the image twice makes
+							screen readers announce every product twice.
+						-->
+						<a
+							href={localePath(locale, `/products/${item.productSlug}`)}
+							tabindex="-1"
+							aria-hidden="true"
+							class="shrink-0"
+						>
+							<img
+								src={`/api/media/${item.mediaId}`}
+								alt=""
+								width="64"
+								height="64"
+								loading="lazy"
+								class="h-16 w-16 rounded-md border border-border object-cover"
+							/>
+						</a>
+					{/if}
 					<div class="flex-1 min-w-0">
 						<div class="font-medium">
 							<a
@@ -116,6 +140,11 @@
 								{item.variantTitle}
 							</div>
 						{/if}
+						<!-- Unit price × quantity, so the line total is legible
+						     without mental division (#152). -->
+						<div class="text-xs text-muted-foreground tabular-nums">
+							{formatSatang(item.priceSatangAtAdd as Satang)} × {item.quantity}
+						</div>
 						{#if item.availableStock < item.quantity}
 							<div class="mt-1 text-xs text-destructive">
 								{m.shop_only_n_in_stock({ count: item.availableStock })}

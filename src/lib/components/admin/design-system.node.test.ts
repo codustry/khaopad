@@ -151,6 +151,25 @@ describe("theme", () => {
     expect(appHtml).toContain("classList.add");
   });
 
+  it("scopes dark mode to the admin surface (#150)", () => {
+    // Unscoped, the pre-paint script darkened the PUBLIC surface for
+    // every OS-dark visitor — a downstream's light-branded storefront
+    // had prices and nav go invisible under the flipped tokens. Dark
+    // mode is an admin feature; both script copies must gate on the
+    // /admin path, and leaving the admin must shed the class (the
+    // <html> element outlives the admin layout on client navigation).
+    for (const [name, src] of [
+      ["app.html", appHtml],
+      ["THEME_INIT_SCRIPT", themeSrc],
+    ] as const) {
+      expect(src, name).toMatch(/isAdmin/);
+      expect(src, name).toMatch(/indexOf\(['"]\/admin\/['"]\)/);
+    }
+    // The runtime side: init()'s teardown removes the class so a dark
+    // admin can't be carried onto the public surface by client-side nav.
+    expect(themeSrc).toMatch(/classList\.remove\(["']dark["']\)/);
+  });
+
   it("nonces the inline script", () => {
     // `csp.mode: "auto"` emits a nonce-based policy. An un-nonced inline
     // script is exactly what broke the downstream fork in #133.

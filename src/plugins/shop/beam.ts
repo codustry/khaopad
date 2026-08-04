@@ -15,6 +15,37 @@
  * Basic username, not something embedded in the key. Without it every
  * request is rejected, so it is required, not optional.
  *
+ * ── Why Payment Links, not Charges (#151) ───────────────────────────
+ *
+ * The Stripe-shaped guessing didn't stop at auth. A direct
+ * `POST /api/v1/charges` requires ONE pre-chosen `paymentMethod` in the
+ * body — Beam 400s with "paymentMethod is a required field" otherwise.
+ * Our checkout deliberately does NOT ask the customer to pick a method
+ * up front; it promises method CHOICE on the payment page. The Beam
+ * primitive that matches that promise is a hosted Payment Link:
+ *
+ *     POST /api/v1/payment-links → { paymentLinkId, url }
+ *
+ * The customer is redirected to `url`, picks card / PromptPay QR /
+ * e-wallet there, and Beam calls our webhook when a charge (created by
+ * Beam, id unknown to us at link-creation time) settles. Shapes below
+ * were validated against two production Beam integrations by the #151
+ * reporter — treat them as ground truth, not the old guesses:
+ *
+ *   - `netAmount` / `currency` / `referenceId` nest under `order`
+ *     (top-level 400s), everything is camelCase, and there is NO
+ *     `customer_email` or `metadata` field to send.
+ *   - The field is `redirectUrl`, not `returnUrl`.
+ *   - `referenceId` is set to the ORDER NUMBER. Beam echoes it in every
+ *     webhook, and because the charge id doesn't exist until the
+ *     customer pays, it is the ONLY join key the first payment webhook
+ *     can carry that we know in advance. The webhook route matches on
+ *     it when the charge-id lookup misses (see webhook/beam/+server.ts).
+ *   - An `Idempotency-Key` header (our order id) makes client retries
+ *     safe: same key + same body replays the original response; same
+ *     key + DIFFERENT body 412s, which we surface as a non-retryable
+ *     failure rather than looping.
+ *
  * Configuration (validated at construction time):
  *   BEAM_MERCHANT_ID — merchant identifier; the Basic-auth username
  *   BEAM_API_KEY — secret key from the Lighthouse dashboard
@@ -34,9 +65,13 @@ import type {
   WebhookVerifyResult,
 } from "./payment";
 
-// Host only — the version lives in the documented path (/api/v1/charges),
-// not in the base URL. Sandbox: https://playground.api.beamcheckout.com
+// Host only — the version lives in the documented path
+// (/api/v1/payment-links), not in the base URL.
+// Sandbox: https://playground.api.beamcheckout.com
 const DEFAULT_BEAM_BASE_URL = "https://api.beamcheckout.com";
+
+/** Payment links expire; give the customer an hour to finish paying. */
+const PAYMENT_LINK_TTL_MS = 60 * 60 * 1000;
 
 export type BeamConfig = {
   /** Basic-auth username. Required — Beam rejects requests without it. */
@@ -101,14 +136,9 @@ function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-type BeamChargeCreateResponse = {
-  id: string;
-  status: "pending" | "succeeded" | "failed";
-  amount: number;
-  currency: string;
-  payment_url?: string;
-  qr_code_url?: string; // PromptPay QR
-  metadata?: Record<string, string>;
+type BeamPaymentLinkResponse = {
+  paymentLinkId: string;
+  url: string;
 };
 
 type BeamRefundResponse = {
@@ -118,13 +148,22 @@ type BeamRefundResponse = {
   status: "pending" | "succeeded" | "failed";
 };
 
-type BeamWebhookEnvelope = {
-  event_type: string;
-  data: {
-    id: string;
-    status: "pending" | "succeeded" | "failed" | "refunded";
-    amount?: number;
-  };
+/**
+ * Real Beam webhook bodies are FLAT (#151) — not the
+ * `{event_type, data:{...}}` envelope the old parser invented. The
+ * event name travels in the `X-Beam-Event` REQUEST HEADER, not the
+ * body; the route reads it and passes it into verifyWebhook.
+ *
+ * The old envelope parser 400'd every genuine webhook AFTER the HMAC
+ * passed — Beam retried ~10 times, gave up, and every paid order
+ * stayed pending forever.
+ */
+type BeamWebhookBody = {
+  chargeId?: string;
+  referenceId?: string;
+  status?: string;
+  amount?: number;
+  currency?: string;
 };
 
 export class BeamPaymentProvider implements PaymentProvider {
@@ -162,26 +201,67 @@ export class BeamPaymentProvider implements PaymentProvider {
     return `Basic ${btoa(binary)}`;
   }
 
+  /**
+   * Create a hosted Payment Link (NOT a direct charge — see the header
+   * comment for why: charges demand one pre-chosen paymentMethod, our
+   * checkout promises method choice).
+   *
+   * The returned `providerChargeId` is the paymentLinkId. The REAL
+   * charge id only exists after the customer pays; the webhook route
+   * swaps it in via markPaid so refunds get a real charge id.
+   */
   async createCharge(input: ChargeInput): Promise<ChargeResult> {
+    // The webhook's only pre-payment join key. Prefer the human order
+    // number (what the reporter validated Beam echoes back); fall back
+    // to the internal order id so an old call site still round-trips.
+    const referenceId =
+      input.orderNumber ?? input.metadata?.orderNumber ?? input.orderId;
     try {
-      const res = await fetch(`${this.baseUrl}/api/v1/charges`, {
+      const res = await fetch(`${this.baseUrl}/api/v1/payment-links`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
           authorization: this.authHeader(),
+          // Same key + same body: Beam replays the original response.
+          // Same key + different body: 412, handled below.
+          "idempotency-key": input.orderId,
         },
+        // Validated shape (#151): camelCase, money fields nested under
+        // `order`, `redirectUrl` not `returnUrl`, and NO customer_email
+        // or metadata — Beam has no such fields on payment links.
         body: JSON.stringify({
-          amount: input.amount,
-          currency: input.currency,
-          description: input.description,
-          customer_email: input.customerEmail,
-          return_url: input.returnUrl,
-          metadata: {
-            order_id: input.orderId,
-            ...(input.metadata ?? {}),
+          collectDeliveryAddress: false,
+          expiresAt: new Date(Date.now() + PAYMENT_LINK_TTL_MS).toISOString(),
+          redirectUrl: input.returnUrl,
+          linkSettings: {
+            card: { isEnabled: true },
+            cardInstallments: { isEnabled: false },
+            qrPromptPay: { isEnabled: true },
+            eWallets: { isEnabled: true },
+            mobileBanking: { isEnabled: false },
+            buyNowPayLater: { isEnabled: false },
+          },
+          order: {
+            netAmount: input.amount, // integer satang — never decimals
+            currency: input.currency,
+            referenceId,
+            description: input.description,
           },
         }),
       });
+
+      if (res.status === 412) {
+        // Idempotency-Key reuse with a DIFFERENT body. This is the
+        // desired outcome on a client retry after e.g. an amount edit —
+        // retrying the same request can never succeed, so fail loudly
+        // instead of looping.
+        return {
+          ok: false,
+          code: "IDEMPOTENCY_CONFLICT",
+          message:
+            "Beam rejected the payment-link request: the Idempotency-Key was already used with a different body (HTTP 412). Do not retry — start a fresh checkout for this order.",
+        };
+      }
 
       if (!res.ok) {
         const text = await res.text();
@@ -189,16 +269,16 @@ export class BeamPaymentProvider implements PaymentProvider {
           ok: false,
           code: `HTTP_${res.status}`,
           message:
-            text.slice(0, 500) || `Beam charge creation failed (${res.status})`,
+            text.slice(0, 500) ||
+            `Beam payment-link creation failed (${res.status})`,
         };
       }
 
-      const body = (await res.json()) as BeamChargeCreateResponse;
+      const body = (await res.json()) as BeamPaymentLinkResponse;
       return {
         ok: true,
-        providerChargeId: body.id,
-        paymentUrl: body.payment_url,
-        extra: body.qr_code_url ? { qrCodeUrl: body.qr_code_url } : undefined,
+        providerChargeId: body.paymentLinkId,
+        paymentUrl: body.url,
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -206,6 +286,23 @@ export class BeamPaymentProvider implements PaymentProvider {
     }
   }
 
+  /**
+   * ⚠️ REFUND SHAPE UNVALIDATED AGAINST REAL BEAM — #151 point 4.
+   *
+   * The charge-creation and webhook shapes below/above were validated
+   * against two production Beam integrations; this refund body was NOT.
+   * It is almost certainly the same guessed disease (snake_case
+   * `charge_id`, top-level fields), but the #151 reporter had no real
+   * refund traffic to validate against, and guessing a "more plausible"
+   * camelCase shape would just be a second guess.
+   *
+   * DO NOT issue a production refund through this method until the real
+   * shape has been captured and this block replaced. Failures already
+   * surface loudly (ok:false with Beam's response text) — a wrong shape
+   * fails visibly at the admin refund screen, it does not lose money.
+   * A structural test (beam.node.test.ts) pins this warning so it
+   * cannot silently vanish before the shape is validated.
+   */
   async refund(input: RefundInput): Promise<RefundResult> {
     try {
       const res = await fetch(`${this.baseUrl}/api/v1/refunds`, {
@@ -244,9 +341,22 @@ export class BeamPaymentProvider implements PaymentProvider {
     }
   }
 
+  /**
+   * Verify a webhook and normalize it. HMAC mechanics are unchanged
+   * from #135 (base64 digest over the raw body, base64-decoded key) —
+   * only the PAYLOAD parsing changed for #151: real bodies are flat
+   * ({chargeId, referenceId, status, amount, currency}), and the event
+   * name arrives via the `X-Beam-Event` request header, which the
+   * route reads and passes as `eventName`.
+   *
+   * A signed, well-formed-but-novel payload NEVER fails verification:
+   * unknown or absent statuses normalize to "pending" so the route can
+   * log-and-200 instead of 400ing and triggering a Beam retry storm.
+   */
   async verifyWebhook(
     rawBody: string,
     signature: string,
+    eventName?: string,
   ): Promise<WebhookVerifyResult> {
     if (!signature) {
       return {
@@ -263,21 +373,24 @@ export class BeamPaymentProvider implements PaymentProvider {
     if (!timingSafeEqual(expected, provided)) {
       return { ok: false, code: "INVALID_SIGNATURE", message: "HMAC mismatch" };
     }
-    let parsed: BeamWebhookEnvelope;
+    let parsed: BeamWebhookBody;
     try {
-      parsed = JSON.parse(rawBody) as BeamWebhookEnvelope;
+      parsed = JSON.parse(rawBody) as BeamWebhookBody;
     } catch {
       return { ok: false, code: "INVALID_JSON", message: "Body is not JSON" };
     }
-    const beamStatus = parsed.data?.status;
-    if (!beamStatus) {
+    if (typeof parsed !== "object" || parsed === null) {
       return {
         ok: false,
         code: "MALFORMED_PAYLOAD",
-        message: "data.status missing",
+        message: "Body is not a JSON object",
       };
     }
-    // Normalize Beam status → interface's canonical status.
+    // Normalize Beam status → interface's canonical status. Compared
+    // case-insensitively, and anything unrecognized maps to "pending" —
+    // a novel-but-signed payload must not bounce (see docblock).
+    const beamStatus =
+      typeof parsed.status === "string" ? parsed.status.toLowerCase() : "";
     const status: "succeeded" | "failed" | "refunded" | "pending" =
       beamStatus === "succeeded"
         ? "succeeded"
@@ -288,10 +401,15 @@ export class BeamPaymentProvider implements PaymentProvider {
             : "pending";
     return {
       ok: true,
-      eventType: parsed.event_type,
-      providerChargeId: parsed.data.id,
+      eventType: eventName ?? "",
+      // `providerChargeId` keeps its name for compatibility with the
+      // interface and existing callers, populated from the flat
+      // body's chargeId. It may be EMPTY on link-lifecycle events that
+      // predate a charge — the route falls back to referenceId then.
+      providerChargeId: parsed.chargeId ?? "",
+      referenceId: parsed.referenceId,
       status,
-      amount: parsed.data.amount,
+      amount: parsed.amount,
       raw: parsed,
     };
   }

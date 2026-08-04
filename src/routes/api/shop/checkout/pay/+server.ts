@@ -58,6 +58,10 @@ export const POST: RequestHandler = async ({ request, platform, url }) => {
 
   const charge = await provider.createCharge({
     orderId: order.id,
+    // Beam sends this as `order.referenceId` and echoes it in every
+    // webhook — the join key that lets the first payment webhook find
+    // the order before a real charge id exists (#151).
+    orderNumber: order.orderNumber,
     description: `${order.orderNumber} — ${order.items.length} item(s)`,
     amount: order.totalSatang,
     currency: "THB",

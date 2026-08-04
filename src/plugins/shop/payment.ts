@@ -17,6 +17,14 @@ import type { Satang } from "./money";
 export type ChargeInput = {
   /** Store-side reference. Providers store this as their `metadata.orderId`. */
   orderId: string;
+  /**
+   * Human-facing order number (e.g. "KP-2026-000123"). Providers that
+   * echo a reference in webhooks (Beam's `order.referenceId`) send THIS
+   * so the webhook can be joined back to the order before a charge id
+   * exists (#151). Optional for compatibility; Beam falls back to
+   * `metadata.orderNumber` then `orderId` when absent.
+   */
+  orderNumber?: string;
   /** Human-readable — printed on customer's statement / receipt. */
   description: string;
   amount: Satang | number;
@@ -61,7 +69,19 @@ export type WebhookVerifyResult =
   | {
       ok: true;
       eventType: string;
+      /**
+       * Provider-native charge id from the event. May be EMPTY ("") for
+       * events that precede a charge (e.g. Beam payment-link lifecycle)
+       * — callers should fall back to `referenceId` (#151).
+       */
       providerChargeId: string;
+      /**
+       * Merchant-supplied reference echoed by the provider — for Beam
+       * this is the order number sent as `order.referenceId` at
+       * payment-link creation. The only join key available before a
+       * charge exists (#151).
+       */
+      referenceId?: string;
       /** 'succeeded' | 'failed' | 'refunded' | 'pending' — normalized status. */
       status: "succeeded" | "failed" | "refunded" | "pending";
       /** Amount at the event moment (for partial refunds this may differ from original charge). */
@@ -80,10 +100,14 @@ export interface PaymentProvider {
    * Verify a webhook signature and normalize the event.
    * `signature` comes from the provider's header (Beam uses
    * `X-Beam-Signature`, Stripe uses `Stripe-Signature`, etc.).
+   * `eventName` is for providers that carry the event name in a
+   * separate request header rather than the body (Beam's
+   * `X-Beam-Event`, #151) — the route reads it and passes it through.
    */
   verifyWebhook(
     rawBody: string,
     signature: string,
+    eventName?: string,
   ): WebhookVerifyResult | Promise<WebhookVerifyResult>;
 }
 

@@ -57,6 +57,13 @@ class ThemeState {
   /**
    * Called once from the admin layout's onMount. Reads the stored
    * preference and subscribes to OS changes.
+   *
+   * The cleanup also SHEDS the theme (#150): dark mode is admin-scoped,
+   * and `.dark` lives on `<html>`, which outlives the admin layout — a
+   * client-side navigation from a dark admin to the public site would
+   * otherwise carry the class across surfaces and flip a light-branded
+   * storefront dark. The admin layout unmounts exactly when the visitor
+   * leaves the admin surface, so its teardown is the right place.
    */
   init(): () => void {
     if (!browser) return () => {};
@@ -73,7 +80,12 @@ class ThemeState {
     query.addEventListener("change", onChange);
 
     this.#apply();
-    return () => query.removeEventListener("change", onChange);
+    return () => {
+      query.removeEventListener("change", onChange);
+      const root = document.documentElement;
+      root.classList.remove("dark");
+      root.style.colorScheme = "light";
+    };
   }
 
   set(next: Theme): void {
@@ -116,10 +128,12 @@ export const theme = new ThemeState();
 export const THEME_INIT_SCRIPT = `
 (function () {
   try {
+    var isAdmin = location.pathname === '/admin' ||
+      location.pathname.indexOf('/admin/') === 0;
     var stored = localStorage.getItem(${JSON.stringify(THEME_KEY)});
-    var dark = stored === 'dark' ||
+    var dark = isAdmin && (stored === 'dark' ||
       ((stored === 'system' || stored === null) &&
-        window.matchMedia('(prefers-color-scheme: dark)').matches);
+        window.matchMedia('(prefers-color-scheme: dark)').matches));
     if (dark) document.documentElement.classList.add('dark');
     document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
   } catch (e) {}
