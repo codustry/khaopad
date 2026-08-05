@@ -235,6 +235,99 @@ describe("Beam payment-link creation (#151)", () => {
   });
 });
 
+describe("Beam in-page QR charge (#156)", () => {
+  const provider = new BeamPaymentProvider(CONFIG);
+
+  /** What a successful direct QR charge returns — the encodedImage path
+   * is the one the #156 reporter validated live. */
+  const QR_RESPONSE = {
+    chargeId: "ch_qr_1",
+    expiresAt: "2026-08-05T13:00:00.000Z",
+    paymentMethod: {
+      qrPromptPay: {
+        encodedImage: { imageBase64Encoded: "iVBORw0KGgoFAKE" },
+      },
+    },
+  };
+
+  function sentBody(spy: ReturnType<typeof mockFetch>) {
+    return JSON.parse(spy.mock.calls[0][1].body as string) as Record<
+      string,
+      unknown
+    >;
+  }
+
+  it("posts to /api/v1/charges with the money nested under `order`", async () => {
+    const spy = mockFetch(QR_RESPONSE);
+    await provider.createQrCharge(CHARGE);
+    expect(spy.mock.calls[0][0]).toBe(
+      "https://api.beamcheckout.com/api/v1/charges",
+    );
+    const body = sentBody(spy);
+    // Same validated `order` block as payment links (#151) — top-level
+    // money fields 400 on real Beam.
+    expect(body.order).toEqual({
+      netAmount: 10000,
+      currency: "THB",
+      referenceId: "KP-2026-000123",
+      description: "test charge",
+    });
+    expect(body).not.toHaveProperty("netAmount");
+  });
+
+  it("selects QR PromptPay via a paymentMethod block", async () => {
+    const spy = mockFetch(QR_RESPONSE);
+    await provider.createQrCharge(CHARGE);
+    expect(sentBody(spy).paymentMethod).toEqual({
+      paymentMethodType: "QR_PROMPT_PAY",
+    });
+  });
+
+  it("suffixes the Idempotency-Key with :qr — distinct from the link key", async () => {
+    // The same order may try QR first and fall back to a hosted link;
+    // both calls must not collide on one idempotency scope.
+    const spy = mockFetch(QR_RESPONSE);
+    await provider.createQrCharge(CHARGE);
+    const headers = spy.mock.calls[0][1].headers as Record<string, string>;
+    expect(headers["idempotency-key"]).toBe("ord_1:qr");
+  });
+
+  it("maps imageBase64Encoded → a data:image/png;base64 URI", async () => {
+    mockFetch(QR_RESPONSE);
+    const res = await provider.createQrCharge(CHARGE);
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.qrImage).toBe("data:image/png;base64,iVBORw0KGgoFAKE");
+      expect(res.providerChargeId).toBe("ch_qr_1");
+      expect(res.qrExpiresAt).toBe("2026-08-05T13:00:00.000Z");
+    }
+  });
+
+  it("returns ok:false when the response carries no QR image", async () => {
+    mockFetch({ chargeId: "ch_1" });
+    const res = await provider.createQrCharge(CHARGE);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("NO_QR_IN_RESPONSE");
+  });
+
+  it("returns ok:false on an HTTP error — never throws", async () => {
+    mockFetch({ error: "bad shape" }, false, 400);
+    const res = await provider.createQrCharge(CHARGE);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("HTTP_400");
+  });
+
+  it("returns ok:false on a network failure — never throws", async () => {
+    // CRITICAL SAFETY: any QR failure must be non-fatal so the caller
+    // can fall back to the hosted payment link.
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("boom")));
+    await expect(provider.createQrCharge(CHARGE)).resolves.toMatchObject({
+      ok: false,
+      code: "NETWORK_ERROR",
+    });
+  });
+});
+
 describe("Beam webhook verification", () => {
   const provider = new BeamPaymentProvider(CONFIG);
 

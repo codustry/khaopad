@@ -220,6 +220,50 @@ export class CartService {
   }
 
   /**
+   * Subtotal + total weight for the cart — the two inputs the
+   * shipping engine (quoteShipping) needs. Weight uses the variant's
+   * current weightGrams (null = 0: an unweighed variant should not
+   * block quoting; it just doesn't contribute to weight brackets).
+   */
+  async getCartShippingContext(cartId: string): Promise<{
+    subtotalSatang: number;
+    totalWeightGrams: number;
+    itemCount: number;
+  }> {
+    const items = await this.db
+      .select()
+      .from(shopCartItems)
+      .where(eq(shopCartItems.cartId, cartId))
+      .all();
+    if (items.length === 0) {
+      return { subtotalSatang: 0, totalWeightGrams: 0, itemCount: 0 };
+    }
+    const variants = await this.db
+      .select()
+      .from(shopProductVariants)
+      .where(
+        inArray(
+          shopProductVariants.id,
+          items.map((i) => i.variantId),
+        ),
+      )
+      .all();
+    const weightByVariant = new Map(
+      variants.map((v) => [v.id, v.weightGrams ?? 0]),
+    );
+    let subtotalSatang = 0;
+    let totalWeightGrams = 0;
+    let itemCount = 0;
+    for (const item of items) {
+      subtotalSatang += item.priceSatangAtAdd * item.quantity;
+      totalWeightGrams +=
+        (weightByVariant.get(item.variantId) ?? 0) * item.quantity;
+      itemCount += item.quantity;
+    }
+    return { subtotalSatang, totalWeightGrams, itemCount };
+  }
+
+  /**
    * Add or update a line item. If the (cart, variant) combination
    * already exists, quantities add (not replace) — matches Shopify's
    * addToCart semantics. To set an exact quantity, use setQuantity().
@@ -498,6 +542,39 @@ export class CartService {
     // (single Worker request); a full D1 batch is a v3.2 refinement
     // if this becomes a hot path.
     await this.db.insert(shopInventoryReservations).values(reservationInserts);
+
+    // #154: the UNIQUE (session_id, status) index means a leftover
+    // `checkout_started` cart from a dead checkout would make the flip
+    // below throw a raw D1 UNIQUE violation — an opaque 500 on every
+    // retry, forever, for that session. Supersede-by-rename: move the
+    // stale cart's session_id to a tombstone that can never collide
+    // (`superseded:<cartId>` is unique because the cart id is), and
+    // preserve the original in previous_session_id so support can
+    // still trace the cart back to its session. A rename frees the
+    // (session, status) slot; flipping its status instead could just
+    // collide with a third cart.
+    const staleCheckout = await this.db
+      .select()
+      .from(shopCarts)
+      .where(
+        and(
+          eq(shopCarts.sessionId, cart.sessionId),
+          eq(shopCarts.status, "checkout_started"),
+        ),
+      )
+      .limit(1)
+      .get();
+    if (staleCheckout) {
+      await this.db
+        .update(shopCarts)
+        .set({
+          sessionId: `superseded:${staleCheckout.id}`,
+          previousSessionId:
+            staleCheckout.previousSessionId ?? staleCheckout.sessionId,
+          updatedAt: now.toISOString(),
+        })
+        .where(eq(shopCarts.id, staleCheckout.id));
+    }
     await this.db
       .update(shopCarts)
       .set({
@@ -568,18 +645,46 @@ export class CartService {
 
     // Also flip carts whose checkout_started is older than the TTL to
     // 'expired' status so a re-visit from the same session starts a
-    // fresh cart. Cart items are preserved for one refresh so the
-    // customer can see what they lost.
+    // fresh cart. Cart items are preserved (only the status changes)
+    // so the customer can still see what they lost.
+    //
+    // #154: this flip has the same UNIQUE (session_id, status) hazard
+    // as startCheckout — a session that already owns an `expired` cart
+    // plus a newly-stale `checkout_started` one would make a bulk
+    // status-flip violate the index and abort the whole sweep run. So
+    // each cart is expired one at a time, and its session_id is moved
+    // to the per-cart `superseded:<cartId>` tombstone (original kept
+    // in previous_session_id). Tombstoned session ids are unique per
+    // cart, so the (session, 'expired') slot can never collide.
     const cutoff = new Date(now.getTime() - RESERVATION_TTL_MS).toISOString();
-    await this.db
-      .update(shopCarts)
-      .set({ status: "expired", updatedAt: nowIso })
+    const staleCarts = await this.db
+      .select()
+      .from(shopCarts)
       .where(
         and(
           eq(shopCarts.status, "checkout_started"),
           lt(shopCarts.checkoutStartedAt, cutoff),
         ),
-      );
+      )
+      .all();
+    for (const cart of staleCarts) {
+      // Already tombstoned (superseded by a checkout retry) — its
+      // session_id is unique to this cart, so the flip cannot collide.
+      const tombstoned = cart.sessionId.startsWith("superseded:");
+      await this.db
+        .update(shopCarts)
+        .set({
+          status: "expired",
+          updatedAt: nowIso,
+          ...(tombstoned
+            ? {}
+            : {
+                sessionId: `superseded:${cart.id}`,
+                previousSessionId: cart.previousSessionId ?? cart.sessionId,
+              }),
+        })
+        .where(eq(shopCarts.id, cart.id));
+    }
 
     return released;
   }

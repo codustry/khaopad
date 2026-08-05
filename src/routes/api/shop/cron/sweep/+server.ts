@@ -49,6 +49,15 @@ async function runSweep(env: App.Platform["env"]) {
     );
   }
 
+  // #154: record the sweep time so checkout-start's opportunistic
+  // sweep (throttled on the same key) skips its next window — installs
+  // WITH cron enabled shouldn't double-sweep on every checkout.
+  try {
+    await env.CONTENT_CACHE.put("shop:lastSweepAt", now.toISOString());
+  } catch {
+    /* bookkeeping only — an extra opportunistic sweep is harmless */
+  }
+
   const ms = Date.now() - startedAt;
   return { releasedReservations, abandonedCarts, recoveryEmailsSent, ms };
 }

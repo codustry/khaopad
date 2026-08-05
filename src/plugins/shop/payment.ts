@@ -54,6 +54,23 @@ export type ChargeResult =
       message: string;
     };
 
+/**
+ * Result of an OPTIONAL in-page QR charge (#156). Unlike ChargeResult
+ * there is no redirect URL — the storefront renders `qrImage` inline
+ * and polls the order status until the provider's webhook flips it.
+ */
+export type QrChargeResult =
+  | {
+      ok: true;
+      /** Provider-native charge id — persisted on the order like createCharge's. */
+      providerChargeId: string;
+      /** Self-contained `data:` URI (e.g. `data:image/png;base64,…`) for an <img>. */
+      qrImage: string;
+      /** ISO timestamp after which the QR can no longer be paid, when known. */
+      qrExpiresAt?: string;
+    }
+  | { ok: false; code: string; message: string };
+
 export type RefundInput = {
   providerChargeId: string;
   amount: Satang | number;
@@ -94,6 +111,16 @@ export interface PaymentProvider {
   readonly name: string;
 
   createCharge(input: ChargeInput): Promise<ChargeResult>;
+
+  /**
+   * OPTIONAL — create a direct charge that returns an in-page QR
+   * (PromptPay for Thai providers, #156) instead of a hosted payment
+   * URL. Callers duck-type: if the method is absent, or it returns
+   * `ok: false`, or it throws, they MUST fall back to `createCharge`'s
+   * hosted-link flow — a QR failure must never strand the customer.
+   */
+  createQrCharge?(input: ChargeInput): Promise<QrChargeResult>;
+
   refund(input: RefundInput): Promise<RefundResult>;
 
   /**

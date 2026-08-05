@@ -60,6 +60,7 @@ import type {
   ChargeInput,
   ChargeResult,
   PaymentProvider,
+  QrChargeResult,
   RefundInput,
   RefundResult,
   WebhookVerifyResult,
@@ -139,6 +140,27 @@ function timingSafeEqual(a: string, b: string): boolean {
 type BeamPaymentLinkResponse = {
   paymentLinkId: string;
   url: string;
+};
+
+/**
+ * Response of a direct QR PromptPay charge. Only the QR-image path was
+ * validated live by the #156 reporter:
+ *
+ *   paymentMethod.qrPromptPay.encodedImage.imageBase64Encoded
+ *
+ * The rest (chargeId, expiry) follows Beam's documented camelCase
+ * conventions but should be treated as best-effort.
+ */
+type BeamQrChargeResponse = {
+  chargeId?: string;
+  id?: string;
+  expiresAt?: string;
+  paymentMethod?: {
+    qrPromptPay?: {
+      encodedImage?: { imageBase64Encoded?: string };
+      expiresAt?: string;
+    };
+  };
 };
 
 type BeamRefundResponse = {
@@ -279,6 +301,102 @@ export class BeamPaymentProvider implements PaymentProvider {
         ok: true,
         providerChargeId: body.paymentLinkId,
         paymentUrl: body.url,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { ok: false, code: "NETWORK_ERROR", message };
+    }
+  }
+
+  /**
+   * In-page PromptPay QR — a DIRECT charge, not a payment link (#156).
+   *
+   * Direct charges are the one place `POST /api/v1/charges` fits our
+   * checkout: the customer has already picked PromptPay in OUR UI, so
+   * Beam's "one pre-chosen paymentMethod" requirement (the reason
+   * createCharge uses payment links instead) is satisfied.
+   *
+   * CRITICAL SAFETY: this method NEVER throws — every failure returns
+   * `ok: false` so the caller (checkout/pay) can fall back to the
+   * hosted payment-link flow. A QR failure must never strand the
+   * customer at checkout.
+   *
+   * The RESPONSE path was validated live by the #156 reporter:
+   * `paymentMethod.qrPromptPay.encodedImage.imageBase64Encoded`, which
+   * we prefix into a self-contained `data:image/png;base64,…` URI.
+   */
+  async createQrCharge(input: ChargeInput): Promise<QrChargeResult> {
+    const referenceId =
+      input.orderNumber ?? input.metadata?.orderNumber ?? input.orderId;
+    try {
+      const res = await fetch(`${this.baseUrl}/api/v1/charges`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: this.authHeader(),
+          // `:qr` suffix keeps this key distinct from the payment-link
+          // key (plain orderId) — the same order may legitimately try
+          // QR first and fall back to a hosted link.
+          "idempotency-key": `${input.orderId}:qr`,
+        },
+        body: JSON.stringify({
+          // ⚠️ UNVALIDATED REQUEST SHAPE — same policy as refund() below.
+          // The #156 reporter validated the RESPONSE path only. This
+          // paymentMethod block mirrors the response naming
+          // (qrPromptPay / QR_PROMPT_PAY) rather than inventing a
+          // "more plausible" second guess. If real Beam 400s here, the
+          // caller falls back to the hosted payment link — no customer
+          // is stranded — but capture the real shape and replace this.
+          paymentMethod: { paymentMethodType: "QR_PROMPT_PAY" },
+          // Money nests under `order` exactly like createCharge's
+          // validated payment-link block (#151) — top-level 400s.
+          order: {
+            netAmount: input.amount, // integer satang — never decimals
+            currency: input.currency,
+            referenceId,
+            description: input.description,
+          },
+        }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        return {
+          ok: false,
+          code: `HTTP_${res.status}`,
+          message:
+            text.slice(0, 500) ||
+            `Beam QR charge creation failed (${res.status})`,
+        };
+      }
+
+      const body = (await res.json()) as BeamQrChargeResponse;
+      // The one field the reporter validated live. Missing → the
+      // response is not the shape we understand; fail soft.
+      const imageBase64 =
+        body.paymentMethod?.qrPromptPay?.encodedImage?.imageBase64Encoded;
+      if (!imageBase64) {
+        return {
+          ok: false,
+          code: "NO_QR_IN_RESPONSE",
+          message:
+            "Beam charge response carried no paymentMethod.qrPromptPay.encodedImage.imageBase64Encoded",
+        };
+      }
+      const providerChargeId = body.chargeId ?? body.id ?? "";
+      if (!providerChargeId) {
+        return {
+          ok: false,
+          code: "NO_CHARGE_ID_IN_RESPONSE",
+          message: "Beam QR charge response carried no charge id",
+        };
+      }
+      return {
+        ok: true,
+        providerChargeId,
+        qrImage: `data:image/png;base64,${imageBase64}`,
+        qrExpiresAt:
+          body.paymentMethod?.qrPromptPay?.expiresAt ?? body.expiresAt,
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

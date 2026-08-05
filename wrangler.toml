@@ -133,10 +133,16 @@ id = "PRODUCTION_KV_ID"
 # ──────────────────────────────────────
 # Cron Triggers (v3.2 shop plugin)
 # ──────────────────────────────────────
-# Enable the shop plugin's reservation + abandoned-cart sweep by
-# uncommenting the triggers block below and setting CRON_SECRET in [vars].
-# The endpoint at /api/shop/cron/sweep runs `sweepExpiredReservations`
-# (15-min TTL) + `sweepAbandonedCarts` (30-day TTL).
+# OPTIONAL since #154: default installs no longer depend on cron —
+# /api/shop/checkout/start runs an opportunistic sweep (throttled via
+# the CONTENT_CACHE KV key `shop:lastSweepAt`) whenever the last sweep
+# is older than the 15-min reservation TTL. Enabling cron is an
+# optimization: it also drives the abandoned-cart recovery emails on a
+# reliable schedule instead of piggybacking on checkout traffic.
+# To enable, uncomment the triggers block below and set CRON_SECRET in
+# [vars]. The endpoint at /api/shop/cron/sweep runs
+# `sweepExpiredReservations` (15-min TTL) + `sweepAbandonedCarts`
+# (30-day TTL).
 #
 # Cloudflare Cron Triggers fire the Worker's `scheduled` handler; for
 # v3.2 we use an HTTP endpoint fetched from that handler for simpler

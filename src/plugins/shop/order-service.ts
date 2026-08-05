@@ -401,15 +401,61 @@ export class OrderService {
     // Flip cart(s) matching this order's email + checkout_started
     // status. Multiple carts with same email is rare; scoping tightly
     // to checkout_started avoids touching already-ordered carts.
-    await this.db
-      .update(shopCarts)
-      .set({ status: "ordered", updatedAt: nowIso })
+    //
+    // Per-cart, with the same supersede-by-rename treatment as
+    // startCheckout and the sweep (#154): `shop_carts` is UNIQUE on
+    // (session_id, status), so a returning customer whose session
+    // already owns an `ordered` cart from a previous purchase would
+    // make a bulk flip violate the index — INSIDE the payment webhook,
+    // after inventory has committed. The order would be paid in the DB
+    // while the webhook 500s and Beam retries against the idempotent
+    // flip guard. Tombstoning the OLD ordered cart first (it is
+    // history; the fresh purchase should own the live `ordered` slot)
+    // keeps this flip collision-free.
+    const cartsToFlip = await this.db
+      .select({
+        id: shopCarts.id,
+        sessionId: shopCarts.sessionId,
+      })
+      .from(shopCarts)
       .where(
         and(
           eq(shopCarts.email, order.email),
           eq(shopCarts.status, "checkout_started"),
         ),
       );
+    for (const cart of cartsToFlip) {
+      const priorOrdered = await this.db
+        .select({
+          id: shopCarts.id,
+          previousSessionId: shopCarts.previousSessionId,
+          sessionId: shopCarts.sessionId,
+        })
+        .from(shopCarts)
+        .where(
+          and(
+            eq(shopCarts.sessionId, cart.sessionId),
+            eq(shopCarts.status, "ordered"),
+          ),
+        )
+        .limit(1)
+        .get();
+      if (priorOrdered) {
+        await this.db
+          .update(shopCarts)
+          .set({
+            sessionId: `superseded:${priorOrdered.id}`,
+            previousSessionId:
+              priorOrdered.previousSessionId ?? priorOrdered.sessionId,
+            updatedAt: nowIso,
+          })
+          .where(eq(shopCarts.id, priorOrdered.id));
+      }
+      await this.db
+        .update(shopCarts)
+        .set({ status: "ordered", updatedAt: nowIso })
+        .where(eq(shopCarts.id, cart.id));
+    }
 
     return this.hydrate({
       ...order,
