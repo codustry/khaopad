@@ -1,22 +1,25 @@
 /**
- * Tax calculator — reads site settings + per-country overrides,
- * returns tax lines for the order.
+ * Tax rate resolution — reads site settings + per-country overrides
+ * and returns the applicable rate for an order.
  *
- * v3.2 model:
+ * v3.15 (#107/#112): the tax MATH lives in totals.ts (pure,
+ * order-level rounding, discount-aware). This module only answers
+ * "which rate applies to this destination?" — the old
+ * `calculateTax()` (per-line rounding on the undiscounted subtotal)
+ * was removed; it never had a caller and both behaviors were the
+ * audited bugs.
+ *
+ * Model:
  *   - Site setting `shop.tax` = { enabled, defaultRatePct,
  *     pricesIncludeTax, defaultTaxName }
  *   - Per-country override rows in shop_tax_rates (composite PK
  *     country + region; region="" means country-wide).
  *
  * `pricesIncludeTax=true` (Thailand default): displayed prices
- * already include VAT. Tax is broken out on the invoice — the
- * customer still pays the sticker price, not sticker + tax.
+ * already include VAT — tax is broken out on the invoice, the
+ * customer pays the sticker price.
  *
  * `pricesIncludeTax=false` (US-style): tax added on top at checkout.
- *
- * Thailand-specific: v3.4 adds a 3% withholding-tax line on
- * customers flagged as B2B — modeled as a negative order_adjustments
- * row (kind='withholding_tax'), not a tax line here.
  */
 import { drizzle } from "drizzle-orm/d1";
 import { and, eq } from "drizzle-orm";
@@ -30,27 +33,11 @@ export type ShopTaxSettings = {
   defaultTaxName: string;
 };
 
-export type TaxContext = {
-  countryCode: string;
-  regionCode?: string;
-  subtotalSatang: number;
-  /** Per-item breakdown so per-line tax lines can be emitted. */
-  items?: Array<{ orderItemId: string; lineSubtotalSatang: number }>;
-};
-
-export type TaxLine = {
-  orderItemId: string | null;
-  name: string;
-  ratePct: number;
-  amountSatang: number;
-};
-
-export type TaxCalculation = {
-  /** Total tax to add to the order (or 0 when pricesIncludeTax). */
-  totalTaxSatang: number;
-  /** Portion of subtotal that IS tax (only meaningful when pricesIncludeTax). */
-  taxIncludedSatang: number;
-  lines: TaxLine[];
+const DISABLED_DEFAULTS: ShopTaxSettings = {
+  enabled: false,
+  defaultRatePct: 0,
+  pricesIncludeTax: false,
+  defaultTaxName: "VAT",
 };
 
 /**
@@ -68,14 +55,7 @@ export async function loadTaxSettings(
     .where(eq(siteSettings.key, "shop.tax"))
     .limit(1)
     .get();
-  if (!row) {
-    return {
-      enabled: false,
-      defaultRatePct: 0,
-      pricesIncludeTax: false,
-      defaultTaxName: "VAT",
-    };
-  }
+  if (!row) return DISABLED_DEFAULTS;
   try {
     const parsed = JSON.parse(row.value) as Partial<ShopTaxSettings>;
     return {
@@ -85,38 +65,42 @@ export async function loadTaxSettings(
       defaultTaxName: parsed.defaultTaxName ?? "VAT",
     };
   } catch {
-    return {
-      enabled: false,
-      defaultRatePct: 0,
-      pricesIncludeTax: false,
-      defaultTaxName: "VAT",
-    };
+    return DISABLED_DEFAULTS;
   }
 }
 
+export type ResolvedTaxRate = {
+  enabled: boolean;
+  /** Percent, may be fractional. 0 when disabled or zero-rated. */
+  ratePct: number;
+  pricesIncludeTax: boolean;
+  /** "VAT" / "GST" / override row's name — for receipts. */
+  name: string;
+};
+
 /**
- * Compute tax for an order. `pricesIncludeTax=true` mode returns
- * `totalTaxSatang: 0` (customer already paid the sticker price)
- * and populates `taxIncludedSatang` so the receipt can show the
- * split. `pricesIncludeTax=false` mode returns the tax-to-add.
+ * Resolve the tax rate for a destination. Lookup order: exact
+ * (country, region) override → country-wide (country, "") override
+ * → site default rate. Feed the result straight into
+ * `computeTotals()` in totals.ts as its `tax` input.
  */
-export async function calculateTax(
+export async function resolveTaxRate(
   d1: D1Database,
-  ctx: TaxContext,
-): Promise<TaxCalculation> {
+  destination: { countryCode: string; regionCode?: string },
+): Promise<ResolvedTaxRate> {
   const settings = await loadTaxSettings(d1);
   if (!settings.enabled) {
-    return { totalTaxSatang: 0, taxIncludedSatang: 0, lines: [] };
+    return {
+      enabled: false,
+      ratePct: 0,
+      pricesIncludeTax: settings.pricesIncludeTax,
+      name: settings.defaultTaxName,
+    };
   }
 
   const db = drizzle(d1);
-  const upperCountry = ctx.countryCode.toUpperCase();
-  const upperRegion = (ctx.regionCode ?? "").toUpperCase();
-
-  // Look up: exact match (country, region) → country-wide (country, "")
-  // → fall back to site default rate.
-  let rate: number = settings.defaultRatePct;
-  let name: string = settings.defaultTaxName;
+  const upperCountry = destination.countryCode.toUpperCase();
+  const upperRegion = (destination.regionCode ?? "").toUpperCase();
 
   const exact = upperRegion
     ? await db
@@ -149,71 +133,10 @@ export async function calculateTax(
         .get();
 
   const override = exact ?? countryWide;
-  if (override) {
-    rate = override.ratePct;
-    name = override.name;
-  }
-
-  if (rate === 0) {
-    return { totalTaxSatang: 0, taxIncludedSatang: 0, lines: [] };
-  }
-
-  const lines: TaxLine[] = [];
-  let totalTaxSatang = 0;
-  let taxIncludedSatang = 0;
-
-  if (settings.pricesIncludeTax) {
-    // Sticker prices already include tax. Break out the tax portion:
-    //   taxPortion = subtotal * (rate / (100 + rate))
-    // Round each line separately then sum — matches receipt readability.
-    if (ctx.items) {
-      for (const item of ctx.items) {
-        const taxPortion = Math.round(
-          (item.lineSubtotalSatang * rate) / (100 + rate),
-        );
-        taxIncludedSatang += taxPortion;
-        lines.push({
-          orderItemId: item.orderItemId,
-          name,
-          ratePct: rate,
-          amountSatang: taxPortion,
-        });
-      }
-    } else {
-      taxIncludedSatang = Math.round(
-        (ctx.subtotalSatang * rate) / (100 + rate),
-      );
-      lines.push({
-        orderItemId: null,
-        name,
-        ratePct: rate,
-        amountSatang: taxIncludedSatang,
-      });
-    }
-    // Total to ADD is 0 — sticker price already covers tax.
-  } else {
-    // Add tax on top. Round per-line, sum, that becomes totalTaxSatang.
-    if (ctx.items) {
-      for (const item of ctx.items) {
-        const tax = Math.round((item.lineSubtotalSatang * rate) / 100);
-        totalTaxSatang += tax;
-        lines.push({
-          orderItemId: item.orderItemId,
-          name,
-          ratePct: rate,
-          amountSatang: tax,
-        });
-      }
-    } else {
-      totalTaxSatang = Math.round((ctx.subtotalSatang * rate) / 100);
-      lines.push({
-        orderItemId: null,
-        name,
-        ratePct: rate,
-        amountSatang: totalTaxSatang,
-      });
-    }
-  }
-
-  return { totalTaxSatang, taxIncludedSatang, lines };
+  return {
+    enabled: true,
+    ratePct: override?.ratePct ?? settings.defaultRatePct,
+    pricesIncludeTax: settings.pricesIncludeTax,
+    name: override?.name ?? settings.defaultTaxName,
+  };
 }

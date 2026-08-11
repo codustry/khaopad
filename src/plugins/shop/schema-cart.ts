@@ -154,7 +154,11 @@ export const shopOrders = sqliteTable("shop_orders", {
   userId: text("user_id"),
   // Always populated — collected during checkout.
   email: text("email").notNull(),
-  // 'pending' | 'paid' | 'fulfilled' | 'delivered' | 'refunded' | 'cancelled'
+  // LEGACY single-axis status (#109). Kept for backward compat — every
+  // existing read (funnel pages, admin lists, status endpoint) keeps
+  // working. DERIVED on every write via deriveLegacyStatus() in
+  // order-service.ts from the three axes below; never written directly
+  // anywhere else. The UI migrates to the axes in Phase C.
   status: text("status", {
     enum: [
       "pending",
@@ -167,6 +171,29 @@ export const shopOrders = sqliteTable("shop_orders", {
   })
     .notNull()
     .default("pending"),
+  // ── Orthogonal status axes (#109) ──
+  // Money state. `partially_refunded`/`refunded` are DERIVED from the
+  // shop_order_adjustments ledger sum vs the order total (#110) — the
+  // ledger is authoritative, this column is the indexed projection.
+  financialStatus: text("financial_status", {
+    enum: ["pending", "paid", "partially_refunded", "refunded", "cancelled"],
+  })
+    .notNull()
+    .default("pending"),
+  // Logistics state — deliberately coarse for now. `partially_fulfilled`
+  // arrives when per-line fulfillment lands; don't over-model early.
+  fulfillmentStatus: text("fulfillment_status", {
+    enum: ["unfulfilled", "fulfilled", "delivered"],
+  })
+    .notNull()
+    .default("unfulfilled"),
+  // Return flow — null means "no return in progress" (the common case).
+  returnStatus: text("return_status", {
+    enum: ["requested", "approved", "received", "resolved"],
+  }),
+  // Sales channel — Phase E groundwork. 'tonbab_pos' and 'marketplace'
+  // arrive later; adding the column now means one migration, not two.
+  channel: text("channel").notNull().default("online_store"),
   // Payment provider that handled the charge. `beam` for v3.2;
   // `stripe` / `omise` land in #61.
   providerName: text("provider_name"),
@@ -227,6 +254,12 @@ export const shopOrderItems = sqliteTable("shop_order_items", {
   lineSubtotalSatang: integer("line_subtotal_satang").notNull(),
   // Per-line tax (frozen at checkout).
   lineTaxSatang: integer("line_tax_satang").notNull().default(0),
+  // Portion of the order-level discount allocated to this line (B1–B4
+  // pure allocateDiscount()). Frozen at checkout like the other
+  // snapshots; sums across lines to shop_orders.discount_satang.
+  discountAllocatedSatang: integer("discount_allocated_satang")
+    .notNull()
+    .default(0),
 });
 
 // ─── Order adjustments ──────────────────────────────────────
@@ -239,6 +272,15 @@ export const shopOrderItems = sqliteTable("shop_order_items", {
  *
  * Sums into the order's balance calculation; the running total is the
  * source of truth for "what does the customer owe" during a dispute.
+ *
+ * #110: this ledger is AUTHORITATIVE for refund totals. Refunds are
+ * append-only INSERTs; `refundedTotalSatang()` in order-service.ts
+ * derives by summing rows — never a mutated counter — and
+ * `shop_orders.financial_status` flips to partially_refunded/refunded
+ * from the ledger sum vs the order total. `idempotency_key` (UNIQUE
+ * where present, partial index in 0025) makes a replayed refund a
+ * no-op returning the original row; a reused key with a different
+ * amount errors (body-fingerprint check in recordRefund).
  */
 export const shopOrderAdjustments = sqliteTable("shop_order_adjustments", {
   id: text("id").primaryKey(),
@@ -258,6 +300,13 @@ export const shopOrderAdjustments = sqliteTable("shop_order_adjustments", {
   reason: text("reason"),
   createdBy: text("created_by"),
   createdAt: text("created_at").notNull(),
+  // Gateway's refund transaction id (Beam refundId, Stripe re_...) —
+  // the reconciliation join key. Null for non-refund adjustments and
+  // pre-0025 rows.
+  providerRefundId: text("provider_refund_id"),
+  // Caller-supplied dedupe key (admin UI form nonce, webhook-derived
+  // `beam:refund:<chargeId>`, ...). UNIQUE where non-null.
+  idempotencyKey: text("idempotency_key"),
 });
 
 // ─── Type exports ───────────────────────────────────────────

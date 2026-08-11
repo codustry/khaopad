@@ -15,6 +15,7 @@ import { error, fail, redirect } from "@sveltejs/kit";
 import { hasRole } from "$lib/server/auth/permissions";
 import { logAudit } from "$lib/server/audit";
 import { ShopService, ShopValidationError } from "$plugins/shop/service";
+import { dispatchEvent } from "$lib/server/webhooks";
 import type { Actions, PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals, platform, params }) => {
@@ -55,6 +56,12 @@ export const actions: Actions = {
     await svc.updateProductStatus(params.id, status);
     await logAudit(env.DB, locals.user.id, "product.updated", params.id, {
       change: `status → ${status}`,
+    });
+    // #113: product.updated was registered at plugin boot but never
+    // fired — emit on the write path (fire-and-forget).
+    void dispatchEvent(locals.content, {
+      event: "product.updated",
+      payload: { id: params.id, change: "status", status },
     });
     return { success: true, message: `Status changed to ${status}` };
   },

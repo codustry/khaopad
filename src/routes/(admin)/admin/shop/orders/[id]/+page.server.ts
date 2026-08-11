@@ -8,13 +8,25 @@
  *   - refundFull (records + provider refund + status='refunded')
  */
 import { error, fail, redirect } from "@sveltejs/kit";
+import { nanoid } from "nanoid";
 import { hasRole } from "$lib/server/auth/permissions";
 import { logAudit } from "$lib/server/audit";
 import { OrderService } from "$plugins/shop/order-service";
+import { ShopValidationError } from "$plugins/shop/service";
 import { resolveProviderForRequest } from "$plugins/shop/beam-config.server";
 import { parseBahtToSatang } from "$plugins/shop/money";
 import { track, buildEventContext } from "$lib/server/analytics/track";
+import { dispatchEvent } from "$lib/server/webhooks";
+import type { ContentProvider } from "$lib/server/content/types";
 import type { Actions, PageServerLoad } from "./$types";
+
+/** OrderService wired to emit domain events (#113) via core webhooks. */
+function orderServiceWithEvents(db: D1Database, content: ContentProvider) {
+  return new OrderService(db, {
+    emitEvent: (event, payload) =>
+      void dispatchEvent(content, { event, payload }),
+  });
+}
 
 export const load: PageServerLoad = async ({ locals, platform, params }) => {
   if (!locals.user) throw redirect(302, "/admin/login");
@@ -26,7 +38,11 @@ export const load: PageServerLoad = async ({ locals, platform, params }) => {
   const svc = new OrderService(env.DB);
   const order = await svc.getOrder(params.id);
   if (!order) throw error(404, "Order not found");
-  return { order };
+  // Refund idempotency key (#110): minted per page render, echoed back
+  // by the refund form. A double-click / double-submit replays the
+  // same key → the service returns the original ledger row instead of
+  // refunding twice.
+  return { order, refundIdempotencyKey: nanoid() };
 };
 
 export const actions: Actions = {
@@ -36,7 +52,7 @@ export const actions: Actions = {
       return fail(403, { error: "Forbidden" });
     const env = platform?.env;
     if (!env) return fail(503, { error: "Platform not ready" });
-    const svc = new OrderService(env.DB);
+    const svc = orderServiceWithEvents(env.DB, locals.content);
     await svc.markFulfilled(params.id);
     await logAudit(env.DB, locals.user.id, "order.fulfilled", params.id, {});
     return { success: true, message: "Marked fulfilled" };
@@ -48,7 +64,7 @@ export const actions: Actions = {
       return fail(403, { error: "Forbidden" });
     const env = platform?.env;
     if (!env) return fail(503, { error: "Platform not ready" });
-    const svc = new OrderService(env.DB);
+    const svc = orderServiceWithEvents(env.DB, locals.content);
     await svc.markDelivered(params.id);
     await logAudit(env.DB, locals.user.id, "order.delivered", params.id, {});
     return { success: true, message: "Marked delivered" };
@@ -66,8 +82,12 @@ export const actions: Actions = {
       | "refund_full"
       | "refund_partial";
     const reason = String(fd.get("reason") ?? "").trim() || undefined;
+    // #110: form-supplied idempotency key (minted in `load`). A resent
+    // form replays the same key → single ledger row.
+    const idempotencyKey =
+      String(fd.get("idempotencyKey") ?? "").trim() || nanoid();
 
-    const svc = new OrderService(env.DB);
+    const svc = orderServiceWithEvents(env.DB, locals.content);
     const order = await svc.getOrder(params.id);
     if (!order) return fail(404, { error: "Order not found" });
     if (!order.providerChargeId) {
@@ -76,17 +96,16 @@ export const actions: Actions = {
       });
     }
 
+    // Remaining refundable derives from the adjustments LEDGER in the
+    // service (#110) — the guard is domain-owned now; this pre-check
+    // exists only to fail fast before calling the provider.
+    const refundable = await svc.refundableSatang(params.id);
+    const priorRefundedSatang = order.totalSatang - refundable;
     const amount =
-      kind === "refund_full" ? order.totalSatang : parseBahtToSatang(amountStr);
+      kind === "refund_full" ? refundable : parseBahtToSatang(amountStr);
     if (amount === null || amount <= 0) {
       return fail(400, { error: "Enter a valid refund amount in baht" });
     }
-    // Cap against remaining refundable = total - abs(sum of prior refund adjustments).
-    // Prevents "click 500฿ twice on a 700฿ order" from over-refunding.
-    const priorRefundedSatang = order.adjustments
-      .filter((a) => a.kind === "refund_full" || a.kind === "refund_partial")
-      .reduce((sum, a) => sum + Math.abs(a.amountSatang), 0);
-    const refundable = order.totalSatang - priorRefundedSatang;
     if (refundable <= 0) {
       return fail(400, {
         error: `Order already fully refunded (${priorRefundedSatang / 100}฿ of ${order.totalSatang / 100}฿)`,
@@ -120,13 +139,24 @@ export const actions: Actions = {
       });
     }
 
-    await svc.recordRefund({
-      orderId: params.id,
-      amountSatang: amount,
-      reason,
-      createdBy: locals.user.id,
-      kind,
-    });
+    try {
+      await svc.recordRefund({
+        orderId: params.id,
+        amountSatang: amount,
+        reason,
+        createdBy: locals.user.id,
+        kind,
+        idempotencyKey,
+        providerRefundId: refundResult.providerRefundId,
+      });
+    } catch (err) {
+      // Domain guard (ledger cap / idempotency-key fingerprint
+      // mismatch) — surface as a form error, not a 500.
+      if (err instanceof ShopValidationError) {
+        return fail(400, { error: err.message });
+      }
+      throw err;
+    }
     await logAudit(env.DB, locals.user.id, "order.refunded", params.id, {
       amount,
       kind,

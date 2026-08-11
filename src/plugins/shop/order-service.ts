@@ -16,6 +16,17 @@
  * Order snapshots (title/sku/price on shop_order_items) ensure the
  * receipt survives variant deletion + product edits. Design-review
  * must-fix from #56.
+ *
+ * v3.14 (#109/#110/#113):
+ *   - Order status is three orthogonal axes (financial / fulfillment /
+ *     return). The legacy `status` column is DERIVED on every write
+ *     via `deriveLegacyStatus()` so pre-Phase-C reads keep working.
+ *   - Refund totals derive from the shop_order_adjustments ledger
+ *     (append-only, idempotency-keyed) — never a mutated counter.
+ *   - Lifecycle transitions emit domain events (order.created,
+ *     order.paid, order.fulfilled, order.delivered, order.cancelled,
+ *     order.refunded) through an injected emitter — routes wire it to
+ *     the core webhook dispatcher; tests stub it.
  */
 import { drizzle } from "drizzle-orm/d1";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
@@ -33,8 +44,37 @@ import {
 } from "./schema-cart";
 import { commitVariantSale, releaseVariant } from "./inventory";
 import { ShopValidationError } from "./service";
+import { allocateDiscount } from "./totals";
 
 // ─── Types ──────────────────────────────────────────────────
+
+export type OrderFinancialStatus =
+  | "pending"
+  | "paid"
+  | "partially_refunded"
+  | "refunded"
+  | "cancelled";
+
+export type OrderFulfillmentStatus = "unfulfilled" | "fulfilled" | "delivered";
+
+export type OrderReturnStatus =
+  | null
+  | "requested"
+  | "approved"
+  | "received"
+  | "resolved";
+
+/**
+ * Emitter for shop domain events (#113). The service never imports the
+ * webhook dispatcher directly — routes inject one wired to
+ * `dispatchEvent(locals.content, ...)`; tests inject a recorder.
+ * Best-effort by contract: implementations must never throw into the
+ * order write path (the service also guards with try/catch).
+ */
+export type OrderEventEmitter = (
+  event: string,
+  payload: Record<string, unknown>,
+) => void;
 
 export type OrderAddress = {
   name: string;
@@ -56,7 +96,17 @@ export type CreateOrderFromCartInput = {
   shippingSatang?: number;
   taxSatang?: number;
   discountSatang?: number;
+  /**
+   * True when the discount is a free-shipping code. The discount then
+   * belongs to the SHIPPING charge, not the goods — allocating it across
+   * goods lines would understate their refundable value and under-refund
+   * returns on free-shipping orders (totals.ts makes the same split).
+   */
+  discountIsFreeShipping?: boolean;
   discountCodeSnapshot?: string | null;
+  // Sales channel — defaults to 'online_store'. Phase E adds
+  // 'tonbab_pos' / 'marketplace' callers.
+  channel?: string;
 };
 
 export type OrderWithItems = ShopOrder & {
@@ -69,6 +119,49 @@ export type OrderWithItems = ShopOrder & {
     createdAt: string;
   }>;
 };
+
+// ─── Legacy status derivation (#109) ────────────────────────
+
+/**
+ * Collapse the (financial, fulfillment) axes back into the legacy
+ * single-axis `status`. Pure — the legacy column is written from this
+ * on every transition and NEVER written directly, so pre-Phase-C
+ * reads (funnel pages, admin lists, status endpoint) stay consistent.
+ *
+ * Mapping (inverse of migration 0025's backfill):
+ *   cancelled/*                    → cancelled
+ *   refunded/*                     → refunded
+ *   pending/*                      → pending
+ *   paid|partially_refunded × unfulfilled → paid
+ *   paid|partially_refunded × fulfilled   → fulfilled
+ *   paid|partially_refunded × delivered   → delivered
+ * (Legacy has no partial-refund notion — a partially refunded order
+ * keeps presenting its fulfillment progress, matching pre-#110
+ * behavior where partial refunds never touched `status`.)
+ */
+export function deriveLegacyStatus(
+  financial: OrderFinancialStatus,
+  fulfillment: OrderFulfillmentStatus,
+): ShopOrder["status"] {
+  switch (financial) {
+    case "cancelled":
+      return "cancelled";
+    case "refunded":
+      return "refunded";
+    case "pending":
+      return "pending";
+    case "paid":
+    case "partially_refunded":
+      switch (fulfillment) {
+        case "delivered":
+          return "delivered";
+        case "fulfilled":
+          return "fulfilled";
+        default:
+          return "paid";
+      }
+  }
+}
 
 // ─── Order-number generation ────────────────────────────────
 
@@ -115,13 +208,61 @@ async function nextOrderNumber(d1: D1Database, now: Date): Promise<string> {
 
 export class OrderService {
   private db: ReturnType<typeof drizzle>;
+  private emitEvent: OrderEventEmitter | null;
 
-  constructor(private readonly d1: D1Database) {
+  constructor(
+    private readonly d1: D1Database,
+    opts: { emitEvent?: OrderEventEmitter } = {},
+  ) {
     this.db = drizzle(d1);
+    this.emitEvent = opts.emitEvent ?? null;
   }
 
   private nowIso() {
     return new Date().toISOString();
+  }
+
+  /**
+   * Fire a domain event through the injected emitter. Best-effort by
+   * design — an event failure must never fail the order write that
+   * triggered it (#113: dispatcher is already fire-and-forget; this
+   * catch covers a throwing emitter implementation).
+   */
+  private emit(event: string, payload: Record<string, unknown>): void {
+    if (!this.emitEvent) return;
+    try {
+      this.emitEvent(event, payload);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[shop.order] event emitter failed for '${event}':`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
+  /**
+   * Canonical event payload (#113): order identity, the three status
+   * axes + derived legacy status, totals, channel. Deliberately NO
+   * customer PII — core article events carry only {id, slug}, and the
+   * order events match that convention (no email, no addresses).
+   */
+  private eventPayload(order: ShopOrder): Record<string, unknown> {
+    return {
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      channel: order.channel,
+      status: order.status,
+      financialStatus: order.financialStatus,
+      fulfillmentStatus: order.fulfillmentStatus,
+      returnStatus: order.returnStatus,
+      subtotalSatang: order.subtotalSatang,
+      shippingSatang: order.shippingSatang,
+      taxSatang: order.taxSatang,
+      discountSatang: order.discountSatang,
+      totalSatang: order.totalSatang,
+      currency: "THB",
+    };
   }
 
   /**
@@ -194,7 +335,13 @@ export class OrderService {
           orderNumber,
           userId: cart.userId,
           email: input.email,
-          status: "pending",
+          // Legacy axis derived; the three real axes start at their
+          // zero states (#109).
+          status: deriveLegacyStatus("pending", "unfulfilled"),
+          financialStatus: "pending",
+          fulfillmentStatus: "unfulfilled",
+          returnStatus: null,
+          channel: input.channel ?? "online_store",
           providerName: input.providerName,
           providerChargeId: null,
           subtotalSatang,
@@ -236,6 +383,22 @@ export class OrderService {
     }
 
     // Insert order items (snapshot title/sku/price at this moment).
+    // #108/B6: allocate the order-level goods discount across lines
+    // (largest-remainder over line subtotals — same pure function the
+    // totals engine uses, so Σ line allocations === the goods portion
+    // of discount_satang exactly). Refund/return math reads the
+    // allocated amount, never the raw line price.
+    const allocations = new Map(
+      allocateDiscount(
+        items.map((item) => ({
+          id: item.id,
+          amountSatang: item.priceSatangAtAdd * item.quantity,
+        })),
+        // Free-shipping discounts belong to the shipping charge — goods
+        // lines get zero allocation, mirroring computeTotals' split.
+        input.discountIsFreeShipping ? 0 : discountSatang,
+      ).map((a) => [a.id, a.discountAllocatedSatang]),
+    );
     const orderItemRows = items.map((item) => {
       const variant = variantById.get(item.variantId);
       if (!variant) {
@@ -255,9 +418,18 @@ export class OrderService {
         priceSnapshotSatang: item.priceSatangAtAdd,
         lineSubtotalSatang: lineSubtotal,
         lineTaxSatang: 0, // Per-line tax computation ships with the tax service (3f-h).
+        discountAllocatedSatang: allocations.get(item.id) ?? 0,
       };
     });
     await this.db.insert(shopOrderItems).values(orderItemRows);
+
+    const created = await this.db
+      .select()
+      .from(shopOrders)
+      .where(eq(shopOrders.id, orderId))
+      .limit(1)
+      .get();
+    if (created) this.emit("order.created", this.eventPayload(created));
 
     return { orderId, orderNumber };
   }
@@ -295,14 +467,18 @@ export class OrderService {
     // pending → paid proceeds to commit inventory. Concurrent webhook
     // retries see changes=0 and short-circuit as a no-op (idempotent).
     // Fixes double-inventory-decrement race from post-merge bug hunt.
+    // #109: the CAS predicate lives on the financial axis now; the
+    // legacy `status` is written as its derivation (paid+unfulfilled →
+    // 'paid') in the same statement so the two can never diverge.
     const flipResult = await this.d1
       .prepare(
         `UPDATE shop_orders
          SET status = 'paid',
+             financial_status = 'paid',
              provider_charge_id = ?1,
              paid_at = ?2,
              updated_at = ?2
-         WHERE id = ?3 AND status = 'pending'`,
+         WHERE id = ?3 AND financial_status = 'pending'`,
       )
       .bind(input.providerChargeId, nowIso, input.orderId)
       .run();
@@ -457,13 +633,19 @@ export class OrderService {
         .where(eq(shopCarts.id, cart.id));
     }
 
-    return this.hydrate({
+    const paidOrder: ShopOrder = {
       ...order,
       status: "paid",
+      financialStatus: "paid",
       providerChargeId: input.providerChargeId,
       paidAt: nowIso,
       updatedAt: nowIso,
-    });
+    };
+    // Winner-only emission — the CAS guard above means retries never
+    // re-fire order.paid.
+    this.emit("order.paid", this.eventPayload(paidOrder));
+
+    return this.hydrate(paidOrder);
   }
 
   /**
@@ -478,7 +660,14 @@ export class OrderService {
       .limit(1)
       .get();
     if (!order) return;
-    if (order.status === "cancelled" || order.status === "refunded") return;
+    // #109: guard on the financial axis (mirrors the old legacy-status
+    // guard — cancelled/refunded orders are terminal for this path).
+    if (
+      order.financialStatus === "cancelled" ||
+      order.financialStatus === "refunded"
+    ) {
+      return;
+    }
 
     const items = await this.db
       .select()
@@ -498,18 +687,83 @@ export class OrderService {
     await this.db
       .update(shopOrders)
       .set({
-        status: "cancelled",
+        status: deriveLegacyStatus("cancelled", order.fulfillmentStatus),
+        financialStatus: "cancelled",
         cancelledAt: nowIso,
         updatedAt: nowIso,
       })
       .where(eq(shopOrders.id, order.id));
+
+    this.emit(
+      "order.cancelled",
+      this.eventPayload({
+        ...order,
+        status: "cancelled",
+        financialStatus: "cancelled",
+        cancelledAt: nowIso,
+        updatedAt: nowIso,
+      }),
+    );
   }
 
   /**
-   * Record a refund (partial or full) — creates an order_adjustments
-   * row + flips order status when the total refunded reaches the
-   * order total. Does NOT call the provider — the caller does that
-   * (so refund attempts can fail cleanly without a stale DB row).
+   * Sum of prior refunds for an order, in POSITIVE satang, derived by
+   * summing the adjustments ledger (#110) — the ledger is the source
+   * of truth; nothing ever mutates a refunded counter.
+   */
+  async refundedTotalSatang(orderId: string): Promise<number> {
+    const rows = await this.db
+      .select({
+        total: sql<
+          number | null
+        >`SUM(ABS(${shopOrderAdjustments.amountSatang}))`,
+      })
+      .from(shopOrderAdjustments)
+      .where(
+        and(
+          eq(shopOrderAdjustments.orderId, orderId),
+          inArray(shopOrderAdjustments.kind, ["refund_full", "refund_partial"]),
+        ),
+      )
+      .all();
+    return rows[0]?.total ?? 0;
+  }
+
+  /** Net amount the customer has paid = order total − ledger refunds. */
+  async paidTotalSatang(orderId: string): Promise<number> {
+    const order = await this.db
+      .select({ totalSatang: shopOrders.totalSatang })
+      .from(shopOrders)
+      .where(eq(shopOrders.id, orderId))
+      .limit(1)
+      .get();
+    if (!order) throw new ShopValidationError("Order not found", "orderId");
+    return order.totalSatang - (await this.refundedTotalSatang(orderId));
+  }
+
+  /**
+   * Remaining refundable balance (#110) — the guard the admin route
+   * used to compute inline now lives in the domain, so every caller
+   * (admin action, webhook echo, future API) inherits it.
+   */
+  async refundableSatang(orderId: string): Promise<number> {
+    return this.paidTotalSatang(orderId);
+  }
+
+  /**
+   * Record a refund (partial or full) — appends an order_adjustments
+   * ledger row, then derives the financial axis from the LEDGER SUM
+   * vs the order total (partially_refunded below, refunded at/above).
+   * Does NOT call the provider — the caller does that (so refund
+   * attempts can fail cleanly without a stale DB row).
+   *
+   * Idempotency (#110): when `idempotencyKey` is supplied (admin UI
+   * nonce, webhook-derived key) a replay with the SAME key and SAME
+   * orderId+amount is a no-op returning the original row. The same
+   * key with a DIFFERENT amount/order errors — a reused key must
+   * never confirm a different refund. Enforced both by pre-check and
+   * by the UNIQUE partial index (concurrent duplicate resolves via
+   * re-read after the constraint fires).
    */
   async recordRefund(input: {
     orderId: string;
@@ -517,48 +771,207 @@ export class OrderService {
     reason?: string;
     createdBy?: string;
     kind: "refund_full" | "refund_partial";
-  }): Promise<void> {
-    const nowIso = this.nowIso();
-    await this.db.insert(shopOrderAdjustments).values({
-      id: nanoid(),
-      orderId: input.orderId,
-      kind: input.kind,
-      amountSatang: -Math.abs(input.amountSatang), // refunds are negative
-      reason: input.reason ?? null,
-      createdBy: input.createdBy ?? null,
-      createdAt: nowIso,
-    });
-    if (input.kind === "refund_full") {
-      await this.db
-        .update(shopOrders)
-        .set({
-          status: "refunded",
-          refundedAt: nowIso,
-          updatedAt: nowIso,
-        })
-        .where(eq(shopOrders.id, input.orderId));
+    idempotencyKey?: string;
+    providerRefundId?: string;
+  }): Promise<{
+    adjustmentId: string;
+    replayed: boolean;
+    refundedTotalSatang: number;
+    financialStatus: OrderFinancialStatus;
+  }> {
+    const amount = Math.abs(input.amountSatang);
+    if (!Number.isInteger(amount) || amount <= 0) {
+      throw new ShopValidationError(
+        "Refund amount must be a positive integer satang value",
+        "amountSatang",
+      );
     }
+
+    const order = await this.db
+      .select()
+      .from(shopOrders)
+      .where(eq(shopOrders.id, input.orderId))
+      .limit(1)
+      .get();
+    if (!order) throw new ShopValidationError("Order not found", "orderId");
+
+    const findByKey = async () =>
+      input.idempotencyKey
+        ? await this.db
+            .select()
+            .from(shopOrderAdjustments)
+            .where(
+              eq(shopOrderAdjustments.idempotencyKey, input.idempotencyKey),
+            )
+            .limit(1)
+            .get()
+        : undefined;
+
+    const asReplay = async (existing: {
+      id: string;
+      orderId: string;
+      amountSatang: number;
+    }) => {
+      // Body-fingerprint check: same key, different request → error,
+      // never a silent confirmation of the wrong refund.
+      if (
+        existing.orderId !== input.orderId ||
+        Math.abs(existing.amountSatang) !== amount
+      ) {
+        throw new ShopValidationError(
+          `Idempotency key '${input.idempotencyKey}' was already used for a different refund`,
+          "idempotencyKey",
+        );
+      }
+      const refundedTotal = await this.refundedTotalSatang(input.orderId);
+      const fresh = await this.db
+        .select({ financialStatus: shopOrders.financialStatus })
+        .from(shopOrders)
+        .where(eq(shopOrders.id, input.orderId))
+        .limit(1)
+        .get();
+      return {
+        adjustmentId: existing.id,
+        replayed: true,
+        refundedTotalSatang: refundedTotal,
+        financialStatus: (fresh?.financialStatus ??
+          order.financialStatus) as OrderFinancialStatus,
+      };
+    };
+
+    const priorRow = await findByKey();
+    if (priorRow) return asReplay(priorRow);
+
+    // Refundable-balance guard, in the domain (#110): the ledger sum
+    // caps every caller, not just the admin route.
+    const priorRefunded = await this.refundedTotalSatang(input.orderId);
+    const refundable = order.totalSatang - priorRefunded;
+    if (amount > refundable) {
+      throw new ShopValidationError(
+        `Refund of ${amount} satang exceeds remaining refundable balance (${refundable} of ${order.totalSatang} total; ${priorRefunded} already refunded)`,
+        "amountSatang",
+      );
+    }
+
+    const nowIso = this.nowIso();
+    const adjustmentId = nanoid();
+    try {
+      await this.db.insert(shopOrderAdjustments).values({
+        id: adjustmentId,
+        orderId: input.orderId,
+        kind: input.kind,
+        amountSatang: -amount, // refunds are negative in the ledger
+        reason: input.reason ?? null,
+        createdBy: input.createdBy ?? null,
+        createdAt: nowIso,
+        providerRefundId: input.providerRefundId ?? null,
+        idempotencyKey: input.idempotencyKey ?? null,
+      });
+    } catch (err) {
+      // Concurrent duplicate hit the UNIQUE partial index — resolve as
+      // a replay of whichever writer won.
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("UNIQUE") && msg.includes("idempotency_key")) {
+        const winner = await findByKey();
+        if (winner) return asReplay(winner);
+      }
+      throw err;
+    }
+
+    // Derive the financial axis from the ledger (#110), and the legacy
+    // status from the axes (#109).
+    const refundedTotal = await this.refundedTotalSatang(input.orderId);
+    const financialStatus: OrderFinancialStatus =
+      refundedTotal >= order.totalSatang ? "refunded" : "partially_refunded";
+    await this.db
+      .update(shopOrders)
+      .set({
+        financialStatus,
+        status: deriveLegacyStatus(financialStatus, order.fulfillmentStatus),
+        refundedAt: financialStatus === "refunded" ? nowIso : order.refundedAt,
+        updatedAt: nowIso,
+      })
+      .where(eq(shopOrders.id, input.orderId));
+
+    this.emit("order.refunded", {
+      ...this.eventPayload({
+        ...order,
+        financialStatus,
+        status: deriveLegacyStatus(financialStatus, order.fulfillmentStatus),
+      }),
+      refundAmountSatang: amount,
+      refundedTotalSatang: refundedTotal,
+      refundKind: input.kind,
+      providerRefundId: input.providerRefundId ?? null,
+    });
+
+    return {
+      adjustmentId,
+      replayed: false,
+      refundedTotalSatang: refundedTotal,
+      financialStatus,
+    };
   }
 
   /**
    * Flip a paid order to fulfilled. Called from the admin dashboard.
+   * #109: CAS on the fulfillment axis; a partially refunded order can
+   * still ship its remaining items.
    */
   async markFulfilled(orderId: string): Promise<void> {
     const nowIso = this.nowIso();
-    await this.db
-      .update(shopOrders)
-      .set({ status: "fulfilled", fulfilledAt: nowIso, updatedAt: nowIso })
-      .where(and(eq(shopOrders.id, orderId), eq(shopOrders.status, "paid")));
+    const result = await this.d1
+      .prepare(
+        `UPDATE shop_orders
+         SET fulfillment_status = 'fulfilled',
+             status = CASE financial_status
+               WHEN 'paid' THEN 'fulfilled'
+               WHEN 'partially_refunded' THEN 'fulfilled'
+               ELSE status END,
+             fulfilled_at = ?1,
+             updated_at = ?1
+         WHERE id = ?2
+           AND fulfillment_status = 'unfulfilled'
+           AND financial_status IN ('paid', 'partially_refunded')`,
+      )
+      .bind(nowIso, orderId)
+      .run();
+    const changed = (result.meta as { changes?: number })?.changes ?? 0;
+    if (changed > 0) await this.emitForOrder("order.fulfilled", orderId);
   }
 
   async markDelivered(orderId: string): Promise<void> {
     const nowIso = this.nowIso();
-    await this.db
-      .update(shopOrders)
-      .set({ status: "delivered", deliveredAt: nowIso, updatedAt: nowIso })
-      .where(
-        and(eq(shopOrders.id, orderId), eq(shopOrders.status, "fulfilled")),
-      );
+    const result = await this.d1
+      .prepare(
+        `UPDATE shop_orders
+         SET fulfillment_status = 'delivered',
+             status = CASE financial_status
+               WHEN 'paid' THEN 'delivered'
+               WHEN 'partially_refunded' THEN 'delivered'
+               ELSE status END,
+             delivered_at = ?1,
+             updated_at = ?1
+         WHERE id = ?2
+           AND fulfillment_status = 'fulfilled'
+           AND financial_status IN ('paid', 'partially_refunded')`,
+      )
+      .bind(nowIso, orderId)
+      .run();
+    const changed = (result.meta as { changes?: number })?.changes ?? 0;
+    if (changed > 0) await this.emitForOrder("order.delivered", orderId);
+  }
+
+  /** Re-read an order and emit an event with its current state. */
+  private async emitForOrder(event: string, orderId: string): Promise<void> {
+    if (!this.emitEvent) return;
+    const row = await this.db
+      .select()
+      .from(shopOrders)
+      .where(eq(shopOrders.id, orderId))
+      .limit(1)
+      .get();
+    if (row) this.emit(event, this.eventPayload(row));
   }
 
   // ── Queries ─────────────────────────────────────────────

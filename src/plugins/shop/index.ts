@@ -26,15 +26,23 @@ import { registerWebhookEvent } from "$lib/plugins/webhook-events";
 
 // Register shop-owned webhook events at module load. Storefront
 // integrations (inventory sync, analytics pipelines, order fulfilment
-// bots) subscribe to these via /admin/webhooks. The v3.2 cart +
-// checkout sub-PR will add order.* events; v3.4 discounts adds
-// discount.redeemed.
+// bots) subscribe to these via /admin/webhooks.
 registerWebhookEvent("product.created");
 registerWebhookEvent("product.updated");
 registerWebhookEvent("product.deleted");
 registerWebhookEvent("inventory.adjusted");
 registerWebhookEvent("collection.created");
 registerWebhookEvent("collection.updated");
+// Order lifecycle events (#113) — emitted by OrderService through the
+// injected emitter; routes wire it to dispatchEvent(). Payloads carry
+// order number, the three status axes, totals and channel — no
+// customer PII (matches core article events' {id, slug} convention).
+registerWebhookEvent("order.created");
+registerWebhookEvent("order.paid");
+registerWebhookEvent("order.fulfilled");
+registerWebhookEvent("order.delivered");
+registerWebhookEvent("order.cancelled");
+registerWebhookEvent("order.refunded");
 
 // Module-load registration — runs before the first render in both
 // client and server bundles. See docs/plugin-authoring.md.

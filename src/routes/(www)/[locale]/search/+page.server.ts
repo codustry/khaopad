@@ -30,20 +30,34 @@ export const load: PageServerLoad = async ({
   >[] = [];
 
   if (q && !tooShort) {
+    // Each half is independently fallible — FTS indexes can drift into a
+    // state where MATCH throws (`D1_ERROR: internal error`; hit live on
+    // the demo when its nightly reset wrote article rows without the FTS
+    // sync). One broken index must degrade its own section to empty, not
+    // 500 the whole search page.
     const [productHits, articleHits] = await Promise.all([
-      platform?.env?.DB
+      (platform?.env?.DB
         ? searchProducts(drizzle(platform.env.DB), {
             query: q,
             locale,
             limit: 12,
           })
-        : Promise.resolve([]),
-      locals.content.searchArticles(q, {
-        locale,
-        onlyPublished: true,
-        onlyPublishedStatus: true,
-        limit: 10,
+        : Promise.resolve([])
+      ).catch((err) => {
+        console.error("search: products index failed", err);
+        return [];
       }),
+      locals.content
+        .searchArticles(q, {
+          locale,
+          onlyPublished: true,
+          onlyPublishedStatus: true,
+          limit: 10,
+        })
+        .catch((err) => {
+          console.error("search: articles index failed", err);
+          return [];
+        }),
     ]);
     products = productHits;
 

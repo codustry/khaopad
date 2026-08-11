@@ -9,6 +9,7 @@ import { error, fail, redirect } from "@sveltejs/kit";
 import { hasRole } from "$lib/server/auth/permissions";
 import { logAudit } from "$lib/server/audit";
 import { ShopService } from "$plugins/shop/service";
+import { dispatchEvent } from "$lib/server/webhooks";
 import type { Actions, PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals, platform, url }) => {
@@ -61,6 +62,11 @@ export const actions: Actions = {
     await svc.updateProductStatus(id, "archived");
     await logAudit(env.DB, locals.user.id, "product.updated", id, {
       change: "archived",
+    });
+    // #113: fire the registered product.updated event on the write path.
+    void dispatchEvent(locals.content, {
+      event: "product.updated",
+      payload: { id, change: "status", status: "archived" },
     });
     return { success: true };
   },

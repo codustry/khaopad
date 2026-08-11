@@ -156,6 +156,9 @@
 						}}
 						class="mt-3 space-y-2 rounded-md border border-input bg-muted/30 p-3"
 					>
+						<!-- #110: dedupe key minted per render — a double-submit
+						     replays the same refund instead of issuing two. -->
+						<input type="hidden" name="idempotencyKey" value={data.refundIdempotencyKey} />
 						<div class="grid grid-cols-2 gap-3">
 							<div class="space-y-1">
 								<Label for="amount" class="text-xs">Amount (฿)</Label>

@@ -31,10 +31,17 @@ import { drizzle } from "drizzle-orm/d1";
 import { and, eq, desc } from "drizzle-orm";
 import { shopCarts, shopOrders } from "$plugins/shop/schema-cart";
 import { track, buildEventContext } from "$lib/server/analytics/track";
+import { dispatchEvent } from "$lib/server/webhooks";
+import { ShopValidationError } from "$plugins/shop/service";
 import { findOrderForWebhook } from "./lookup";
 import type { RequestHandler } from "./$types";
 
-export const POST: RequestHandler = async ({ request, platform, url }) => {
+export const POST: RequestHandler = async ({
+  request,
+  platform,
+  url,
+  locals,
+}) => {
   const env = platform?.env;
   if (!env) return json({ ok: false, code: "NO_PLATFORM" }, { status: 503 });
 
@@ -117,7 +124,14 @@ export const POST: RequestHandler = async ({ request, platform, url }) => {
     return json({ ok: false, code: "ORDER_NOT_FOUND_YET" }, { status: 503 });
   }
 
-  const orderSvc = new OrderService(env.DB);
+  // #113: lifecycle transitions inside the service emit domain events
+  // (order.paid / order.cancelled / order.refunded) through the core
+  // webhook dispatcher. Fire-and-forget — a slow subscriber must never
+  // delay Beam's 200.
+  const orderSvc = new OrderService(env.DB, {
+    emitEvent: (event, payload) =>
+      void dispatchEvent(locals.content, { event, payload }),
+  });
   switch (verified.status) {
     case "succeeded": {
       const paid = await orderSvc.markPaid({
@@ -206,19 +220,40 @@ export const POST: RequestHandler = async ({ request, platform, url }) => {
     case "failed":
       await orderSvc.markCancelled({ orderId: order.id });
       break;
-    case "refunded":
-      // Admin-triggered refunds land here as an echo. Marking already-
-      // refunded orders as refunded is idempotent; a Beam-initiated
-      // refund (rare) records a full refund adjustment.
-      if (order.status !== "refunded") {
-        await orderSvc.recordRefund({
-          orderId: order.id,
-          amountSatang: order.totalSatang,
-          reason: "Beam-initiated refund",
-          kind: "refund_full",
-        });
+    case "refunded": {
+      // Admin-triggered refunds land here as an echo. The ledger is
+      // authoritative (#110): record only what is still refundable
+      // (an echo after a full admin refund records nothing), keyed by
+      // the charge id so Beam's at-least-once retries dedupe to one
+      // ledger row via the UNIQUE idempotency constraint.
+      const remaining = await orderSvc.refundableSatang(order.id);
+      if (remaining > 0) {
+        try {
+          await orderSvc.recordRefund({
+            orderId: order.id,
+            amountSatang: remaining,
+            reason: "Beam-initiated refund",
+            kind: "refund_full",
+            idempotencyKey: `beam:refund:${
+              verified.providerChargeId || order.providerChargeId || order.id
+            }`,
+          });
+        } catch (err) {
+          if (err instanceof ShopValidationError) {
+            // Ledger already caught up (concurrent admin refund, or a
+            // replayed key from an earlier partial state). Retrying
+            // can never help — acknowledge instead of 500-looping.
+            // eslint-disable-next-line no-console
+            console.warn(
+              `[shop.webhook] beam refund echo for ${order.orderNumber} not recorded: ${err.message}`,
+            );
+          } else {
+            throw err;
+          }
+        }
       }
       break;
+    }
     // "pending" is acknowledged before the order lookup — by here the
     // status union has narrowed to succeeded | failed | refunded.
   }

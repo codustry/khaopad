@@ -30,9 +30,12 @@ import { OrderService } from "$plugins/shop/order-service";
 import { ensureCartSession } from "$plugins/shop/cart-cookie";
 import { ShopValidationError } from "$plugins/shop/service";
 import { quoteShipping } from "$plugins/shop/shipping";
+import { resolveTaxRate } from "$plugins/shop/tax";
+import { computeTotals } from "$plugins/shop/totals";
 import { validateOrderAddress } from "$lib/shop/address-validation";
 import type { OrderAddress } from "$plugins/shop/order-service";
 import { track, buildEventContext } from "$lib/server/analytics/track";
+import { dispatchEvent } from "$lib/server/webhooks";
 import { requireSameOrigin } from "$lib/server/http/same-origin";
 import type { RequestHandler } from "./$types";
 
@@ -209,6 +212,7 @@ export const POST: RequestHandler = async ({
     let discountSatang = 0;
     let discountCodeSnapshot: string | null = null;
     let discountId: string | null = null;
+    let discountIsFreeShipping = false;
     if (cart.discountCode && !cart.discountCode.startsWith("attribution:")) {
       const { validateDiscount } =
         await import("$plugins/shop/discount-service");
@@ -223,18 +227,51 @@ export const POST: RequestHandler = async ({
         discountSatang = outcome.amountSatang;
         discountCodeSnapshot = outcome.discount.code;
         discountId = outcome.discount.id;
+        discountIsFreeShipping = outcome.freeShipping;
       }
       // Silent no-op on invalidation — customer proceeds without
       // discount rather than being blocked at the door. The receipt
       // won't show a discount they didn't get.
     }
 
+    // #107/#112: totals via the pure engine in totals.ts. The tax
+    // rate resolves against the shipping destination (site default
+    // when there's no address — digital goods); VAT is computed on
+    // the actual consideration (subtotal − discount + shipping),
+    // rounded half-up ONCE at the order level. In prices-inclusive
+    // mode (Thai default) taxSatang stays 0 — the VAT is already in
+    // the sticker price and only broken out on the receipt.
+    const cartLines = await cartSvc.listCartItems(cart.id);
+    const taxRate = await resolveTaxRate(env.DB, {
+      countryCode: shippingAddress?.countryCode ?? "",
+      regionCode: shippingAddress?.region ?? undefined,
+    });
+    const totals = computeTotals({
+      lines: cartLines.map((item) => ({
+        id: item.id,
+        amountSatang: item.priceSatangAtAdd * item.quantity,
+      })),
+      shippingSatang,
+      discountSatang,
+      discountIsFreeShipping,
+      tax: taxRate,
+    });
+
     const { reservations } = await cartSvc.startCheckout({
       cartId: cart.id,
       email,
     });
 
-    const orderSvc = new OrderService(env.DB);
+    // #113: createFromCart emits order.created through the core
+    // webhook dispatcher (fire-and-forget, no PII in the payload).
+    const orderSvc = new OrderService(env.DB, {
+      emitEvent: (event, payload) =>
+        void dispatchEvent(locals.content, { event, payload }),
+    });
+    // B6 (#108): createFromCart allocates the goods discount across
+    // order lines internally via the same pure allocateDiscount() the
+    // totals engine uses (Σ line allocations === goods discount
+    // exactly), persisting shop_order_items.discount_allocated_satang.
     const { orderId, orderNumber } = await orderSvc.createFromCart({
       cartId: cart.id,
       email,
@@ -242,7 +279,8 @@ export const POST: RequestHandler = async ({
       shippingAddress,
       billingAddress,
       shippingSatang,
-      discountSatang,
+      taxSatang: totals.taxSatang,
+      discountSatang: totals.discountSatang,
       discountCodeSnapshot,
     });
 
