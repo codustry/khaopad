@@ -1,9 +1,23 @@
 import { fail, redirect } from "@sveltejs/kit";
 import { canDeleteArticle } from "$lib/server/auth/permissions";
+import { byString, parseSort, sortRows } from "$lib/server/admin/sort";
 import type { ArticleFilter, ArticleRecord } from "$lib/server/content/types";
 import type { PageServerLoad, Actions } from "./$types";
 
 const STATUSES: ArticleRecord["status"][] = ["draft", "published", "archived"];
+
+/** Sortable columns (#160 C5). `sort` never reaches SQL — it only
+ * selects one of these literal comparators over the loaded page. */
+const SORTABLE = ["title", "status", "updated"] as const;
+
+const COMPARATORS = {
+  title: byString<ArticleRecord>(
+    (a) => a.localizations.en?.title ?? a.localizations.th?.title ?? a.slug,
+  ),
+  status: byString<ArticleRecord>((a) => a.status),
+  // ISO strings compare lexically in date order.
+  updated: byString<ArticleRecord>((a) => a.updatedAt),
+};
 
 export const load: PageServerLoad = async ({ locals, url }) => {
   const statusParam = url.searchParams.get("status");
@@ -22,7 +36,19 @@ export const load: PageServerLoad = async ({ locals, url }) => {
   if (search) filter.search = search;
 
   const articles = await locals.content.listArticles(filter);
-  return { articles, status: filter.status ?? null, search: search ?? "" };
+
+  // In-memory sort over the loaded page (50 rows) — the provider has
+  // no orderBy seam yet; see $lib/server/admin/sort.
+  const { sort, dir } = parseSort(url, SORTABLE);
+  articles.items = sortRows(articles.items, COMPARATORS, sort, dir);
+
+  return {
+    articles,
+    status: filter.status ?? null,
+    search: search ?? "",
+    sort,
+    dir,
+  };
 };
 
 export const actions: Actions = {

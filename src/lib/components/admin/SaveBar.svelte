@@ -36,6 +36,7 @@
 		saveLabel,
 		message,
 		extra,
+		formId,
 		class: className = ''
 	}: {
 		dirty: boolean;
@@ -48,6 +49,12 @@
 		message?: string;
 		/** Extra controls, rendered left of Discard (e.g. a status select). */
 		extra?: Snippet;
+		/**
+		 * Associates the submit button with a form by id, for bars that
+		 * sit OUTSIDE their form element (e.g. the product editor, where
+		 * per-row inventory forms make containment impossible).
+		 */
+		formId?: string;
 		class?: string;
 	} = $props();
 </script>
@@ -82,12 +89,19 @@
 						{m.admin_discard()}
 					</Button>
 				{/if}
+				<!--
+					`data-savebar-submit` is the ⌘S hook: the admin layout's
+					global shortcut queries for this attribute and clicks it.
+					Since the bar only renders while dirty, "no button found"
+					is exactly the "nothing to save" state — no event bus or
+					per-page subscription needed.
+				-->
 				{#if onSave}
-					<Button type="button" onclick={onSave} disabled={saving}>
+					<Button type="button" data-savebar-submit onclick={onSave} disabled={saving}>
 						{saving ? m.admin_saving() : (saveLabel ?? m.admin_save())}
 					</Button>
 				{:else}
-					<Button type="submit" disabled={saving}>
+					<Button type="submit" data-savebar-submit form={formId} disabled={saving}>
 						{saving ? m.admin_saving() : (saveLabel ?? m.admin_save())}
 					</Button>
 				{/if}

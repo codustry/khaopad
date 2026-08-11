@@ -28,12 +28,13 @@ describe("managed secret registry", () => {
     expect(isManagedSecret("beam_api_key")).toBe(false); // case-sensitive
   });
 
-  it("accepts exactly the four intended keys", () => {
+  it("accepts exactly the intended keys", () => {
     const keys = MANAGED_SECRETS.map((s) => s.key).sort();
     expect(keys).toEqual([
       "BEAM_API_KEY",
       "BEAM_MERCHANT_ID",
       "BEAM_WEBHOOK_SECRET",
+      "LINE_NOTIFY_TOKEN",
       "RESEND_API_KEY",
     ]);
   });

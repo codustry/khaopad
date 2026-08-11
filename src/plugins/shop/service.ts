@@ -682,6 +682,186 @@ export class ShopService {
     return productId;
   }
 
+  /**
+   * Update scalar product fields (vendor, product type, SEO, tags,
+   * featured media). Localizations go through `upsertLocalization()`
+   * and variants through `updateVariant()` — each write path owns its
+   * own invariants, and only localization writes need an FTS refresh.
+   *
+   * Only keys present on `fields` are written, so callers can PATCH a
+   * single column without clobbering the rest.
+   */
+  async updateProduct(
+    id: string,
+    fields: {
+      vendor?: string | null;
+      productType?: string | null;
+      seoTitle?: string | null;
+      seoDescription?: string | null;
+      tags?: string[] | null;
+      featuredMediaId?: string | null;
+    },
+  ): Promise<void> {
+    const existing = await this.db
+      .select({ id: shopProducts.id })
+      .from(shopProducts)
+      .where(eq(shopProducts.id, id))
+      .limit(1)
+      .get();
+    if (!existing) {
+      throw new ShopValidationError(`Product ${id} not found`);
+    }
+    const set: Partial<typeof shopProducts.$inferInsert> = {
+      updatedAt: nowIso(),
+    };
+    if ("vendor" in fields) set.vendor = fields.vendor ?? null;
+    if ("productType" in fields) set.productType = fields.productType ?? null;
+    if ("seoTitle" in fields) set.seoTitle = fields.seoTitle ?? null;
+    if ("seoDescription" in fields)
+      set.seoDescription = fields.seoDescription ?? null;
+    if ("tags" in fields)
+      set.tags = fields.tags?.length ? JSON.stringify(fields.tags) : null;
+    if ("featuredMediaId" in fields)
+      set.featuredMediaId = fields.featuredMediaId ?? null;
+    await this.db.update(shopProducts).set(set).where(eq(shopProducts.id, id));
+  }
+
+  /**
+   * Insert-or-update one locale's title/description for a product.
+   *
+   * Invariants owned here:
+   *   - the English localization can never lose its title (slugs and
+   *     admin list display derive from it);
+   *   - clearing a non-English title REMOVES that localization row
+   *     (an empty-title row would render as a blank storefront page);
+   *   - `products_fts` is refreshed after every write — the A3 hazard:
+   *     without the refresh an edited title keeps serving the STALE
+   *     search index entry, so search finds the old name forever.
+   */
+  async upsertLocalization(
+    productId: string,
+    locale: string,
+    loc: LocalizedText,
+  ): Promise<void> {
+    const title = loc.title.trim();
+    if (locale === "en" && !title) {
+      throw new ShopValidationError(
+        "The English title is required and cannot be removed",
+        "localizations.en.title",
+      );
+    }
+    if (!title) {
+      await this.db
+        .delete(shopProductLocalizations)
+        .where(
+          and(
+            eq(shopProductLocalizations.productId, productId),
+            eq(shopProductLocalizations.locale, locale),
+          ),
+        );
+    } else {
+      await this.db
+        .insert(shopProductLocalizations)
+        .values({
+          productId,
+          locale,
+          title,
+          descriptionMarkdown: loc.descriptionMarkdown || null,
+        })
+        .onConflictDoUpdate({
+          target: [
+            shopProductLocalizations.productId,
+            shopProductLocalizations.locale,
+          ],
+          set: {
+            title,
+            descriptionMarkdown: loc.descriptionMarkdown || null,
+          },
+        });
+    }
+    await this.db
+      .update(shopProducts)
+      .set({ updatedAt: nowIso() })
+      .where(eq(shopProducts.id, productId));
+    // NOT best-effort here, unlike createProduct: an editor renaming a
+    // product with a silently stale index is exactly the bug this
+    // method exists to prevent, and the caller (an admin form action)
+    // can surface the failure.
+    await refreshProductIndex(this.db, productId);
+  }
+
+  /**
+   * Update a variant's price / compare-at / SKU. No FTS refresh —
+   * the index only holds localization text.
+   */
+  async updateVariant(
+    variantId: string,
+    fields: {
+      priceSatang?: Satang | number;
+      compareAtSatang?: Satang | number | null;
+      sku?: string | null;
+    },
+  ): Promise<void> {
+    const variant = await this.db
+      .select({
+        id: shopProductVariants.id,
+        productId: shopProductVariants.productId,
+      })
+      .from(shopProductVariants)
+      .where(eq(shopProductVariants.id, variantId))
+      .limit(1)
+      .get();
+    if (!variant) {
+      throw new ShopValidationError(`Variant ${variantId} not found`);
+    }
+    const set: Partial<typeof shopProductVariants.$inferInsert> = {};
+    if ("priceSatang" in fields && fields.priceSatang !== undefined) {
+      const price = Number(fields.priceSatang);
+      if (!Number.isInteger(price) || price <= 0) {
+        throw new ShopValidationError(
+          "Price must be a positive amount",
+          "priceSatang",
+        );
+      }
+      set.priceSatang = price;
+    }
+    if ("compareAtSatang" in fields) {
+      const compareAt =
+        fields.compareAtSatang == null ? null : Number(fields.compareAtSatang);
+      if (
+        compareAt !== null &&
+        (!Number.isInteger(compareAt) || compareAt <= 0)
+      ) {
+        throw new ShopValidationError(
+          "Compare-at price must be a positive amount",
+          "compareAtSatang",
+        );
+      }
+      set.compareAtSatang = compareAt;
+    }
+    if ("sku" in fields) set.sku = fields.sku?.trim() || null;
+    if (Object.keys(set).length === 0) return;
+    try {
+      await this.db
+        .update(shopProductVariants)
+        .set(set)
+        .where(eq(shopProductVariants.id, variantId));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("UNIQUE") && msg.includes("sku")) {
+        throw new ShopValidationError(
+          `SKU "${set.sku}" is already used by another variant.`,
+          "sku",
+        );
+      }
+      throw err;
+    }
+    await this.db
+      .update(shopProducts)
+      .set({ updatedAt: nowIso() })
+      .where(eq(shopProducts.id, variant.productId));
+  }
+
   async updateProductStatus(
     id: string,
     status: "draft" | "active" | "archived",

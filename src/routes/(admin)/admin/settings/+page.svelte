@@ -1,8 +1,15 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { onMount } from 'svelte';
 	import * as m from '$lib/paraglide/messages';
-	import { Button, Card, CardContent, CardHeader, CardTitle, Input, Label } from '$lib/components/ui';
-	import { PageShell, PageHeader } from '$lib/components/admin';
+	import { Card, CardContent, CardHeader, CardTitle, Input, Label } from '$lib/components/ui';
+	import {
+		PageShell,
+		PageHeader,
+		SaveBar,
+		DirtyState,
+		guardUnsavedChanges
+	} from '$lib/components/admin';
 	import { Settings } from 'lucide-svelte';
 	import type { PageData } from './$types';
 
@@ -42,7 +49,29 @@
 	let commentsEnabled = $state(
 		(data.settings.commentsEnabled as boolean | undefined) ?? false,
 	);
+	// v3.16 (C4) — operator email for new-paid-order notifications.
+	// svelte-ignore state_referenced_locally
+	let shopNotifyEmail = $state(
+		(data.settings.shopNotifyEmail as string | undefined) ?? '',
+	);
 	let saving = $state(false);
+
+	// SaveBar + dirty-guard wiring (#160 C8). The snapshot serialises the
+	// form's live FormData rather than listing fields by hand, so a field
+	// added to this page is tracked automatically — no snapshot edit to
+	// forget (which would leave the new field unable to surface the bar).
+	let formEl = $state<HTMLFormElement | null>(null);
+	const dirty = new DirtyState('');
+	function snapshotForm(): string {
+		if (!formEl) return '';
+		const entries = [...new FormData(formEl).entries()].map(([k, v]) => [
+			k,
+			typeof v === 'string' ? v : v.name,
+		]);
+		return JSON.stringify(entries);
+	}
+	onMount(() => dirty.reset(snapshotForm()));
+	guardUnsavedChanges(() => dirty.dirty, m.admin_leave_confirm());
 </script>
 
 <svelte:head>
@@ -58,11 +87,20 @@
 
 	<form
 		method="POST"
+		bind:this={formEl}
+		oninput={() => dirty.update(snapshotForm())}
+		onchange={() => dirty.update(snapshotForm())}
 		use:enhance={() => {
 			saving = true;
-			return async ({ update }) => {
+			dirty.beginSave();
+			return async ({ update, result }) => {
 				await update();
 				saving = false;
+				if (result.type === 'success' || result.type === 'redirect') {
+					dirty.commit(snapshotForm());
+				} else {
+					dirty.abortSave();
+				}
 			};
 		}}
 	>
@@ -215,10 +253,33 @@
 			</CardContent>
 		</Card>
 
-		<div class="mt-6 flex justify-end">
-			<Button type="submit" disabled={saving}>
-				{saving ? m.cms_saving() : m.cms_settings_save()}
-			</Button>
-		</div>
+		<!-- v3.16 C4 — plain English; the C6 Thai sweep owns admin i18n. -->
+		<Card class="mt-6">
+			<CardHeader>
+				<CardTitle>Shop notifications</CardTitle>
+			</CardHeader>
+			<CardContent class="space-y-4">
+				<p class="text-xs text-muted-foreground">
+					Get notified the moment an order is paid. LINE Notify is configured
+					separately under Settings → Secrets (LINE Notify token).
+				</p>
+				<div class="space-y-1.5">
+					<Label for="shop_notify_email">New-order notification email</Label>
+					<Input
+						id="shop_notify_email"
+						name="shop_notify_email"
+						type="email"
+						bind:value={shopNotifyEmail}
+						placeholder="orders@yourshop.com"
+					/>
+					<p class="text-xs text-muted-foreground">
+						Sent via Resend when an order transitions to paid. Leave empty to
+						disable the email channel.
+					</p>
+				</div>
+			</CardContent>
+		</Card>
+
+		<SaveBar dirty={dirty.dirty} {saving} saveLabel={m.cms_settings_save()} />
 	</form>
 </PageShell>

@@ -3,6 +3,7 @@
 	import { Boxes } from 'lucide-svelte';
 	import { Button } from '$lib/components/ui';
 	import { PageShell, PageHeader, DataTable, StatusBadge, type Column } from '$lib/components/admin';
+	import * as m from '$lib/paraglide/messages';
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -12,15 +13,15 @@
 	type Collection = PageData['collections'][number];
 
 	const columns: Column<Collection>[] = [
-		{ key: 'title', header: 'Title', cell: titleCell },
-		{ key: 'slug', header: 'Slug', cell: slugCell },
-		{ key: 'status', header: 'Status', cell: statusCell },
-		{ key: 'productCount', header: 'Products', align: 'right', numeric: true }
+		{ key: 'title', header: m.shop_admin_col_title(), cell: titleCell },
+		{ key: 'slug', header: m.shop_admin_col_slug(), cell: slugCell },
+		{ key: 'status', header: m.cms_filter_status(), cell: statusCell },
+		{ key: 'productCount', header: m.shop_admin_col_products(), align: 'right', numeric: true }
 	];
 </script>
 
 {#snippet titleCell(c: Collection)}
-	<span class="font-medium">{c.title || '(untitled)'}</span>
+	<span class="font-medium">{c.title || m.shop_admin_untitled()}</span>
 {/snippet}
 
 {#snippet slugCell(c: Collection)}
@@ -31,17 +32,17 @@
 	<StatusBadge status={c.status} />
 {/snippet}
 
-<svelte:head><title>Collections — Khao Pad CMS</title></svelte:head>
+<svelte:head><title>{m.shop_admin_collections()} — {m.cms_app_name()}</title></svelte:head>
 
 <PageShell width="wide">
 	<PageHeader
-		title="Collections"
-		description="Group products for storefront browsing."
+		title={m.shop_admin_collections()}
+		description={m.shop_admin_collections_desc()}
 		icon={Boxes}
 	>
 		{#snippet actions()}
 			<Button variant={createOpen ? 'outline' : 'default'} onclick={() => (createOpen = !createOpen)}>
-				{createOpen ? 'Cancel' : 'New collection'}
+				{createOpen ? m.shop_admin_cancel() : m.shop_admin_new_collection()}
 			</Button>
 		{/snippet}
 	</PageHeader>
@@ -57,7 +58,7 @@
 			<div
 				class="rounded-md border border-green-300 bg-green-100 p-3 text-sm text-green-800 dark:border-green-500/40 dark:bg-green-500/15 dark:text-green-300"
 			>
-				Collection created.
+				{m.shop_admin_collection_created()}
 			</div>
 		{/if}
 
@@ -73,7 +74,7 @@
 			>
 				<div class="grid gap-4 sm:grid-cols-2">
 					<div>
-						<label for="titleEn" class="text-sm font-medium">Title (English)</label>
+						<label for="titleEn" class="text-sm font-medium">{m.shop_admin_title_en()}</label>
 						<input
 							id="titleEn"
 							name="titleEn"
@@ -82,11 +83,11 @@
 							class="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-9 sm:text-sm"
 						/>
 						<p class="mt-1 text-xs text-muted-foreground">
-							Required — the slug is derived from this.
+							{m.shop_admin_title_en_help()}
 						</p>
 					</div>
 					<div>
-						<label for="titleTh" class="text-sm font-medium">Title (Thai)</label>
+						<label for="titleTh" class="text-sm font-medium">{m.shop_admin_title_th()}</label>
 						<input
 							id="titleTh"
 							name="titleTh"
@@ -95,33 +96,33 @@
 						/>
 					</div>
 					<div>
-						<label for="slug" class="text-sm font-medium">Slug</label>
+						<label for="slug" class="text-sm font-medium">{m.shop_admin_slug()}</label>
 						<input
 							id="slug"
 							name="slug"
-							placeholder="auto from English title"
+							placeholder={m.shop_admin_slug_placeholder()}
 							value={form?.values?.slug ?? ''}
 							class="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 font-mono text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-9 sm:text-sm"
 						/>
 					</div>
 					<div>
-						<label for="status" class="text-sm font-medium">Status</label>
+						<label for="status" class="text-sm font-medium">{m.cms_filter_status()}</label>
 						<select
 							id="status"
 							name="status"
 							class="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-9 sm:text-sm"
 						>
-							<option value="draft">Draft</option>
-							<option value="active">Active</option>
+							<option value="draft">{m.status_draft()}</option>
+							<option value="active">{m.shop_admin_status_active()}</option>
 						</select>
 					</div>
 				</div>
 
 				{#if data.products.length > 0}
 					<fieldset>
-						<legend class="text-sm font-medium">Products</legend>
+						<legend class="text-sm font-medium">{m.shop_admin_col_products()}</legend>
 						<p class="mb-2 text-xs text-muted-foreground">
-							Optional — products can be added now or later.
+							{m.shop_admin_products_optional_help()}
 						</p>
 						<div class="max-h-56 space-y-1 overflow-y-auto rounded-md border border-border p-2">
 							{#each data.products as p (p.id)}
@@ -134,18 +135,18 @@
 					</fieldset>
 				{:else}
 					<p class="text-xs text-muted-foreground">
-						No products yet — create some first to populate a collection.
+						{m.shop_admin_no_products_for_collection()}
 					</p>
 				{/if}
 
-				<Button type="submit">Create collection</Button>
+				<Button type="submit">{m.shop_admin_create_collection()}</Button>
 			</form>
 		{/if}
 
 		<DataTable {columns} rows={data.collections} getKey={(c) => c.id}>
 			{#snippet empty()}
 				<p class="text-sm text-muted-foreground">
-					No collections yet. Create one to group products on the storefront.
+					{m.shop_admin_no_collections()}
 				</p>
 			{/snippet}
 		</DataTable>

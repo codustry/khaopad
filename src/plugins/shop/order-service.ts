@@ -27,6 +27,19 @@
  *     order.paid, order.fulfilled, order.delivered, order.cancelled,
  *     order.refunded) through an injected emitter — routes wire it to
  *     the core webhook dispatcher; tests stub it.
+ *
+ * v3.16 (Phase C — C1/C2/C10):
+ *   - Every transition also appends a shop_order_events timeline row
+ *     (best-effort — a timeline write must never fail the order write).
+ *     Admin free-text notes land in the same table (kind='note').
+ *   - markFulfilled() records a shop_fulfillments row (carrier +
+ *     tracking) and carries the tracking data in the order.fulfilled
+ *     event payload.
+ *   - Returns v1: shop_returns rows walk
+ *     requested → approved → received → refunded (rejected from
+ *     requested/approved) and drive the return_status axis (#109).
+ *     The refund money itself still goes through recordRefund()'s
+ *     ledger — the return state machine never touches satang.
  */
 import { drizzle } from "drizzle-orm/d1";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
@@ -42,9 +55,21 @@ import {
   type ShopOrder,
   type ShopOrderItem,
 } from "./schema-cart";
+import {
+  shopFulfillments,
+  shopOrderEvents,
+  shopReturns,
+  type OrderEventKind,
+  type ReturnState,
+  type ShopFulfillment,
+  type ShopOrderEvent,
+  type ShopReturn,
+} from "./schema-operations";
 import { commitVariantSale, releaseVariant } from "./inventory";
 import { ShopValidationError } from "./service";
 import { allocateDiscount } from "./totals";
+import { carrierLabel } from "./carriers";
+import { formatSatang, type Satang } from "./money";
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -242,6 +267,37 @@ export class OrderService {
   }
 
   /**
+   * Append a timeline row (C2). Best-effort by design — the timeline
+   * is an operational convenience, and a failed audit write must never
+   * fail the money/lifecycle write that triggered it (same contract as
+   * emit()).
+   */
+  private async logEvent(input: {
+    orderId: string;
+    kind: OrderEventKind;
+    message?: string | null;
+    actorEmail?: string | null;
+    at?: string;
+  }): Promise<void> {
+    try {
+      await this.db.insert(shopOrderEvents).values({
+        id: nanoid(),
+        orderId: input.orderId,
+        kind: input.kind,
+        message: input.message ?? null,
+        actorEmail: input.actorEmail ?? null,
+        createdAt: input.at ?? this.nowIso(),
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[shop.order] timeline write failed for '${input.kind}' on ${input.orderId}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
+  /**
    * Canonical event payload (#113): order identity, the three status
    * axes + derived legacy status, totals, channel. Deliberately NO
    * customer PII — core article events carry only {id, slug}, and the
@@ -430,6 +486,12 @@ export class OrderService {
       .limit(1)
       .get();
     if (created) this.emit("order.created", this.eventPayload(created));
+    await this.logEvent({
+      orderId,
+      kind: "created",
+      message: `Order ${orderNumber} created (${formatSatang(totalSatang as Satang)})`,
+      at: nowIso,
+    });
 
     return { orderId, orderNumber };
   }
@@ -460,7 +522,7 @@ export class OrderService {
   async markPaid(input: {
     orderId: string;
     providerChargeId: string;
-  }): Promise<OrderWithItems> {
+  }): Promise<OrderWithItems & { justPaid: boolean }> {
     const nowIso = this.nowIso();
 
     // Atomic state-transition guard: only the ONE writer that flips
@@ -504,7 +566,9 @@ export class OrderService {
           `[shop.order] markPaid: order ${order.orderNumber} already in terminal status '${order.status}', ignoring late webhook`,
         );
       }
-      return this.hydrate(order);
+      // C4: `justPaid: false` tells the caller this was a retry/echo —
+      // operator notifications and other winner-only side effects skip.
+      return { ...(await this.hydrate(order)), justPaid: false };
     }
 
     // We won the transition — commit inventory + finalize side effects.
@@ -644,8 +708,14 @@ export class OrderService {
     // Winner-only emission — the CAS guard above means retries never
     // re-fire order.paid.
     this.emit("order.paid", this.eventPayload(paidOrder));
+    await this.logEvent({
+      orderId: order.id,
+      kind: "paid",
+      message: `Payment confirmed (${formatSatang(order.totalSatang as Satang)} via ${order.providerName ?? "provider"})`,
+      at: nowIso,
+    });
 
-    return this.hydrate(paidOrder);
+    return { ...(await this.hydrate(paidOrder)), justPaid: true };
   }
 
   /**
@@ -704,6 +774,12 @@ export class OrderService {
         updatedAt: nowIso,
       }),
     );
+    await this.logEvent({
+      orderId: order.id,
+      kind: "cancelled",
+      message: "Order cancelled (payment failed or abandoned)",
+      at: nowIso,
+    });
   }
 
   /**
@@ -770,6 +846,8 @@ export class OrderService {
     amountSatang: number;
     reason?: string;
     createdBy?: string;
+    /** Acting admin's email for the timeline (C2); null = system. */
+    actorEmail?: string;
     kind: "refund_full" | "refund_partial";
     idempotencyKey?: string;
     providerRefundId?: string;
@@ -905,6 +983,19 @@ export class OrderService {
       providerRefundId: input.providerRefundId ?? null,
     });
 
+    // C2: the write-only refund `reason` (B6) finally becomes readable —
+    // amount + reason land on the timeline. Winner-only: idempotent
+    // replays return above and never duplicate the event.
+    await this.logEvent({
+      orderId: input.orderId,
+      kind: "refund",
+      message: `Refunded ${formatSatang(amount as Satang)}${
+        input.kind === "refund_full" ? " (full)" : ""
+      }${input.reason ? ` — ${input.reason}` : ""}`,
+      actorEmail: input.actorEmail ?? null,
+      at: nowIso,
+    });
+
     return {
       adjustmentId,
       replayed: false,
@@ -917,8 +1008,22 @@ export class OrderService {
    * Flip a paid order to fulfilled. Called from the admin dashboard.
    * #109: CAS on the fulfillment axis; a partially refunded order can
    * still ship its remaining items.
+   *
+   * C1: the winner also records a shop_fulfillments row (carrier +
+   * tracking number), appends the timeline event, and carries the
+   * tracking data in the order.fulfilled payload so webhook consumers
+   * (LINE bots, Shippop bridges) see it without a second query.
+   * Returns the fulfillment row when the transition happened, null on
+   * the idempotent no-op path (already fulfilled / not payable).
    */
-  async markFulfilled(orderId: string): Promise<void> {
+  async markFulfilled(
+    orderId: string,
+    opts: {
+      carrier?: string | null;
+      trackingNumber?: string | null;
+      actorEmail?: string | null;
+    } = {},
+  ): Promise<ShopFulfillment | null> {
     const nowIso = this.nowIso();
     const result = await this.d1
       .prepare(
@@ -937,10 +1042,79 @@ export class OrderService {
       .bind(nowIso, orderId)
       .run();
     const changed = (result.meta as { changes?: number })?.changes ?? 0;
-    if (changed > 0) await this.emitForOrder("order.fulfilled", orderId);
+    if (changed === 0) return null;
+
+    const fulfillment: ShopFulfillment = {
+      id: nanoid(),
+      orderId,
+      carrier: opts.carrier ?? null,
+      trackingNumber: opts.trackingNumber ?? null,
+      fulfilledAt: nowIso,
+      notifiedAt: null,
+    };
+    await this.db.insert(shopFulfillments).values(fulfillment);
+
+    const trackingBits = [
+      opts.carrier ? carrierLabel(opts.carrier) : null,
+      opts.trackingNumber ?? null,
+    ].filter(Boolean);
+    await this.logEvent({
+      orderId,
+      kind: "fulfilled",
+      message:
+        trackingBits.length > 0
+          ? `Shipped via ${trackingBits.join(" — ")}`
+          : "Marked fulfilled",
+      actorEmail: opts.actorEmail ?? null,
+      at: nowIso,
+    });
+
+    // Existing order.fulfilled event, now with tracking in the payload.
+    if (this.emitEvent) {
+      const row = await this.db
+        .select()
+        .from(shopOrders)
+        .where(eq(shopOrders.id, orderId))
+        .limit(1)
+        .get();
+      if (row) {
+        this.emit("order.fulfilled", {
+          ...this.eventPayload(row),
+          carrier: fulfillment.carrier,
+          trackingNumber: fulfillment.trackingNumber,
+        });
+      }
+    }
+    return fulfillment;
   }
 
-  async markDelivered(orderId: string): Promise<void> {
+  /**
+   * Latest fulfillment row for an order (C1). Order-level today; the
+   * newest row is the one shown to customers and emailed.
+   */
+  async latestFulfillment(orderId: string): Promise<ShopFulfillment | null> {
+    const row = await this.db
+      .select()
+      .from(shopFulfillments)
+      .where(eq(shopFulfillments.orderId, orderId))
+      .orderBy(sql`${shopFulfillments.fulfilledAt} DESC`)
+      .limit(1)
+      .get();
+    return row ?? null;
+  }
+
+  /** Stamp the shipped-email send time on a fulfillment (C1). */
+  async markFulfillmentNotified(fulfillmentId: string): Promise<void> {
+    await this.db
+      .update(shopFulfillments)
+      .set({ notifiedAt: this.nowIso() })
+      .where(eq(shopFulfillments.id, fulfillmentId));
+  }
+
+  async markDelivered(
+    orderId: string,
+    opts: { actorEmail?: string | null } = {},
+  ): Promise<void> {
     const nowIso = this.nowIso();
     const result = await this.d1
       .prepare(
@@ -959,7 +1133,16 @@ export class OrderService {
       .bind(nowIso, orderId)
       .run();
     const changed = (result.meta as { changes?: number })?.changes ?? 0;
-    if (changed > 0) await this.emitForOrder("order.delivered", orderId);
+    if (changed > 0) {
+      await this.emitForOrder("order.delivered", orderId);
+      await this.logEvent({
+        orderId,
+        kind: "delivered",
+        message: "Marked delivered",
+        actorEmail: opts.actorEmail ?? null,
+        at: nowIso,
+      });
+    }
   }
 
   /** Re-read an order and emit an event with its current state. */
@@ -972,6 +1155,249 @@ export class OrderService {
       .limit(1)
       .get();
     if (row) this.emit(event, this.eventPayload(row));
+  }
+
+  // ── Timeline + notes (C2) ───────────────────────────────
+
+  /**
+   * Admin free-text note on the order timeline. Unlike transition
+   * events this is NOT best-effort — the note is the whole write, so
+   * a failure must surface to the form.
+   */
+  async addOrderNote(input: {
+    orderId: string;
+    message: string;
+    actorEmail?: string | null;
+  }): Promise<ShopOrderEvent> {
+    const message = input.message.trim();
+    if (!message) {
+      throw new ShopValidationError("Note cannot be empty", "message");
+    }
+    const order = await this.db
+      .select({ id: shopOrders.id })
+      .from(shopOrders)
+      .where(eq(shopOrders.id, input.orderId))
+      .limit(1)
+      .get();
+    if (!order) throw new ShopValidationError("Order not found", "orderId");
+    const row: ShopOrderEvent = {
+      id: nanoid(),
+      orderId: input.orderId,
+      kind: "note",
+      message,
+      actorEmail: input.actorEmail ?? null,
+      createdAt: this.nowIso(),
+    };
+    await this.db.insert(shopOrderEvents).values(row);
+    return row;
+  }
+
+  /** Timeline for an order, newest first (C2). */
+  async listOrderEvents(orderId: string): Promise<ShopOrderEvent[]> {
+    return this.db
+      .select()
+      .from(shopOrderEvents)
+      .where(eq(shopOrderEvents.orderId, orderId))
+      .orderBy(
+        sql`${shopOrderEvents.createdAt} DESC, ${shopOrderEvents.id} DESC`,
+      )
+      .all();
+  }
+
+  // ── Returns v1 (C10) ────────────────────────────────────
+
+  /**
+   * Which return-machine states an order's `return_status` axis shows.
+   * requested/approved/received map 1:1; both terminals collapse to
+   * 'resolved' (#109's enum has one terminal on purpose — "was it
+   * refunded or rejected" is the RETURN row's business, the axis only
+   * says "no return in flight").
+   */
+  private static RETURN_AXIS: Record<ReturnState, OrderReturnStatus> = {
+    requested: "requested",
+    approved: "approved",
+    received: "received",
+    refunded: "resolved",
+    rejected: "resolved",
+  };
+
+  /** Legal transitions of the returns state machine (C10). */
+  private static RETURN_TRANSITIONS: Record<ReturnState, ReturnState[]> = {
+    requested: ["approved", "rejected"],
+    approved: ["received", "rejected"],
+    received: ["refunded"],
+    refunded: [],
+    rejected: [],
+  };
+
+  /**
+   * Customer-initiated return request. Guards:
+   *   - financial axis must be paid | partially_refunded (nothing to
+   *     return before payment; fully refunded orders are done),
+   *   - fulfillment axis must be fulfilled | delivered (you cannot
+   *     return what never shipped),
+   *   - no other return may be in flight (requested/approved/received).
+   * Auth (possession of order-number + email) is the ROUTE's job —
+   * same model as /lookup.
+   */
+  async requestReturn(input: {
+    orderId: string;
+    reasonText?: string | null;
+    items?: Array<{ orderItemId: string; quantity: number }> | null;
+  }): Promise<ShopReturn> {
+    const order = await this.db
+      .select()
+      .from(shopOrders)
+      .where(eq(shopOrders.id, input.orderId))
+      .limit(1)
+      .get();
+    if (!order) throw new ShopValidationError("Order not found", "orderId");
+    if (
+      order.financialStatus !== "paid" &&
+      order.financialStatus !== "partially_refunded"
+    ) {
+      throw new ShopValidationError(
+        `Order is not returnable (financial status: ${order.financialStatus})`,
+        "financialStatus",
+      );
+    }
+    if (
+      order.fulfillmentStatus !== "fulfilled" &&
+      order.fulfillmentStatus !== "delivered"
+    ) {
+      throw new ShopValidationError(
+        `Order has not shipped yet (fulfillment status: ${order.fulfillmentStatus})`,
+        "fulfillmentStatus",
+      );
+    }
+    const open = (await this.listReturns(input.orderId)).find(
+      (r) =>
+        r.state === "requested" ||
+        r.state === "approved" ||
+        r.state === "received",
+    );
+    if (open) {
+      throw new ShopValidationError(
+        `A return is already in progress (${open.state})`,
+        "returnStatus",
+      );
+    }
+
+    const nowIso = this.nowIso();
+    const row: ShopReturn = {
+      id: nanoid(),
+      orderId: input.orderId,
+      state: "requested",
+      reasonText: input.reasonText?.trim() || null,
+      itemsJson:
+        input.items && input.items.length > 0
+          ? JSON.stringify(input.items)
+          : null,
+      createdAt: nowIso,
+      resolvedAt: null,
+    };
+    await this.db.insert(shopReturns).values(row);
+    await this.syncReturnAxis(order, "requested", nowIso);
+    await this.logEvent({
+      orderId: input.orderId,
+      kind: "return_requested",
+      message: `Customer requested a return${row.reasonText ? ` — ${row.reasonText}` : ""}`,
+      at: nowIso,
+    });
+    return row;
+  }
+
+  /**
+   * Admin-side return transition (C10). Validates against
+   * RETURN_TRANSITIONS; the refund MONEY for received → refunded goes
+   * through the existing recordRefund() ledger path first (the admin
+   * route wires the two together) — this method only moves state.
+   */
+  async transitionReturn(input: {
+    returnId: string;
+    to: ReturnState;
+    actorEmail?: string | null;
+  }): Promise<ShopReturn> {
+    const ret = await this.db
+      .select()
+      .from(shopReturns)
+      .where(eq(shopReturns.id, input.returnId))
+      .limit(1)
+      .get();
+    if (!ret) throw new ShopValidationError("Return not found", "returnId");
+    const legal = OrderService.RETURN_TRANSITIONS[ret.state as ReturnState];
+    if (!legal?.includes(input.to)) {
+      throw new ShopValidationError(
+        `Illegal return transition ${ret.state} → ${input.to}`,
+        "state",
+      );
+    }
+    const order = await this.db
+      .select()
+      .from(shopOrders)
+      .where(eq(shopOrders.id, ret.orderId))
+      .limit(1)
+      .get();
+    if (!order) throw new ShopValidationError("Order not found", "orderId");
+
+    const nowIso = this.nowIso();
+    const terminal = input.to === "refunded" || input.to === "rejected";
+    await this.db
+      .update(shopReturns)
+      .set({
+        state: input.to,
+        resolvedAt: terminal ? nowIso : null,
+      })
+      .where(eq(shopReturns.id, ret.id));
+    await this.syncReturnAxis(order, input.to, nowIso);
+
+    const eventKind: OrderEventKind = (
+      {
+        approved: "return_approved",
+        received: "return_received",
+        refunded: "return_refunded",
+        rejected: "return_rejected",
+      } as Record<string, OrderEventKind>
+    )[input.to];
+    const messages: Record<string, string> = {
+      approved: "Return approved",
+      received: "Return received",
+      refunded: "Return refunded",
+      rejected: "Return rejected",
+    };
+    await this.logEvent({
+      orderId: ret.orderId,
+      kind: eventKind,
+      message: messages[input.to],
+      actorEmail: input.actorEmail ?? null,
+      at: nowIso,
+    });
+    return { ...ret, state: input.to, resolvedAt: terminal ? nowIso : null };
+  }
+
+  /** Returns for an order, newest first (C10). */
+  async listReturns(orderId: string): Promise<ShopReturn[]> {
+    return this.db
+      .select()
+      .from(shopReturns)
+      .where(eq(shopReturns.orderId, orderId))
+      .orderBy(sql`${shopReturns.createdAt} DESC, ${shopReturns.id} DESC`)
+      .all();
+  }
+
+  /** Project a return state onto the order's return_status axis (#109). */
+  private async syncReturnAxis(
+    order: ShopOrder,
+    state: ReturnState,
+    nowIso: string,
+  ): Promise<void> {
+    await this.db
+      .update(shopOrders)
+      .set({
+        returnStatus: OrderService.RETURN_AXIS[state],
+        updatedAt: nowIso,
+      })
+      .where(eq(shopOrders.id, order.id));
   }
 
   // ── Queries ─────────────────────────────────────────────

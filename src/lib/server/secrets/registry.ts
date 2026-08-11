@@ -78,6 +78,13 @@ export const MANAGED_SECRETS: readonly SecretDef[] = [
     sensitive: true,
     group: "Email — Resend",
   },
+  {
+    key: "LINE_NOTIFY_TOKEN",
+    label: "LINE Notify token",
+    help: "Pushes a LINE message to the operator on every new paid order (C4). Issue a personal access token at notify-bot.line.me → My page. Leave unset to disable the LINE channel — email notification (site settings) works independently.",
+    sensitive: true,
+    group: "Notifications — LINE",
+  },
 ] as const;
 
 const MANAGED_KEYS = new Set(MANAGED_SECRETS.map((s) => s.key));

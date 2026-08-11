@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
+	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import * as m from '$lib/paraglide/messages';
 	import { formatDate } from '$lib/utils';
 	import { Button } from '$lib/components/ui';
@@ -10,7 +12,8 @@
 		DataTable,
 		TableToolbar,
 		StatusBadge,
-		type Column
+		type Column,
+		type SortDirection
 	} from '$lib/components/admin';
 	import { FileText } from 'lucide-svelte';
 	import type { ArticleRecord } from '$lib/server/content/types';
@@ -19,8 +22,20 @@
 		articles: { items: ArticleRecord[] };
 		status: ArticleRecord['status'] | null;
 		search: string;
+		sort: string | null;
+		dir: SortDirection;
 	};
 	let { data }: { data: Data } = $props();
+
+	function onSort(key: string, dir: SortDirection) {
+		const url = new URL(page.url);
+		url.searchParams.set('sort', key);
+		url.searchParams.set('dir', dir);
+		// Current route + new query params — no route ID exists to
+		// resolve() (same case as TableToolbar's navigateWith).
+		// eslint-disable-next-line svelte/no-navigation-without-resolve
+		goto(url, { noScroll: true });
+	}
 
 	const STATUSES: ArticleRecord['status'][] = ['draft', 'published', 'archived'];
 
@@ -43,10 +58,10 @@
 	];
 
 	const columns: Column<ArticleRecord>[] = [
-		{ key: 'title', header: m.col_title(), cell: titleCell },
-		{ key: 'status', header: m.col_status(), cell: statusCell },
+		{ key: 'title', header: m.col_title(), sortable: true, cell: titleCell },
+		{ key: 'status', header: m.col_status(), sortable: true, cell: statusCell },
 		{ key: 'languages', header: m.col_languages(), cell: languagesCell },
-		{ key: 'updated', header: m.col_updated(), cell: updatedCell },
+		{ key: 'updated', header: m.col_updated(), sortable: true, cell: updatedCell },
 		{ key: 'actions', header: m.col_actions(), align: 'right', cell: actionsCell }
 	];
 </script>
@@ -108,7 +123,14 @@
 
 	<TableToolbar searchPlaceholder={m.cms_search_articles()} {filters} />
 
-	<DataTable columns={columns} rows={data.articles.items} getKey={(a) => a.id}>
+	<DataTable
+		columns={columns}
+		rows={data.articles.items}
+		getKey={(a) => a.id}
+		sortKey={data.sort ?? undefined}
+		sortDir={data.dir}
+		{onSort}
+	>
 		{#snippet empty()}
 			<!--
 				A search that matches nothing must not read as "you have no

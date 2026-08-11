@@ -20,12 +20,23 @@
 	 * Showing a super-admin-only page to an editor would produce a 403 on
 	 * navigation — a broken-looking product, and a small information leak
 	 * about what exists.
+	 *
+	 * ## Content search (#160 C7)
+	 *
+	 * Queries of 2+ characters also hit GET /api/admin/search (debounced
+	 * 250 ms), and matching orders / products / articles render in
+	 * headed groups BELOW the nav matches. The same role predicate the
+	 * nav filter uses gates each content group client-side (mirroring
+	 * the shop nav registration); the endpoint enforces it again
+	 * server-side.
 	 */
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { listNavGroups, type NavItem } from './sidebar-nav';
 	import * as m from '$lib/paraglide/messages';
-	import { Search } from 'lucide-svelte';
+	import { FileText, Package, Search, ShoppingCart } from 'lucide-svelte';
 	import { onMount, tick } from 'svelte';
+	import type { ComponentType } from 'svelte';
 
 	let {
 		role
@@ -40,10 +51,15 @@
 
 	type Entry = { item: NavItem; group: string };
 
+	/** The nav registry's role predicate — shared with content groups. */
+	function roleAllows(roles: ReadonlyArray<string> | undefined): boolean {
+		return !roles?.length || Boolean(role && roles.includes(role));
+	}
+
 	const entries = $derived.by<Entry[]>(() =>
 		listNavGroups().flatMap((group) =>
 			group.items
-				.filter((item) => !item.roles?.length || (role && item.roles.includes(role as never)))
+				.filter((item) => roleAllows(item.roles))
 				.map((item) => ({ item, group: group.title() }))
 		)
 	);
@@ -68,16 +84,113 @@
 			.map((x) => x.entry);
 	});
 
+	// ── Content search ──────────────────────────────────────
+
+	/** Debounce before hitting /api/admin/search. */
+	const SEARCH_DEBOUNCE_MS = 250;
+	/** Below this the endpoint returns nothing anyway — don't fetch. */
+	const SEARCH_MIN_CHARS = 2;
+
+	// Same role lists the shop plugin registers its nav items with —
+	// orders is an admin+ route, products is editor+.
+	const ORDER_ROLES = ['super_admin', 'admin'] as const;
+	const PRODUCT_ROLES = ['super_admin', 'admin', 'editor'] as const;
+
+	type ContentHit = {
+		href: string;
+		label: string;
+		detail: string;
+		section: string;
+		icon: ComponentType;
+	};
+
+	type SearchResponse = {
+		orders: Array<{ id: string; orderNumber: string; email: string; status: string }>;
+		products: Array<{ id: string; title: string; slug: string; status: string }>;
+		articles: Array<{ id: string; title: string }>;
+	};
+
+	let contentHits = $state<ContentHit[]>([]);
+	let searchToken = 0;
+	let searchTimer: ReturnType<typeof setTimeout> | undefined;
+
+	$effect(() => {
+		const q = query.trim();
+		clearTimeout(searchTimer);
+		if (!open || q.length < SEARCH_MIN_CHARS) {
+			searchToken++; // invalidate any in-flight response
+			contentHits = [];
+			return;
+		}
+		const token = ++searchToken;
+		searchTimer = setTimeout(async () => {
+			try {
+				const res = await fetch(`/api/admin/search?q=${encodeURIComponent(q)}`);
+				if (!res.ok) return;
+				const data = (await res.json()) as SearchResponse;
+				// A newer keystroke owns the palette now — drop this response.
+				if (token !== searchToken) return;
+				const hits: ContentHit[] = [];
+				if (roleAllows(ORDER_ROLES)) {
+					for (const o of data.orders) {
+						hits.push({
+							href: resolve('/(admin)/admin/shop/orders/[id]', { id: o.id }),
+							label: o.orderNumber,
+							detail: o.email,
+							section: m.admin_palette_group_orders(),
+							icon: ShoppingCart
+						});
+					}
+				}
+				if (roleAllows(PRODUCT_ROLES)) {
+					for (const p of data.products) {
+						hits.push({
+							href: resolve('/(admin)/admin/shop/products/[id]', { id: p.id }),
+							label: p.title,
+							detail: p.slug,
+							section: m.admin_palette_group_products(),
+							icon: Package
+						});
+					}
+				}
+				for (const a of data.articles) {
+					hits.push({
+						href: resolve('/(admin)/admin/articles/[id]', { id: a.id }),
+						label: a.title,
+						detail: '',
+						section: m.admin_palette_group_articles(),
+						icon: FileText
+					});
+				}
+				contentHits = hits;
+			} catch {
+				// Network hiccup — the nav matches still work.
+			}
+		}, SEARCH_DEBOUNCE_MS);
+		return () => clearTimeout(searchTimer);
+	});
+
+	// One flat selectable list: nav matches first, content hits below.
+	type Row =
+		| { kind: 'nav'; entry: Entry }
+		| { kind: 'hit'; hit: ContentHit };
+
+	const rows = $derived.by<Row[]>(() => [
+		...results.map((entry) => ({ kind: 'nav', entry }) as Row),
+		...contentHits.map((hit) => ({ kind: 'hit', hit }) as Row)
+	]);
+
 	// Clamps the cursor when the result list shrinks under it, which
 	// otherwise leaves Enter pointing at nothing.
 	$effect(() => {
-		if (activeIndex >= results.length) activeIndex = Math.max(0, results.length - 1);
+		if (activeIndex >= rows.length) activeIndex = Math.max(0, rows.length - 1);
 	});
 
 	async function show() {
 		open = true;
 		query = '';
 		activeIndex = 0;
+		contentHits = [];
 		await tick();
 		inputEl?.focus();
 	}
@@ -86,12 +199,13 @@
 		open = false;
 	}
 
-	function select(entry: Entry) {
+	function select(row: Row) {
 		hide();
-		// `href` comes from the nav registry, where it is already a typed
-		// `Pathname` produced by SvelteKit — resolving it again here would
+		// Nav `href` comes from the nav registry, where it is already a
+		// typed `Pathname` produced by SvelteKit; content hit hrefs are
+		// built with resolve() above. Resolving again here would
 		// double-apply the base path.
-		goto(entry.item.href);
+		goto(row.kind === 'nav' ? row.entry.item.href : row.hit.href);
 	}
 
 	onMount(() => {
@@ -108,13 +222,13 @@
 				hide();
 			} else if (event.key === 'ArrowDown') {
 				event.preventDefault();
-				activeIndex = (activeIndex + 1) % Math.max(1, results.length);
+				activeIndex = (activeIndex + 1) % Math.max(1, rows.length);
 			} else if (event.key === 'ArrowUp') {
 				event.preventDefault();
-				activeIndex = (activeIndex - 1 + results.length) % Math.max(1, results.length);
-			} else if (event.key === 'Enter' && results[activeIndex]) {
+				activeIndex = (activeIndex - 1 + rows.length) % Math.max(1, rows.length);
+			} else if (event.key === 'Enter' && rows[activeIndex]) {
 				event.preventDefault();
-				select(results[activeIndex]);
+				select(rows[activeIndex]);
 			}
 		};
 		window.addEventListener('keydown', onKey);
@@ -147,7 +261,7 @@
 					role="combobox"
 					aria-expanded="true"
 					aria-controls="command-results"
-					aria-activedescendant={results[activeIndex]
+					aria-activedescendant={rows[activeIndex]
 						? `command-option-${activeIndex}`
 						: undefined}
 					placeholder={m.admin_command_search()}
@@ -155,21 +269,29 @@
 				/>
 			</div>
 
-			{#if results.length === 0}
+			{#if rows.length === 0}
 				<p class="px-4 py-6 text-center text-sm text-muted-foreground">
 					{m.admin_command_empty()}
 				</p>
 			{:else}
 				<ul id="command-results" role="listbox" class="max-h-80 overflow-y-auto p-1">
-					{#each results as entry, i (entry.item.href)}
-						{@const Icon = entry.item.icon}
+					{#each rows as row, i (row.kind === 'nav' ? `nav:${row.entry.item.href}` : `hit:${row.hit.href}`)}
+						{#if row.kind === 'hit' && (i === 0 || rows[i - 1].kind === 'nav' || (rows[i - 1] as { kind: 'hit'; hit: ContentHit }).hit.section !== row.hit.section)}
+							<li
+								role="presentation"
+								class="px-3 pb-1 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground"
+							>
+								{row.hit.section}
+							</li>
+						{/if}
+						{@const Icon = row.kind === 'nav' ? row.entry.item.icon : row.hit.icon}
 						<li role="none">
 							<button
 								type="button"
 								id="command-option-{i}"
 								role="option"
 								aria-selected={i === activeIndex}
-								onclick={() => select(entry)}
+								onclick={() => select(row)}
 								onmouseenter={() => (activeIndex = i)}
 								class="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm {i ===
 								activeIndex
@@ -177,8 +299,15 @@
 									: 'text-foreground'}"
 							>
 								<Icon class="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-								<span class="flex-1 truncate">{entry.item.label()}</span>
-								<span class="shrink-0 text-xs text-muted-foreground">{entry.group}</span>
+								{#if row.kind === 'nav'}
+									<span class="flex-1 truncate">{row.entry.item.label()}</span>
+									<span class="shrink-0 text-xs text-muted-foreground">{row.entry.group}</span>
+								{:else}
+									<span class="flex-1 truncate">{row.hit.label}</span>
+									{#if row.hit.detail}
+										<span class="shrink-0 text-xs text-muted-foreground">{row.hit.detail}</span>
+									{/if}
+								{/if}
 							</button>
 						</li>
 					{/each}

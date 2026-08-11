@@ -4,7 +4,8 @@
 	import { getLocale } from '$lib/paraglide/runtime';
 	import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui';
 	import { LayoutDashboard } from 'lucide-svelte';
-	import { PageShell, PageHeader } from '$lib/components/admin';
+	import { PageShell, PageHeader, StatusBadge } from '$lib/components/admin';
+	import { formatSatang, type Satang } from '$plugins/shop/money';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -143,6 +144,132 @@
 			</Card>
 		</div>
 	</section>
+
+	<!-- Shop (#160 C9): plugin-gated, admin+ — data.shop is null otherwise. -->
+	{#if data.shop}
+		<section class="space-y-3">
+			<h2 class="text-sm font-medium text-muted-foreground">{m.shop_dashboard_title()}</h2>
+			<div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+				<Card>
+					<CardContent class="p-3">
+						<div class="text-xs font-medium text-muted-foreground">
+							{m.shop_dashboard_orders_today()}
+						</div>
+						<div class="mt-0.5 text-xl font-semibold tabular-nums">{data.shop.today.orders}</div>
+					</CardContent>
+				</Card>
+				<Card>
+					<CardContent class="p-3">
+						<div class="text-xs font-medium text-muted-foreground">
+							{m.shop_dashboard_revenue_today()}
+						</div>
+						<div class="mt-0.5 text-xl font-semibold tabular-nums">
+							{formatSatang(data.shop.today.revenueSatang as Satang)}
+						</div>
+					</CardContent>
+				</Card>
+				<Card>
+					<CardContent class="p-3">
+						<div class="text-xs font-medium text-muted-foreground">
+							{m.shop_dashboard_orders_7d()}
+						</div>
+						<div class="mt-0.5 text-xl font-semibold tabular-nums">{data.shop.week.orders}</div>
+					</CardContent>
+				</Card>
+				<Card>
+					<CardContent class="p-3">
+						<div class="text-xs font-medium text-muted-foreground">
+							{m.shop_dashboard_revenue_7d()}
+						</div>
+						<div class="mt-0.5 text-xl font-semibold tabular-nums">
+							{formatSatang(data.shop.week.revenueSatang as Satang)}
+						</div>
+					</CardContent>
+				</Card>
+			</div>
+
+			<div class="grid gap-4 lg:grid-cols-2">
+				<Card>
+					<CardHeader>
+						<CardTitle class="text-sm flex items-center justify-between">
+							<span>{m.shop_dashboard_recent_orders()}</span>
+							<a
+								href={resolve('/(admin)/admin/shop/orders')}
+								class="text-xs text-muted-foreground hover:text-foreground"
+							>
+								{m.cms_dashboard_view_all()}
+							</a>
+						</CardTitle>
+					</CardHeader>
+					<CardContent class="p-0">
+						{#if data.shop.recentOrders.length === 0}
+							<div class="p-4 text-sm text-muted-foreground">
+								{m.shop_dashboard_orders_empty()}
+							</div>
+						{:else}
+							<ul class="divide-y divide-border">
+								{#each data.shop.recentOrders as order (order.id)}
+									<li>
+										<a
+											href={resolve('/(admin)/admin/shop/orders/[id]', { id: order.id })}
+											class="flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors"
+										>
+											<div class="flex-1 min-w-0">
+												<div class="text-sm font-medium truncate">{order.orderNumber}</div>
+												<div class="text-xs text-muted-foreground truncate">{order.email}</div>
+											</div>
+											<StatusBadge status={order.financialStatus} />
+											<span class="text-sm tabular-nums">
+												{formatSatang(order.totalSatang as Satang)}
+											</span>
+										</a>
+									</li>
+								{/each}
+							</ul>
+						{/if}
+					</CardContent>
+				</Card>
+
+				<Card>
+					<CardHeader>
+						<CardTitle class="text-sm">{m.shop_dashboard_low_stock()}</CardTitle>
+					</CardHeader>
+					<CardContent class="p-0">
+						{#if data.shop.lowStock.length === 0}
+							<div class="p-4 text-sm text-muted-foreground">
+								{m.shop_dashboard_low_stock_empty()}
+							</div>
+						{:else}
+							<ul class="divide-y divide-border">
+								{#each data.shop.lowStock as row (row.variantId)}
+									<li>
+										<a
+											href={resolve('/(admin)/admin/shop/products/[id]', { id: row.productId })}
+											class="flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors"
+										>
+											<div class="flex-1 min-w-0">
+												<div class="text-sm font-medium truncate">
+													{row.productTitle ?? row.variantTitle}
+												</div>
+												{#if row.productTitle && row.variantTitle}
+													<div class="text-xs text-muted-foreground truncate">
+														{row.variantTitle}
+													</div>
+												{/if}
+											</div>
+											<span class="text-sm tabular-nums {row.available <= 0 ? 'text-destructive' : 'text-muted-foreground'}">
+												{row.available}
+											</span>
+										</a>
+									</li>
+								{/each}
+							</ul>
+						{/if}
+					</CardContent>
+				</Card>
+			</div>
+		</section>
+	{/if}
 
 	<!-- Quick actions: secondary to the metrics above, so ghost-weight links. -->
 	<section class="grid gap-3 grid-cols-2 md:grid-cols-4">

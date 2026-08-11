@@ -27,6 +27,7 @@ import { json } from "@sveltejs/kit";
 import { resolveProviderForRequest } from "$plugins/shop/beam-config.server";
 import { OrderService } from "$plugins/shop/order-service";
 import { sendOrderReceipt } from "$plugins/shop/email";
+import { notifyNewOrder } from "$plugins/shop/notify";
 import { drizzle } from "drizzle-orm/d1";
 import { and, eq, desc } from "drizzle-orm";
 import { shopCarts, shopOrders } from "$plugins/shop/schema-cart";
@@ -144,10 +145,29 @@ export const POST: RequestHandler = async ({
       });
       // Fire the receipt email. Never awaited-blocking — Beam should
       // get its 200 fast, and email delivery is best-effort. Silent
-      // no-op when Resend isn't configured.
-      sendOrderReceipt(env, paid).catch(() => {
-        /* email module already logs failures */
-      });
+      // no-op when Resend isn't configured. Gated on the CAS winner
+      // (justPaid) like the operator notification below: webhook
+      // RETRIES land here too, and each one used to re-send the
+      // customer their receipt.
+      if (paid.justPaid) {
+        sendOrderReceipt(env, paid).catch(() => {
+          /* email module already logs failures */
+        });
+      }
+      // C4: operator notification (email + LINE Notify) — winner-only
+      // via markPaid's CAS flag, so Beam retries never re-notify. Both
+      // channels are best-effort and must never fail the webhook; the
+      // settings read is wrapped for the same reason.
+      if (paid.justPaid) {
+        void (async () => {
+          const settings = await locals.content.getSettings().catch(() => null);
+          await notifyNewOrder(env, paid, {
+            notifyEmail: settings?.shopNotifyEmail ?? null,
+          });
+        })().catch(() => {
+          /* notify module already logs failures */
+        });
+      }
       // Fire analytics purchase event. Look up the cart that was
       // ordered to reuse the visitor's session id — otherwise the
       // funnel (product_view → add_to_cart → begin_checkout →

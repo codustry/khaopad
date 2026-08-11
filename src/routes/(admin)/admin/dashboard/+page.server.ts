@@ -1,15 +1,148 @@
 import { redirect, error } from "@sveltejs/kit";
 import { drizzle } from "drizzle-orm/d1";
-import { desc, eq, gte } from "drizzle-orm";
+import { and, desc, eq, gte, ne, sql } from "drizzle-orm";
 import * as schema from "$lib/server/content/schema";
-import { canManageUsers } from "$lib/server/auth/permissions";
+import { canManageUsers, hasRole } from "$lib/server/auth/permissions";
 import { AnalyticsService } from "$lib/server/analytics";
+import { listEnabledPlugins } from "$lib/plugins/runtime";
+import { shopOrders } from "$plugins/shop/schema-cart";
+import {
+  shopInventoryItems,
+  shopInventoryLevels,
+  shopProductLocalizations,
+  shopProductVariants,
+} from "$plugins/shop/schema";
 import type { PageServerLoad } from "./$types";
 
 const ACTIVITY_LIMIT = 8;
 const DRAFTS_LIMIT = 5;
 const SCHEDULED_LIMIT = 5;
 const TREND_DAYS = 7;
+
+// ── Shop section (#160 C9) ───────────────────────────────────
+const SHOP_RECENT_ORDERS = 5;
+/** available (on_hand - reserved) at or below this is "low stock". */
+const LOW_STOCK_THRESHOLD = 5;
+const LOW_STOCK_LIMIT = 5;
+
+type ShopSection = {
+  today: { orders: number; revenueSatang: number };
+  week: { orders: number; revenueSatang: number };
+  recentOrders: Array<{
+    id: string;
+    orderNumber: string;
+    email: string;
+    totalSatang: number;
+    financialStatus: string;
+    createdAt: string;
+  }>;
+  lowStock: Array<{
+    variantId: string;
+    productId: string;
+    productTitle: string | null;
+    variantTitle: string;
+    available: number;
+  }>;
+};
+
+/**
+ * Shop numbers for the dashboard. Admin+ only (mirrors the orders
+ * route), and only when the shop plugin is in the enabled set — a
+ * site that doesn't sell anything gets no empty commerce section.
+ *
+ * "Today" is the UTC calendar day: createdAt ISO strings compare
+ * lexically, and 'YYYY-MM-DDT…' > 'YYYY-MM-DD'. Cancelled orders are
+ * excluded from both counts and revenue.
+ */
+async function loadShopSection(
+  d1: D1Database,
+  now: Date,
+): Promise<ShopSection> {
+  const db = drizzle(d1);
+  const todayStart = now.toISOString().slice(0, 10);
+  const weekStart = new Date(
+    now.getTime() - 7 * 24 * 60 * 60 * 1000,
+  ).toISOString();
+  const notCancelled = ne(shopOrders.status, "cancelled");
+
+  const aggregate = (cutoff: string) =>
+    db
+      .select({
+        orders: sql<number>`count(*)`,
+        revenueSatang: sql<number>`coalesce(sum(${shopOrders.totalSatang}), 0)`,
+      })
+      .from(shopOrders)
+      .where(and(gte(shopOrders.createdAt, cutoff), notCancelled))
+      .get();
+
+  const available = sql<number>`${shopInventoryLevels.onHand} - ${shopInventoryLevels.reserved}`;
+
+  const [today, week, recentOrders, lowStock] = await Promise.all([
+    aggregate(todayStart),
+    aggregate(weekStart),
+    db
+      .select({
+        id: shopOrders.id,
+        orderNumber: shopOrders.orderNumber,
+        email: shopOrders.email,
+        totalSatang: shopOrders.totalSatang,
+        financialStatus: shopOrders.financialStatus,
+        createdAt: shopOrders.createdAt,
+      })
+      .from(shopOrders)
+      .orderBy(desc(shopOrders.createdAt))
+      .limit(SHOP_RECENT_ORDERS)
+      .all(),
+    db
+      .select({
+        variantId: shopProductVariants.id,
+        productId: shopProductVariants.productId,
+        productTitle: shopProductLocalizations.title,
+        variantTitle: shopProductVariants.titleCached,
+        available,
+      })
+      .from(shopInventoryLevels)
+      .innerJoin(
+        shopInventoryItems,
+        eq(shopInventoryItems.id, shopInventoryLevels.itemId),
+      )
+      .innerJoin(
+        shopProductVariants,
+        eq(shopProductVariants.id, shopInventoryItems.variantId),
+      )
+      .leftJoin(
+        shopProductLocalizations,
+        and(
+          eq(shopProductLocalizations.productId, shopProductVariants.productId),
+          eq(shopProductLocalizations.locale, "en"),
+        ),
+      )
+      .where(
+        and(
+          // Untracked items can't run out; archived variants aren't sold.
+          eq(shopInventoryItems.tracked, true),
+          eq(shopProductVariants.status, "active"),
+          sql`${available} <= ${LOW_STOCK_THRESHOLD}`,
+        ),
+      )
+      .orderBy(available)
+      .limit(LOW_STOCK_LIMIT)
+      .all(),
+  ]);
+
+  return {
+    today: {
+      orders: today?.orders ?? 0,
+      revenueSatang: today?.revenueSatang ?? 0,
+    },
+    week: {
+      orders: week?.orders ?? 0,
+      revenueSatang: week?.revenueSatang ?? 0,
+    },
+    recentOrders,
+    lowStock,
+  };
+}
 
 /**
  * Dashboard load. Rich enough to be useful, cheap enough to render fast.
@@ -164,7 +297,18 @@ export const load: PageServerLoad = async ({ locals, platform }) => {
     };
   });
 
+  // #160 C9: shop section — plugin-gated (same enabled-set the runtime
+  // loads from) and admin+ (mirrors the orders route). Best-effort
+  // like the analytics tiles: a fresh install without the shop
+  // migrations must not take the dashboard down.
+  const shopEnabled = listEnabledPlugins().some((p) => p.slug === "shop");
+  const shop =
+    shopEnabled && hasRole(locals.user, "admin")
+      ? await loadShopSection(platform.env.DB, now).catch(() => null)
+      : null;
+
   return {
+    shop,
     stats: {
       total: allTotal,
       published: publishedTotal,

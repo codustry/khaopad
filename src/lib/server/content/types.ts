@@ -157,6 +157,13 @@ export interface SiteSettings {
    * still apply regardless.
    */
   commentsEnabled?: boolean;
+  /**
+   * v3.16 (C4): operator address for new-paid-order notifications.
+   * Empty/undefined disables the email channel; the LINE channel is
+   * configured independently via the managed-secrets portal
+   * (LINE_NOTIFY_TOKEN).
+   */
+  shopNotifyEmail?: string;
   [key: string]: unknown;
 }
 

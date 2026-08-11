@@ -2,10 +2,14 @@
  * /admin/shop/orders/[id] — admin order detail + lifecycle actions.
  *
  * Actions:
- *   - fulfil (paid → fulfilled)
+ *   - fulfil (paid → fulfilled; C1: carrier + tracking + shipped email)
  *   - deliver (fulfilled → delivered)
  *   - refundPartial (any amount, records adjustment + provider refund)
  *   - refundFull (records + provider refund + status='refunded')
+ *   - addNote (C2: free-text timeline note)
+ *   - returnTransition (C10: approve / reject / mark-received; the
+ *     refund step rides the EXISTING refund action, which auto-flips a
+ *     received return to refunded on success)
  */
 import { error, fail, redirect } from "@sveltejs/kit";
 import { nanoid } from "nanoid";
@@ -15,6 +19,8 @@ import { OrderService } from "$plugins/shop/order-service";
 import { ShopValidationError } from "$plugins/shop/service";
 import { resolveProviderForRequest } from "$plugins/shop/beam-config.server";
 import { parseBahtToSatang } from "$plugins/shop/money";
+import { CARRIERS } from "$plugins/shop/carriers";
+import { sendShippedEmail } from "$plugins/shop/email";
 import { track, buildEventContext } from "$lib/server/analytics/track";
 import { dispatchEvent } from "$lib/server/webhooks";
 import type { ContentProvider } from "$lib/server/content/types";
@@ -38,23 +44,64 @@ export const load: PageServerLoad = async ({ locals, platform, params }) => {
   const svc = new OrderService(env.DB);
   const order = await svc.getOrder(params.id);
   if (!order) throw error(404, "Order not found");
+  const [events, returns, fulfillment] = await Promise.all([
+    svc.listOrderEvents(params.id),
+    svc.listReturns(params.id),
+    svc.latestFulfillment(params.id),
+  ]);
   // Refund idempotency key (#110): minted per page render, echoed back
   // by the refund form. A double-click / double-submit replays the
   // same key → the service returns the original ledger row instead of
   // refunding twice.
-  return { order, refundIdempotencyKey: nanoid() };
+  return {
+    order,
+    events,
+    returns,
+    fulfillment,
+    refundIdempotencyKey: nanoid(),
+  };
 };
 
 export const actions: Actions = {
-  fulfil: async ({ locals, platform, params }) => {
+  fulfil: async ({ request, locals, platform, params }) => {
     if (!locals.user) throw redirect(302, "/admin/login");
     if (!hasRole(locals.user, "admin"))
       return fail(403, { error: "Forbidden" });
     const env = platform?.env;
     if (!env) return fail(503, { error: "Platform not ready" });
+    const fd = await request.formData();
+    // C1: carrier preset + tracking number. Both optional — a merchant
+    // hand-delivering an order can still mark it fulfilled.
+    const carrierRaw = String(fd.get("carrier") ?? "").trim();
+    const carrier = CARRIERS.some((c) => c.id === carrierRaw)
+      ? carrierRaw
+      : null;
+    const trackingNumber =
+      String(fd.get("trackingNumber") ?? "").trim() || null;
+
     const svc = orderServiceWithEvents(env.DB, locals.content);
-    await svc.markFulfilled(params.id);
-    await logAudit(env.DB, locals.user.id, "order.fulfilled", params.id, {});
+    const fulfillment = await svc.markFulfilled(params.id, {
+      carrier,
+      trackingNumber,
+      actorEmail: locals.user.email,
+    });
+    if (!fulfillment) {
+      return fail(400, {
+        error: "Order is not in a fulfillable state (must be paid).",
+      });
+    }
+    await logAudit(env.DB, locals.user.id, "order.fulfilled", params.id, {
+      carrier,
+      trackingNumber,
+    });
+    // C1: shipped email with carrier + tracking link. Best-effort — a
+    // Resend hiccup must not un-fulfil the order. notifiedAt records
+    // the send so a later resubmit can tell it already went out.
+    const order = await svc.getOrder(params.id);
+    if (order) {
+      const sent = await sendShippedEmail(env, order, fulfillment);
+      if (sent) await svc.markFulfillmentNotified(fulfillment.id);
+    }
     return { success: true, message: "Marked fulfilled" };
   },
 
@@ -65,9 +112,73 @@ export const actions: Actions = {
     const env = platform?.env;
     if (!env) return fail(503, { error: "Platform not ready" });
     const svc = orderServiceWithEvents(env.DB, locals.content);
-    await svc.markDelivered(params.id);
+    await svc.markDelivered(params.id, { actorEmail: locals.user.email });
     await logAudit(env.DB, locals.user.id, "order.delivered", params.id, {});
     return { success: true, message: "Marked delivered" };
+  },
+
+  /** C2: append a free-text staff note to the order timeline. */
+  addNote: async ({ request, locals, platform, params }) => {
+    if (!locals.user) throw redirect(302, "/admin/login");
+    if (!hasRole(locals.user, "admin"))
+      return fail(403, { error: "Forbidden" });
+    const env = platform?.env;
+    if (!env) return fail(503, { error: "Platform not ready" });
+    const fd = await request.formData();
+    const message = String(fd.get("message") ?? "").trim();
+    if (!message) return fail(400, { error: "Note cannot be empty" });
+    const svc = new OrderService(env.DB);
+    try {
+      await svc.addOrderNote({
+        orderId: params.id,
+        message,
+        actorEmail: locals.user.email,
+      });
+    } catch (err) {
+      if (err instanceof ShopValidationError) {
+        return fail(400, { error: err.message });
+      }
+      throw err;
+    }
+    return { success: true, message: "Note added" };
+  },
+
+  /**
+   * C10: return state transitions the admin drives directly —
+   * approve / reject / mark received. The refund step is NOT here: it
+   * rides the existing ?/refund action (real money must go through the
+   * provider + ledger), which flips a received return to refunded on
+   * success.
+   */
+  returnTransition: async ({ request, locals, platform, params }) => {
+    if (!locals.user) throw redirect(302, "/admin/login");
+    if (!hasRole(locals.user, "admin"))
+      return fail(403, { error: "Forbidden" });
+    const env = platform?.env;
+    if (!env) return fail(503, { error: "Platform not ready" });
+    const fd = await request.formData();
+    const returnId = String(fd.get("returnId") ?? "").trim();
+    const to = String(fd.get("to") ?? "").trim();
+    if (!returnId || !["approved", "rejected", "received"].includes(to)) {
+      return fail(400, { error: "Invalid return transition" });
+    }
+    const svc = new OrderService(env.DB);
+    try {
+      await svc.transitionReturn({
+        returnId,
+        to: to as "approved" | "rejected" | "received",
+        actorEmail: locals.user.email,
+      });
+    } catch (err) {
+      if (err instanceof ShopValidationError) {
+        return fail(400, { error: err.message });
+      }
+      throw err;
+    }
+    await logAudit(env.DB, locals.user.id, `return.${to}`, params.id, {
+      returnId,
+    });
+    return { success: true, message: `Return ${to}` };
   },
 
   refund: async ({ request, locals, platform, params, url }) => {
@@ -145,6 +256,7 @@ export const actions: Actions = {
         amountSatang: amount,
         reason,
         createdBy: locals.user.id,
+        actorEmail: locals.user.email,
         kind,
         idempotencyKey,
         providerRefundId: refundResult.providerRefundId,
@@ -162,6 +274,29 @@ export const actions: Actions = {
       kind,
       providerRefundId: refundResult.providerRefundId,
     });
+    // C10 hook: a refund issued while a return sits in 'received' IS
+    // the return's refund step — flip the return (and the return_status
+    // axis) instead of asking the admin to click a second button.
+    try {
+      const receivedReturn = (await svc.listReturns(params.id)).find(
+        (r) => r.state === "received",
+      );
+      if (receivedReturn) {
+        await svc.transitionReturn({
+          returnId: receivedReturn.id,
+          to: "refunded",
+          actorEmail: locals.user.email,
+        });
+      }
+    } catch (err) {
+      // The refund itself succeeded — never surface a return-state
+      // bookkeeping failure as a refund failure.
+      // eslint-disable-next-line no-console
+      console.error(
+        `[admin.order] return refund-hook failed for ${params.id}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
     // Fire refund analytics event. Admin action, so context uses the
     // admin's session id (event dashboards will filter by name only).
     void track(

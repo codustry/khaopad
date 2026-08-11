@@ -248,7 +248,10 @@ describe("status listing (what the admin page receives)", () => {
 
   it("reports every registry key, including unset ones", async () => {
     const statuses = await listSecretStatus(env);
-    expect(statuses.length).toBe(4);
+    // Don't hardcode the registry size — compare against the registry
+    // itself (same lesson as the WORKERS_ENV count check, #148).
+    const { MANAGED_SECRETS } = await import("./registry");
+    expect(statuses.length).toBe(MANAGED_SECRETS.length);
     for (const s of statuses) {
       expect(s.configured).toBe(false);
       expect(s.source).toBe("unset");

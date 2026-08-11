@@ -63,6 +63,10 @@ export const actions: Actions = {
     // article overrides via `articles.commentsMode` ("on" / "off")
     // still apply regardless.
     const commentsEnabled = form.get("comments_enabled") === "on";
+    // v3.16 (C4): operator email for new-paid-order notifications.
+    // Empty = channel off (LINE Notify is configured separately in the
+    // secrets portal).
+    const shopNotifyEmail = String(form.get("shop_notify_email") ?? "").trim();
 
     if (!siteName) return fail(400, { error: "Site name is required." });
     const supported = parseLocales(supportedLocalesRaw);
@@ -92,6 +96,8 @@ export const actions: Actions = {
         "newsletter.allowSingleOptIn": newsletterAllowSingleOptIn,
         // Comments (v2.0c) — site-wide kill switch.
         commentsEnabled,
+        // Shop notifications (v3.16 C4).
+        shopNotifyEmail: shopNotifyEmail || undefined,
       });
     } catch (err) {
       return fail(500, {

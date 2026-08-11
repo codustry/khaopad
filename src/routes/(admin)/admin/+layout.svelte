@@ -38,7 +38,33 @@
 
 	// Re-derived per page so the sidebar sees route changes for active state.
 	// data.user is null on the public-ish auth pages (login/signup).
+
+	/**
+	 * Global ⌘S / Ctrl+S (#160 C8).
+	 *
+	 * Mechanism: query the visible SaveBar's submit button and click it,
+	 * rather than dispatching a CustomEvent each SaveBar subscribes to.
+	 * Why: the SaveBar only renders while its form is dirty, so
+	 * "querySelector found a [data-savebar-submit]" is already the exact
+	 * "there is something to save" predicate — an event bus would make
+	 * every SaveBar instance re-implement that same visibility check in
+	 * a listener it must add and remove. Clicking the real button also
+	 * reuses the form's own submit path (`use:enhance`, `form=` id
+	 * associations, disabled-while-saving) for free.
+	 *
+	 * preventDefault fires unconditionally: even with nothing to save,
+	 * the browser's "save this web page" dialog is never what an admin
+	 * wants.
+	 */
+	function onGlobalKeydown(event: KeyboardEvent) {
+		if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+		if (event.key.toLowerCase() !== 's') return;
+		event.preventDefault();
+		document.querySelector<HTMLButtonElement>('[data-savebar-submit]')?.click();
+	}
 </script>
+
+<svelte:window onkeydown={onGlobalKeydown} />
 
 <svelte:head>
 	<link rel="preconnect" href="https://fonts.googleapis.com" />

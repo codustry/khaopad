@@ -2,14 +2,28 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { invalidateAll } from '$app/navigation';
-	import { Package, CheckCircle2, Clock, LoaderCircle } from 'lucide-svelte';
+	import { enhance } from '$app/forms';
+	import { Package, CheckCircle2, Clock, LoaderCircle, Truck, Undo2 } from 'lucide-svelte';
 	import { Button } from '$lib/components/ui';
 	import * as m from '$lib/paraglide/messages';
 	import { formatSatang, type Satang } from '$plugins/shop/money';
-	import type { PageData } from './$types';
+	import type { PageData, ActionData } from './$types';
 
-	let { data }: { data: PageData } = $props();
+	let { data, form }: { data: PageData; form: ActionData } = $props();
 	const order = $derived(data.order);
+	// C10 — return-state labels, localized.
+	const returnStateLabel = $derived(
+		data.activeReturn
+			? ({
+					requested: m.shop_return_status_requested(),
+					approved: m.shop_return_status_approved(),
+					received: m.shop_return_status_received(),
+					refunded: m.shop_return_status_refunded(),
+					rejected: m.shop_return_status_rejected(),
+				}[data.activeReturn.state] ?? data.activeReturn.state)
+			: null,
+	);
+	let submittingReturn = $state(false);
 	const statusLabel = $derived(
 		{
 			pending: m.shop_status_pending(),
@@ -169,6 +183,37 @@
 		{/if}
 	</div>
 
+	{#if data.fulfillment && (data.fulfillment.carrierLabel || data.fulfillment.trackingNumber)}
+		<!-- C1: carrier + tracking for shipped orders -->
+		<section class="mb-6 rounded-lg border border-border p-4 text-sm">
+			<div class="flex items-center gap-3">
+				<Truck class="h-5 w-5 text-muted-foreground" />
+				<div class="min-w-0 flex-1">
+					<div class="font-medium">{m.shop_shipment()}</div>
+					<div class="text-muted-foreground">
+						{#if data.fulfillment.carrierLabel}
+							{data.fulfillment.carrierLabel}
+						{/if}
+						{#if data.fulfillment.trackingNumber}
+							{#if data.fulfillment.carrierLabel}·{/if}
+							<span class="tabular-nums">{data.fulfillment.trackingNumber}</span>
+						{/if}
+					</div>
+				</div>
+				{#if data.fulfillment.trackingUrl}
+					<a
+						href={data.fulfillment.trackingUrl}
+						target="_blank"
+						rel="noopener noreferrer"
+						class="shrink-0 rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted"
+					>
+						{m.shop_track_package()}
+					</a>
+				{/if}
+			</div>
+		</section>
+	{/if}
+
 	<section class="mb-6 space-y-4 rounded-lg border border-border p-4">
 		<h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
 			{m.shop_items()}
@@ -226,6 +271,59 @@
 			<span class="tabular-nums">{formatSatang(order.totalSatang as Satang)}</span>
 		</div>
 	</section>
+
+	{#if data.activeReturn || data.canRequestReturn || form?.returnRequested}
+		<!-- C10: return status / request form -->
+		<section class="mb-6 space-y-3 rounded-lg border border-border p-4 text-sm">
+			<h2 class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+				<Undo2 class="h-4 w-4" />
+				{m.shop_return_title()}
+			</h2>
+			{#if form?.returnRequested}
+				<p class="rounded-md border border-green-600/50 bg-green-100 p-3 text-green-800 dark:bg-green-500/15 dark:text-green-300">
+					{m.shop_return_requested_ok()}
+				</p>
+			{:else if data.activeReturn}
+				<p class="text-muted-foreground">
+					{m.shop_return_current_status({ status: returnStateLabel ?? data.activeReturn.state })}
+				</p>
+			{:else if data.canRequestReturn}
+				<form
+					method="POST"
+					action="?/requestReturn"
+					use:enhance={() => {
+						submittingReturn = true;
+						return async ({ update }) => {
+							await update();
+							submittingReturn = false;
+						};
+					}}
+					class="space-y-2"
+				>
+					<!-- Same possession model as the page itself: order number is
+					     in the URL, the email re-proves it server-side. -->
+					<input type="hidden" name="email" value={order.email} />
+					<label class="block text-muted-foreground" for="return-reason">
+						{m.shop_return_reason_label()}
+					</label>
+					<textarea
+						id="return-reason"
+						name="reason"
+						maxlength={500}
+						rows={3}
+						class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+						placeholder={m.shop_return_reason_placeholder()}
+					></textarea>
+					<Button type="submit" variant="outline" disabled={submittingReturn}>
+						{submittingReturn ? m.shop_processing() : m.shop_return_submit()}
+					</Button>
+					{#if form?.error}
+						<p class="text-destructive">{m.shop_return_error()}</p>
+					{/if}
+				</form>
+			{/if}
+		</section>
+	{/if}
 
 	{#if data.shippingAddress}
 		<section class="rounded-lg border border-border p-4 text-sm">

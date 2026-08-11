@@ -8,7 +8,27 @@
 import { error, redirect } from "@sveltejs/kit";
 import { hasRole } from "$lib/server/auth/permissions";
 import { OrderService } from "$plugins/shop/order-service";
+import type { ShopOrder } from "$plugins/shop/schema-cart";
+import {
+  byNumber,
+  byString,
+  parseSort,
+  sortRows,
+} from "$lib/server/admin/sort";
 import type { PageServerLoad } from "./$types";
+
+// No bulk actions here, deliberately (#160 C5): mark-fulfilled now
+// requires a per-order tracking number (C1), so there is no honest
+// bulk write to offer. Sorting only.
+
+/** Sortable columns. `sort` never reaches SQL — comparator map only. */
+const SORTABLE = ["placed", "total"] as const;
+
+const COMPARATORS = {
+  // ISO strings compare lexically in date order.
+  placed: byString<ShopOrder>((o) => o.createdAt),
+  total: byNumber<ShopOrder>((o) => o.totalSatang),
+};
 
 export const load: PageServerLoad = async ({ locals, platform, url }) => {
   if (!locals.user) throw redirect(302, "/admin/login");
@@ -43,5 +63,10 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
         o.email.toLowerCase().includes(needle),
     );
   }
-  return { orders, statusFilter, search: search ?? "" };
+  // In-memory sort over the loaded page (capped at 100 rows), same as
+  // the in-memory search above — see $lib/server/admin/sort.
+  const { sort, dir } = parseSort(url, SORTABLE);
+  orders = sortRows(orders, COMPARATORS, sort, dir);
+
+  return { orders, statusFilter, search: search ?? "", sort, dir };
 };

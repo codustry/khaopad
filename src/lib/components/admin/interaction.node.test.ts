@@ -123,7 +123,9 @@ describe("CommandPalette", () => {
 
   it("clamps the cursor when results shrink", () => {
     // Otherwise Enter fires on an index past the end of the list.
-    expect(src).toMatch(/activeIndex >= results\.length/);
+    // (#160 C7: the selectable list is now `rows` — nav matches plus
+    // content hits — so the clamp spans both.)
+    expect(src).toMatch(/activeIndex >= rows\.length/);
   });
 });
 
