@@ -5,6 +5,7 @@
 	import { page } from '$app/state';
 	import Seo from '$lib/components/seo/Seo.svelte';
 	import CookieBanner from '$lib/components/consent/CookieBanner.svelte';
+	import HeaderSearch from '$lib/components/www/HeaderSearch.svelte';
 	import type { PageSeo } from '$lib/seo';
 	import type { Snippet } from 'svelte';
 	import type { LayoutData } from './$types';
@@ -35,6 +36,10 @@
 				<a href={localePath(toLocale(data.locale), '/blog')} class="hover:text-primary">
 					{m.nav_blog()}
 				</a>
+				<a href={localePath(toLocale(data.locale), '/products')} class="hover:text-primary">
+					{m.nav_shop()}
+				</a>
+				<HeaderSearch locale={toLocale(data.locale)} />
 				<a
 					href={localePath(getAlternateLocale(toLocale(data.locale)), '/')}
 					data-sveltekit-reload

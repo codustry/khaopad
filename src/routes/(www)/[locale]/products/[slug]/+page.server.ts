@@ -15,6 +15,7 @@ import { marked } from "marked";
 import { toLocale } from "$lib/i18n";
 import { canonicalUrl, resolveOrigin, type PageSeo } from "$lib/seo";
 import { ShopService } from "$plugins/shop/service";
+import { relatedProducts } from "$plugins/shop/related";
 import { buildProductJsonLd } from "$plugins/shop/jsonld";
 import type { PageServerLoad } from "./$types";
 
@@ -48,10 +49,20 @@ export const load: PageServerLoad = async ({ params, url, platform }) => {
   const origin = resolveOrigin(url, env.PUBLIC_SITE_URL);
   const canonical = canonicalUrl(origin, `/${locale}/products/${product.slug}`);
 
-  // Render markdown → HTML server-side. Same helper as articles.
-  const descriptionHtml = localization.descriptionMarkdown
-    ? await marked.parse(localization.descriptionMarkdown, { async: true })
-    : null;
+  // Markdown render and the related-products strip (#160 A5) are
+  // independent of each other — run them in parallel rather than
+  // serializing the page on the recommendation queries. A failed
+  // recommendation must never 404/500 the product page, so it
+  // degrades to an empty strip.
+  const [descriptionHtml, related] = await Promise.all([
+    localization.descriptionMarkdown
+      ? marked.parse(localization.descriptionMarkdown, { async: true })
+      : Promise.resolve(null),
+    relatedProducts(env.DB, { productId: product.id }).catch((err) => {
+      console.error("relatedProducts failed", err);
+      return [];
+    }),
+  ]);
 
   // JSON-LD payload — one Offer per active variant OR AggregateOffer
   // when there are ≥2. Availability keys off computed available count.
@@ -90,6 +101,9 @@ export const load: PageServerLoad = async ({ params, url, platform }) => {
       slug: product.slug,
       status: product.status,
       vendor: product.vendor,
+      // For the recently-viewed capture (#160 A6) — the client stores
+      // the thumbnail media id alongside title/price at view time.
+      featuredMediaId: product.featuredMediaId,
       variants: activeVariants.map((v) => ({
         id: v.id,
         sku: v.sku,
@@ -103,6 +117,16 @@ export const load: PageServerLoad = async ({ params, url, platform }) => {
     },
     localization,
     descriptionHtml,
+    // "You may also like" strip (#160 A5). Titles resolved to the
+    // request locale server-side (en fallback, matching the page's own
+    // localization rule) so the client renders plain strings.
+    related: related.map((r) => ({
+      id: r.id,
+      slug: r.slug,
+      title: r.titles[locale] ?? r.titles["en"] ?? r.slug,
+      priceFromSatang: r.priceFromSatang,
+      mediaId: r.featuredMediaId,
+    })),
     seo,
     jsonLd,
     locale,

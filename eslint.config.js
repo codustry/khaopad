@@ -63,6 +63,14 @@ export default defineConfig(
       // navigates to the current route with new query params. There is no
       // build-time route ID for any of them to resolve.
       "src/lib/components/admin/**/*.svelte",
+      // Storefront shop components (ProductCard, FacetSidebar, chips,
+      // pagination) build locale-prefixed hrefs via localePath() + URL
+      // query serialization — same story as (www) routes: no build-time
+      // route ID to resolve.
+      "src/lib/components/shop/**/*.svelte",
+      // Same again for shared www-surface components (HeaderSearch):
+      // locale-prefixed search URLs built at runtime.
+      "src/lib/components/www/**/*.svelte",
     ],
     rules: {
       "svelte/no-navigation-without-resolve": "off",

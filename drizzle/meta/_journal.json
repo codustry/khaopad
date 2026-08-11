@@ -169,6 +169,13 @@
       "when": 1785686100000,
       "tag": "0023_fix_legal_locale_link",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1785772500000,
+      "tag": "0024_products_fts",
+      "breakpoints": true
     }
   ]
 }

@@ -4,7 +4,9 @@
 	import { onMount } from 'svelte';
 	import { track } from '$lib/analytics/track';
 	import { localePath } from '$lib/i18n';
+	import * as m from '$lib/paraglide/messages';
 	import { formatSatang, type Satang } from '$plugins/shop/money';
+	import RecentlyViewed from '$lib/components/shop/RecentlyViewed.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -199,4 +201,64 @@
 			<p class="mt-3 text-sm text-destructive">{addError}</p>
 		{/if}
 	</footer>
+
+	<!-- ─── You may also like (#160 A5) ─────────────────────────
+	     Server-ranked: order co-occurrence → same collection →
+	     catalog affinity. Renders nothing (no header) when empty. -->
+	{#if data.related.length > 0}
+		<section aria-labelledby="related-products-heading" class="mt-12 border-t border-border pt-8">
+			<h2
+				id="related-products-heading"
+				class="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground"
+			>
+				{m.shop_related_title()}
+			</h2>
+			<ul class="grid grid-cols-2 gap-4 sm:grid-cols-4">
+				{#each data.related as item (item.id)}
+					<li>
+						<!-- TODO: swap to shop/ProductCard once merged -->
+						<a
+							href={localePath(data.locale, `/products/${item.slug}`)}
+							class="block rounded-lg border border-border p-3 transition-colors hover:bg-muted"
+						>
+							{#if item.mediaId}
+								<img
+									src={`/api/media/${item.mediaId}`}
+									alt=""
+									width="160"
+									height="160"
+									loading="lazy"
+									class="mb-2 aspect-square w-full rounded-md border border-border object-cover"
+								/>
+							{/if}
+							<div class="truncate text-sm font-medium">{item.title}</div>
+							{#if item.priceFromSatang != null}
+								<div class="mt-0.5 text-xs tabular-nums text-muted-foreground">
+									{formatSatang(item.priceFromSatang as Satang, data.locale === 'th' ? 'th' : 'en')}
+								</div>
+							{/if}
+						</a>
+					</li>
+				{/each}
+			</ul>
+		</section>
+	{/if}
+
+	<!-- ─── Recently viewed (#160 A6) ───────────────────────────
+	     Client-only localStorage strip; records this product on mount
+	     but never shows it. Keyed so remounting on product navigation
+	     re-runs the capture for the new product. -->
+	{#key product.id}
+		<RecentlyViewed
+			locale={data.locale}
+			current={{
+				id: product.id,
+				slug: product.slug,
+				title: localization.title,
+				price: selectedVariant?.priceSatang ?? null,
+				image: product.featuredMediaId ?? null,
+				locale: data.locale,
+			}}
+		/>
+	{/key}
 </article>

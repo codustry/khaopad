@@ -30,6 +30,7 @@ import {
   type ShopProduct,
 } from "./schema";
 import { type Satang } from "./money";
+import { refreshProductIndex } from "./search";
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -671,6 +672,13 @@ export class ShopService {
       await this.db.insert(shopInventoryLevels).values(inventoryLevelInserts);
     }
 
+    // Best-effort FTS refresh (matches d1.ts snapshotVersion's policy:
+    // a failed index write must not break the write the user cares
+    // about — the next refresh self-heals via delete+reinsert).
+    await refreshProductIndex(this.db, productId).catch((err) =>
+      console.error("products_fts refresh failed", err),
+    );
+
     return productId;
   }
 
@@ -690,6 +698,11 @@ export class ShopService {
     // FK cascades handle everything downstream (localizations, options,
     // variants, variant_options, inventory items+levels).
     await this.db.delete(shopProducts).where(eq(shopProducts.id, id));
+    // FTS is not FK-linked — refresh drops the deleted product's rows
+    // (the reinsert half finds nothing). Best-effort, see createProduct.
+    await refreshProductIndex(this.db, id).catch((err) =>
+      console.error("products_fts refresh failed", err),
+    );
   }
 
   // ── Inventory ──────────────────────────────────────────
