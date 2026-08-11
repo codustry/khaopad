@@ -1,7 +1,9 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { emailOTP } from "better-auth/plugins";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "../content/schema";
+import { sendSignInOtpEmail } from "./otp-email";
 
 /**
  * D1 + Better Auth date binding workaround.
@@ -46,7 +48,13 @@ function wrapD1ForDates(d1: D1Database): D1Database {
 
 export function createAuth(
   d1: D1Database,
-  env: { BETTER_AUTH_SECRET: string; BETTER_AUTH_URL: string },
+  env: {
+    BETTER_AUTH_SECRET: string;
+    BETTER_AUTH_URL: string;
+    /** Optional Resend credentials — enable customer OTP sign-in mail. */
+    RESEND_API_KEY?: string;
+    RESEND_FROM?: string;
+  },
 ) {
   const db = drizzle(wrapD1ForDates(d1), { schema });
 
@@ -76,6 +84,56 @@ export function createAuth(
         role: { type: "string", defaultValue: "author", input: false },
       },
     },
+    /**
+     * Customer role assignment (v3.17 D1).
+     *
+     * The email-OTP sign-in auto-creates a user row for unknown emails.
+     * Without this hook that row would inherit the `author` default —
+     * an ADMIN role (authors can enter /admin and write articles). The
+     * create-path hook keys off the endpoint that triggered the insert:
+     * only `/sign-in/email-otp` (the customer flow) mints `customer`;
+     * every admin path (invite signup, bootstrap signup, admin-created
+     * users) keeps the `author` default and its explicit role writes.
+     */
+    databaseHooks: {
+      user: {
+        create: {
+          before: async (user, ctx) => {
+            if (ctx?.path === "/sign-in/email-otp") {
+              return { data: { ...user, role: "customer" } };
+            }
+            return { data: user };
+          },
+        },
+      },
+    },
+    plugins: [
+      /**
+       * Passwordless customer sign-in (v3.17 D1): a 6-digit code sent
+       * over the same Resend path as order receipts. Codes are stored
+       * hashed (a leaked verifications table must not be a login
+       * table), expire in 5 minutes, allow 3 attempts. The send is
+       * fire-and-forget from Better Auth's perspective; a missing
+       * Resend config makes sign-in impossible but never 500s.
+       */
+      emailOTP({
+        otpLength: 6,
+        expiresIn: 300,
+        allowedAttempts: 3,
+        storeOTP: "hashed",
+        async sendVerificationOTP({ email, otp, type }) {
+          if (type !== "sign-in") return; // only the customer flow sends mail
+          await sendSignInOtpEmail(
+            {
+              RESEND_API_KEY: env.RESEND_API_KEY,
+              RESEND_FROM: env.RESEND_FROM,
+              DB: d1,
+            },
+            { email, otp },
+          );
+        },
+      }),
+    ],
     advanced: {
       /**
        * Session cookie name — deliberately WITHOUT a `__Host-` prefix.

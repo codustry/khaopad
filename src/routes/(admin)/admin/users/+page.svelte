@@ -37,6 +37,11 @@
 				return m.cms_role_editor();
 			case 'author':
 				return m.cms_role_author();
+			// Storefront shoppers (v3.17 D1). Not offered in ROLES —
+			// user management is for staff; customers appear here only
+			// if the list ever includes them.
+			case 'customer':
+				return m.cms_role_customer();
 		}
 	}
 

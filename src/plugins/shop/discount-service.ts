@@ -49,21 +49,28 @@ export type DiscountApplyOutcome =
       message: string;
     };
 
+/** Cart-side context a discount is validated against. */
+export type DiscountContext = {
+  subtotalSatang: number;
+  shippingSatang: number;
+  /** For per-customer cap: sign-in id if present, else email. */
+  userId?: string | null;
+  userEmail?: string | null;
+};
+
 /**
  * Look up a discount code by user-typed string + validate it against
  * the cart context. Does NOT record a redemption — that happens only
  * on payment success in `recordRedemption()`.
+ *
+ * D3: only `method='code'` rows match — automatic discounts carry an
+ * auto-generated sentinel code that must never be redeemable by
+ * typing it in (a leaked sentinel would bypass the automatic
+ * evaluation's best-of arbitration).
  */
 export async function validateDiscount(
   d1: D1Database,
-  input: {
-    code: string;
-    subtotalSatang: number;
-    shippingSatang: number;
-    /** For per-customer cap: sign-in id if present, else email. */
-    userId?: string | null;
-    userEmail?: string | null;
-  },
+  input: { code: string } & DiscountContext,
 ): Promise<DiscountApplyOutcome> {
   const canonicalCode = input.code.trim().toUpperCase();
   if (!canonicalCode) {
@@ -73,12 +80,31 @@ export async function validateDiscount(
   const discount = await db
     .select()
     .from(shopDiscountCodes)
-    .where(eq(shopDiscountCodes.code, canonicalCode))
+    .where(
+      and(
+        eq(shopDiscountCodes.code, canonicalCode),
+        eq(shopDiscountCodes.method, "code"),
+      ),
+    )
     .limit(1)
     .get();
   if (!discount) {
     return { ok: false, reason: "NOT_FOUND", message: "Code not found" };
   }
+  return evaluateDiscountAgainstContext(db, discount, input);
+}
+
+/**
+ * Shared validation core (D3): window, redemption caps, minimum order,
+ * amount computation. Used identically for typed codes and automatic
+ * discounts — an automatic discount obeys the exact same rules, it
+ * just skips the code-entry step.
+ */
+async function evaluateDiscountAgainstContext(
+  db: ReturnType<typeof drizzle>,
+  discount: ShopDiscountCode,
+  input: DiscountContext,
+): Promise<DiscountApplyOutcome> {
   if (!discount.active) {
     return {
       ok: false,
@@ -190,6 +216,79 @@ export async function validateDiscount(
 }
 
 /**
+ * D3: evaluate every active automatic discount against the cart and
+ * return the single best one (max customer benefit), or null when none
+ * applies.
+ *
+ * Combination rule is deliberately BEST-OF-ONE, no stacking. Shopify
+ * models combinability as a 25-cell matrix (each discount declares
+ * which classes it combines with, order×product×shipping); that
+ * machinery exists to serve merchants running dozens of concurrent
+ * promotions and is explicitly skipped here — one discount per order
+ * (matching the existing one-code rule from v3.5), and when several
+ * qualify the customer gets the largest. Ties break deterministically:
+ * earlier createdAt wins, then id ASC — so re-running checkout never
+ * flips the winner.
+ *
+ * Windows, redemption caps, and minimum order all reuse the same
+ * validation core as typed codes.
+ */
+export async function evaluateAutomaticDiscounts(
+  d1: D1Database,
+  input: DiscountContext,
+): Promise<Extract<DiscountApplyOutcome, { ok: true }> | null> {
+  const db = drizzle(d1);
+  // `active` is re-checked inside the shared core, but filtering here
+  // keeps the common case (no automatics configured) to one cheap
+  // indexed-scan query with zero follow-up cap lookups.
+  const candidates = await db
+    .select()
+    .from(shopDiscountCodes)
+    .where(
+      and(
+        eq(shopDiscountCodes.method, "automatic"),
+        eq(shopDiscountCodes.active, true),
+      ),
+    )
+    .all();
+
+  let best: Extract<DiscountApplyOutcome, { ok: true }> | null = null;
+  for (const candidate of candidates) {
+    const outcome = await evaluateDiscountAgainstContext(db, candidate, input);
+    if (!outcome.ok) continue;
+    if (
+      best === null ||
+      outcome.amountSatang > best.amountSatang ||
+      (outcome.amountSatang === best.amountSatang &&
+        (outcome.discount.createdAt < best.discount.createdAt ||
+          (outcome.discount.createdAt === best.discount.createdAt &&
+            outcome.discount.id < best.discount.id)))
+    ) {
+      best = outcome;
+    }
+  }
+  return best;
+}
+
+/**
+ * D3 combination rule, factored pure so checkout/start and tests share
+ * it: BEST-OF one discount — the typed code vs the best automatic,
+ * whichever benefits the customer more. Tie goes to the typed code
+ * (the customer expressed intent and expects THAT code on the
+ * receipt). Returns null when neither applies.
+ */
+export function chooseBestDiscount(
+  codeOutcome: DiscountApplyOutcome | null,
+  autoOutcome: Extract<DiscountApplyOutcome, { ok: true }> | null,
+): Extract<DiscountApplyOutcome, { ok: true }> | null {
+  const code = codeOutcome?.ok ? codeOutcome : null;
+  if (code && (!autoOutcome || code.amountSatang >= autoOutcome.amountSatang)) {
+    return code;
+  }
+  return autoOutcome;
+}
+
+/**
  * Record a redemption on payment success. Idempotent — composite PK
  * on (discountId, orderId) means a webhook retry inserts nothing new.
  * Callers do NOT need to wrap this in a try/catch for double-fire;
@@ -238,7 +337,14 @@ export async function listDiscounts(
 }
 
 export type CreateDiscountInput = {
-  code: string;
+  /**
+   * Required for method='code'. Ignored for method='automatic' —
+   * automatic rows get an auto-generated `AUTO-<nanoid>` sentinel
+   * (the column is NOT NULL + UNIQUE; see 0028's rationale).
+   */
+  code?: string;
+  /** D3: defaults to 'code' (the pre-0028 behavior). */
+  method?: "code" | "automatic";
   kind: "fixed_satang" | "percent" | "free_shipping";
   valueSatang?: number;
   valuePercent?: number;
@@ -255,11 +361,21 @@ export async function createDiscount(
   d1: D1Database,
   input: CreateDiscountInput,
 ): Promise<string> {
-  const canonicalCode = input.code.trim().toUpperCase();
-  if (!/^[A-Z0-9_-]{2,32}$/.test(canonicalCode)) {
-    throw new Error(
-      `Discount code must be 2-32 chars, A-Z / 0-9 / _ / - only (got: ${input.code})`,
-    );
+  const method = input.method ?? "code";
+  let canonicalCode: string;
+  if (method === "automatic") {
+    // Sentinel — satisfies NOT NULL + UNIQUE, never typed by anyone.
+    // nanoid's alphabet is [A-Za-z0-9_-], so the uppercased sentinel
+    // stays inside the code charset. Collision odds at 10 chars are
+    // negligible for admin-created rows; the UNIQUE index backstops.
+    canonicalCode = `AUTO-${nanoid(10).toUpperCase()}`;
+  } else {
+    canonicalCode = (input.code ?? "").trim().toUpperCase();
+    if (!/^[A-Z0-9_-]{2,32}$/.test(canonicalCode)) {
+      throw new Error(
+        `Discount code must be 2-32 chars, A-Z / 0-9 / _ / - only (got: ${input.code})`,
+      );
+    }
   }
   const db = drizzle(d1);
   const id = nanoid();
@@ -267,6 +383,7 @@ export async function createDiscount(
   await db.insert(shopDiscountCodes).values({
     id,
     code: canonicalCode,
+    method,
     kind: input.kind,
     valueSatang: input.valueSatang ?? null,
     valuePercent: input.valuePercent ?? null,

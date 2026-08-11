@@ -12,9 +12,6 @@
  *     the base URL — one canonical per product, not per variant
  *
  * Not shipped yet:
- *   - AggregateRating (waits for @khaopad/plugin-reviews in v3.4 —
- *     never emit fake AggregateRating; Google flags fabricated
- *     review schema as manipulation)
  *   - Multi-variant Offers with priceSpecification — the current
  *     emitter picks the min variant price. When variants have
  *     meaningfully different prices, upgrade to itemOffered.Offer[].
@@ -39,6 +36,18 @@ export type ProductJsonLdInput = {
   featuredImageUrl?: string | null;
   variants: ProductJsonLdVariant[];
   currency?: string; // ISO 4217, defaults to THB
+  /**
+   * v3.17 (#160 D2, @khaopad/plugin-reviews): real aggregate over
+   * APPROVED reviews only. Omitted (or count 0 / null average) emits
+   * no aggregateRating at all — Google flags fabricated review schema
+   * as manipulation, so absence is the only honest zero state.
+   */
+  aggregateRating?: {
+    /** Average approved rating, 1–5. */
+    ratingValue: number | null;
+    /** Number of approved reviews. */
+    reviewCount: number;
+  } | null;
 };
 
 /**
@@ -78,6 +87,21 @@ export function buildProductJsonLd(input: ProductJsonLdInput): string {
   if (input.description) base.description = input.description;
   if (brand) base.brand = { "@type": "Brand", name: brand };
   if (input.featuredImageUrl) base.image = input.featuredImageUrl;
+
+  // AggregateRating — merged into the SAME Product node (not a second
+  // JSON-LD block; Google associates the rating with the Product only
+  // when it's a property of that node). Emitted strictly when at least
+  // one approved review exists.
+  const agg = input.aggregateRating;
+  if (agg && agg.reviewCount > 0 && agg.ratingValue != null) {
+    base.aggregateRating = {
+      "@type": "AggregateRating",
+      ratingValue: String(agg.ratingValue),
+      reviewCount: agg.reviewCount,
+      bestRating: "5",
+      worstRating: "1",
+    };
+  }
 
   // Google Merchant / rich results reads Offer.availability
   const availability = hasAnyStock

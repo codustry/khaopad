@@ -7,6 +7,7 @@
 	import * as m from '$lib/paraglide/messages';
 	import { formatSatang, type Satang } from '$plugins/shop/money';
 	import RecentlyViewed from '$lib/components/shop/RecentlyViewed.svelte';
+	import ReviewsSection from '$plugins/reviews/ReviewsSection.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -78,6 +79,46 @@
 	let addError = $state<string | null>(null);
 	let added = $state(false);
 
+	// ─── Back-in-stock capture (v3.17 D4) ───────────────────────────
+	// Small form under the sold-out badge; POSTs (variantId, email,
+	// locale) to /api/shop/back-in-stock. Dedupe is server-side
+	// (UNIQUE (variant_id, email)) so double-submits stay silent.
+	let bisEmail = $state('');
+	let bisBusy = $state(false);
+	let bisDone = $state(false);
+	let bisError = $state<string | null>(null);
+
+	async function subscribeBackInStock(event: Event) {
+		event.preventDefault();
+		if (!selectedVariant || bisBusy) return;
+		if (!bisEmail.trim() || !bisEmail.includes('@')) {
+			bisError = m.shop_bis_error();
+			return;
+		}
+		bisBusy = true;
+		bisError = null;
+		try {
+			const res = await fetch('/api/shop/back-in-stock', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					variantId: selectedVariant.id,
+					email: bisEmail.trim(),
+					locale: data.locale
+				})
+			});
+			if (!res.ok) {
+				bisError = m.shop_bis_error();
+				return;
+			}
+			bisDone = true;
+		} catch {
+			bisError = m.shop_bis_error();
+		} finally {
+			bisBusy = false;
+		}
+	}
+
 	async function addToCart() {
 		if (!selectedVariant || adding) return;
 		adding = true;
@@ -148,6 +189,38 @@
 			</p>
 		{:else}
 			<p class="text-sm text-destructive">Sold out</p>
+			<!-- ─── Back-in-stock capture (v3.17 D4) ───────────────
+			     Only rendered for the sold-out variant. Keyed on the
+			     variant so switching variants resets the done state. -->
+			{#key selectedVariant.id}
+				<div class="max-w-sm rounded-md border border-border p-3">
+					{#if bisDone}
+						<p class="text-sm text-green-700">{m.shop_bis_success()}</p>
+					{:else}
+						<p class="mb-2 text-sm font-medium">{m.shop_bis_title()}</p>
+						<form onsubmit={subscribeBackInStock} class="flex gap-2">
+							<input
+								type="email"
+								bind:value={bisEmail}
+								placeholder={m.shop_bis_email_placeholder()}
+								required
+								autocomplete="email"
+								class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+							/>
+							<button
+								type="submit"
+								disabled={bisBusy}
+								class="h-9 shrink-0 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-50"
+							>
+								{m.shop_bis_submit()}
+							</button>
+						</form>
+						{#if bisError}
+							<p class="mt-2 text-sm text-destructive">{bisError}</p>
+						{/if}
+					{/if}
+				</div>
+			{/key}
 		{/if}
 	</section>
 
@@ -243,6 +316,17 @@
 			</ul>
 		</section>
 	{/if}
+
+	<!-- ─── Customer reviews (#160 D2) ──────────────────────────
+	     Approved only; submission form posts to /api/reviews with the
+	     shared honeypot + rate-limit floor. Owned by plugin-reviews. -->
+	<ReviewsSection
+		locale={data.locale}
+		productId={product.id}
+		average={data.reviews.average}
+		count={data.reviews.count}
+		items={data.reviews.items}
+	/>
 
 	<!-- ─── Recently viewed (#160 A6) ───────────────────────────
 	     Client-only localStorage strip; records this product on mount

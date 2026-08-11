@@ -476,6 +476,8 @@ function fakeOrder(): OrderWithItems {
     subtotalSatang: 25000,
     shippingSatang: 0,
     taxSatang: 0,
+    taxIncludedSatang: 0,
+    taxMode: "exclusive",
     discountSatang: 0,
     totalSatang: 25000,
     shippingAddressJson: null,

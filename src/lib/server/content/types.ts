@@ -164,6 +164,35 @@ export interface SiteSettings {
    * (LINE_NOTIFY_TOKEN).
    */
   shopNotifyEmail?: string;
+  /**
+   * v3.17 (D5): merchant identity for finance reporting — the
+   * ใบกำกับภาษี (Thai tax invoice) groundwork. Shown on the
+   * /admin/reports header; the full per-order tax-invoice document is
+   * deferred.
+   */
+  merchantLegalName?: string;
+  /** 13-digit Thai tax id (เลขประจำตัวผู้เสียภาษี) — stored as text. */
+  merchantTaxId?: string;
+  /**
+   * v3.17 (D6): design settings so two Khao Pad stores can look
+   * different without a fork.
+   *
+   * `themePrimaryColor` — hex color (#rrggbb) mapped onto the
+   * `--color-primary` CSS custom property by the (www) layout via an
+   * inline style on the root element (SSR-safe — rendered into the
+   * first HTML payload, so no flash of the default theme). Empty/
+   * undefined keeps the built-in token from app.css.
+   */
+  themePrimaryColor?: string;
+  /** v3.17 (D6): media id rendered as the public header logo when set. */
+  themeLogoMediaId?: string;
+  /**
+   * v3.17 (D6): homepage hero copy per locale. A missing locale falls
+   * back to en, then to the Paraglide site_name/site_description
+   * defaults.
+   */
+  homepageHeroTitle?: Partial<Record<Locale, string>>;
+  homepageHeroSubtitle?: Partial<Record<Locale, string>>;
   [key: string]: unknown;
 }
 

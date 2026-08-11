@@ -206,6 +206,17 @@ export const shopOrders = sqliteTable("shop_orders", {
   subtotalSatang: integer("subtotal_satang").notNull(),
   shippingSatang: integer("shipping_satang").notNull().default(0),
   taxSatang: integer("tax_satang").notNull().default(0),
+  // D5 (0028): VAT already contained in the total in prices-inclusive
+  // mode (computeTotals' taxIncludedSatang — informational, NOT part
+  // of the total formula). 0 in exclusive mode and for pre-0028 rows.
+  taxIncludedSatang: integer("tax_included_satang").notNull().default(0),
+  // D5 (0028): snapshot of the store's tax config at checkout time so
+  // the finance report labels each order's VAT correctly even after a
+  // config flip. 'exclusive' → VAT lives in tax_satang (added on top);
+  // 'inclusive' → VAT lives in tax_included_satang (broken out).
+  taxMode: text("tax_mode", { enum: ["exclusive", "inclusive"] })
+    .notNull()
+    .default("exclusive"),
   discountSatang: integer("discount_satang").notNull().default(0),
   totalSatang: integer("total_satang").notNull(),
   // Shipping address (JSON blob — the shipping-zone matcher parses

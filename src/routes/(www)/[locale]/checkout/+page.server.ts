@@ -12,6 +12,7 @@ import { error, redirect } from "@sveltejs/kit";
 import { localePath, toLocale } from "$lib/i18n";
 import { CartService } from "$plugins/shop/cart-service";
 import { ensureCartSession } from "$plugins/shop/cart-cookie";
+import { listAddresses } from "$lib/server/account";
 import type { PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({
@@ -49,5 +50,10 @@ export const load: PageServerLoad = async ({
     taxSatang: 0,
     totalSatang: subtotal,
     userEmail: locals.user?.email ?? null,
+    // v3.17 D1: saved addresses prefill for signed-in customers.
+    // Default-first ordering (listAddresses) — [0] is the prefill.
+    savedAddresses: locals.user
+      ? await listAddresses(env.DB, locals.user.id)
+      : [],
   };
 };

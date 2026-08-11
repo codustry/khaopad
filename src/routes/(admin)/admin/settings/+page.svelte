@@ -54,6 +54,31 @@
 	let shopNotifyEmail = $state(
 		(data.settings.shopNotifyEmail as string | undefined) ?? '',
 	);
+	// v3.17 (D5) — merchant tax identity for the finance report header
+	// (ใบกำกับภาษี groundwork).
+	// svelte-ignore state_referenced_locally
+	let merchantLegalName = $state(
+		(data.settings.merchantLegalName as string | undefined) ?? '',
+	);
+	// svelte-ignore state_referenced_locally
+	let merchantTaxId = $state(
+		(data.settings.merchantTaxId as string | undefined) ?? '',
+	);
+	// v3.17 (D6) — design settings: primary color, header logo, hero copy.
+	// svelte-ignore state_referenced_locally
+	let themePrimaryColor = $state(
+		(data.settings.themePrimaryColor as string | undefined) ?? '',
+	);
+	// svelte-ignore state_referenced_locally
+	let themeLogoMediaId = $state(
+		(data.settings.themeLogoMediaId as string | undefined) ?? '',
+	);
+	const heroTitle = (data.settings.homepageHeroTitle ?? {}) as Record<string, string>;
+	const heroSubtitle = (data.settings.homepageHeroSubtitle ?? {}) as Record<string, string>;
+	let heroTitleEn = $state(heroTitle.en ?? '');
+	let heroTitleTh = $state(heroTitle.th ?? '');
+	let heroSubtitleEn = $state(heroSubtitle.en ?? '');
+	let heroSubtitleTh = $state(heroSubtitle.th ?? '');
 	let saving = $state(false);
 
 	// SaveBar + dirty-guard wiring (#160 C8). The snapshot serialises the
@@ -277,6 +302,118 @@
 						disable the email channel.
 					</p>
 				</div>
+			</CardContent>
+		</Card>
+
+		<!-- v3.17 D5 — merchant tax identity, shown on /admin/reports.
+		     Plain English like the card above; the Thai admin sweep owns i18n. -->
+		<Card class="mt-6">
+			<CardHeader>
+				<CardTitle>Merchant tax details</CardTitle>
+			</CardHeader>
+			<CardContent class="space-y-4">
+				<p class="text-xs text-muted-foreground">
+					Shown on the finance report header — groundwork for Thai tax
+					invoices (ใบกำกับภาษี). The full per-order invoice document ships
+					later.
+				</p>
+				<div class="space-y-1.5">
+					<Label for="merchant_legal_name">Legal name</Label>
+					<Input
+						id="merchant_legal_name"
+						name="merchant_legal_name"
+						bind:value={merchantLegalName}
+						placeholder="บริษัท ตัวอย่าง จำกัด"
+					/>
+				</div>
+				<div class="space-y-1.5">
+					<Label for="merchant_tax_id">Tax ID (เลขประจำตัวผู้เสียภาษี)</Label>
+					<Input
+						id="merchant_tax_id"
+						name="merchant_tax_id"
+						bind:value={merchantTaxId}
+						placeholder="0-0000-00000-00-0"
+					/>
+				</div>
+			</CardContent>
+		</Card>
+
+		<!-- v3.17 D6 — design settings. Two stores must be able to look
+		     different: the color lands on --color-primary via an inline
+		     style in the (www) layout; the logo renders in the header;
+		     the hero copy replaces the homepage defaults per locale.
+		     Plain English like the cards above (Thai sweep owns admin i18n). -->
+		<Card class="mt-6">
+			<CardHeader>
+				<CardTitle>Design</CardTitle>
+			</CardHeader>
+			<CardContent class="space-y-4">
+				<p class="text-xs text-muted-foreground">
+					Brand the public site. All fields optional — leave blank to keep
+					the built-in look.
+				</p>
+				<div class="space-y-1.5">
+					<Label for="theme_primary_color">Primary color</Label>
+					<div class="flex items-center gap-2">
+						<input
+							type="color"
+							aria-label="Primary color picker"
+							value={/^#[0-9a-fA-F]{6}$/.test(themePrimaryColor)
+								? themePrimaryColor
+								: '#1f1f24'}
+							oninput={(e) => (themePrimaryColor = e.currentTarget.value)}
+							class="h-9 w-12 cursor-pointer rounded-md border border-input bg-transparent p-1"
+						/>
+						<Input
+							id="theme_primary_color"
+							name="theme_primary_color"
+							bind:value={themePrimaryColor}
+							placeholder="#1a73e8"
+							class="font-mono"
+						/>
+					</div>
+					<p class="text-xs text-muted-foreground">
+						Hex only (#rrggbb). Applied to buttons, links and accents on the
+						public site via the --color-primary token.
+					</p>
+				</div>
+				<div class="space-y-1.5">
+					<Label for="theme_logo_media_id">Logo media ID</Label>
+					<Input
+						id="theme_logo_media_id"
+						name="theme_logo_media_id"
+						bind:value={themeLogoMediaId}
+						placeholder="V1StGXR8_Z5jdHi6B-myT"
+						class="font-mono"
+					/>
+					<p class="text-xs text-muted-foreground">
+						Paste a media ID from the Media library (use its "Copy ID"
+						button) — there is no picker here yet. Shown in the public
+						header next to the site name.
+					</p>
+				</div>
+				<div class="grid gap-4 sm:grid-cols-2">
+					<div class="space-y-1.5">
+						<Label for="hero_title_en">Hero title (EN)</Label>
+						<Input id="hero_title_en" name="hero_title_en" bind:value={heroTitleEn} />
+					</div>
+					<div class="space-y-1.5">
+						<Label for="hero_title_th">Hero title (TH)</Label>
+						<Input id="hero_title_th" name="hero_title_th" bind:value={heroTitleTh} />
+					</div>
+					<div class="space-y-1.5">
+						<Label for="hero_subtitle_en">Hero subtitle (EN)</Label>
+						<Input id="hero_subtitle_en" name="hero_subtitle_en" bind:value={heroSubtitleEn} />
+					</div>
+					<div class="space-y-1.5">
+						<Label for="hero_subtitle_th">Hero subtitle (TH)</Label>
+						<Input id="hero_subtitle_th" name="hero_subtitle_th" bind:value={heroSubtitleTh} />
+					</div>
+				</div>
+				<p class="text-xs text-muted-foreground">
+					Homepage hero copy per locale. A blank locale falls back to
+					English, then to the built-in site name and description.
+				</p>
 			</CardContent>
 		</Card>
 

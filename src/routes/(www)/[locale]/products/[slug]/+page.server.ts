@@ -17,6 +17,7 @@ import { canonicalUrl, resolveOrigin, type PageSeo } from "$lib/seo";
 import { ShopService } from "$plugins/shop/service";
 import { relatedProducts } from "$plugins/shop/related";
 import { buildProductJsonLd } from "$plugins/shop/jsonld";
+import { ReviewService } from "$plugins/reviews/service";
 import type { PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ params, url, platform }) => {
@@ -54,15 +55,27 @@ export const load: PageServerLoad = async ({ params, url, platform }) => {
   // serializing the page on the recommendation queries. A failed
   // recommendation must never 404/500 the product page, so it
   // degrades to an empty strip.
-  const [descriptionHtml, related] = await Promise.all([
-    localization.descriptionMarkdown
-      ? marked.parse(localization.descriptionMarkdown, { async: true })
-      : Promise.resolve(null),
-    relatedProducts(env.DB, { productId: product.id }).catch((err) => {
-      console.error("relatedProducts failed", err);
-      return [];
-    }),
-  ]);
+  // Reviews (#160 D2) degrade the same way as recommendations: a
+  // broken reviews query must never take down the product page.
+  const reviewSvc = new ReviewService(env.DB);
+  const [descriptionHtml, related, reviews, reviewAggregate] =
+    await Promise.all([
+      localization.descriptionMarkdown
+        ? marked.parse(localization.descriptionMarkdown, { async: true })
+        : Promise.resolve(null),
+      relatedProducts(env.DB, { productId: product.id }).catch((err) => {
+        console.error("relatedProducts failed", err);
+        return [];
+      }),
+      reviewSvc.listApproved(product.id).catch((err) => {
+        console.error("listApproved reviews failed", err);
+        return [];
+      }),
+      reviewSvc.getAggregate(product.id).catch((err) => {
+        console.error("review aggregate failed", err);
+        return { average: null, count: 0 };
+      }),
+    ]);
 
   // JSON-LD payload — one Offer per active variant OR AggregateOffer
   // when there are ≥2. Availability keys off computed available count.
@@ -79,6 +92,12 @@ export const load: PageServerLoad = async ({ params, url, platform }) => {
       available: v.inventory?.available ?? 0,
     })),
     currency: "THB",
+    // aggregateRating merges into the SAME Product node. The builder
+    // refuses to emit it when there are no approved reviews.
+    aggregateRating: {
+      ratingValue: reviewAggregate.average,
+      reviewCount: reviewAggregate.count,
+    },
   });
 
   const seo: PageSeo = {
@@ -130,5 +149,23 @@ export const load: PageServerLoad = async ({ params, url, platform }) => {
     seo,
     jsonLd,
     locale,
+    // Approved reviews only, with the reviewer's email reduced to a
+    // display handle server-side — the raw address never reaches the
+    // client payload.
+    reviews: {
+      average: reviewAggregate.average,
+      count: reviewAggregate.count,
+      items: reviews.map((r) => ({
+        id: r.id,
+        rating: r.rating,
+        title: r.title,
+        body: r.body,
+        verified: r.verified === 1,
+        createdAt: r.createdAt,
+        // "s***" style — enough for a repeat reviewer to recognise
+        // themselves, useless for scraping addresses.
+        author: `${r.email[0] ?? "?"}***`,
+      })),
+    },
   };
 };

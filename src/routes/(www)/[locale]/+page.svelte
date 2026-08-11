@@ -7,10 +7,12 @@
 
 <!-- SEO is handled by the layout's <Seo /> component (see (www)/+layout.svelte). -->
 
+<!-- Hero copy is operator-configurable per locale (v3.17 D6, Settings →
+     Design); Paraglide strings remain the zero-config default. -->
 <section class="container mx-auto px-4 py-16 text-center">
-	<h1 class="text-4xl font-bold mb-4">{m.site_name()}</h1>
+	<h1 class="text-4xl font-bold mb-4">{data.hero?.title ?? m.site_name()}</h1>
 	<p class="text-xl text-muted-foreground mb-8">
-		{m.site_description()}
+		{data.hero?.subtitle ?? m.site_description()}
 	</p>
 	<div class="flex gap-4 justify-center">
 		<a

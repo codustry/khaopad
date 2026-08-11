@@ -29,15 +29,19 @@
 	// trusted with money. Quotes are fetched per country because that is
 	// the zone matcher's key.
 	let shipToAddress = $state(false);
+	// v3.17 D1: prefill from the signed-in customer's saved addresses
+	// (default-first — load orders them). Guests get the empty form.
+	const savedAddr = data.savedAddresses?.[0] ?? null;
 	let addr = $state({
-		name: '',
-		line1: '',
-		line2: '',
-		city: '',
-		region: '',
-		postalCode: '',
-		countryCode: toLocale(page.params.locale ?? 'en') === 'th' ? 'TH' : '',
-		phone: '',
+		name: savedAddr?.name ?? '',
+		line1: savedAddr?.line1 ?? '',
+		line2: savedAddr?.line2 ?? '',
+		city: savedAddr?.city ?? '',
+		region: savedAddr?.region ?? '',
+		postalCode: savedAddr?.postalCode ?? '',
+		countryCode:
+			savedAddr?.countryCode ?? (toLocale(page.params.locale ?? 'en') === 'th' ? 'TH' : ''),
+		phone: savedAddr?.phone ?? '',
 	});
 	let quotes = $state<Array<{ methodId: string; label: string; amountSatang: number }>>([]);
 	let quotesLoading = $state(false);

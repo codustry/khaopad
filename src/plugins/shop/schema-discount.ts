@@ -46,8 +46,25 @@ export const shopDiscountCodes = sqliteTable(
   "shop_discount_codes",
   {
     id: text("id").primaryKey(),
-    /** Case-insensitive lookup — canonicalized to UPPERCASE on write. */
+    /**
+     * Case-insensitive lookup — canonicalized to UPPERCASE on write.
+     *
+     * D3 (0028): stays NOT NULL even for automatic discounts — SQLite
+     * cannot drop NOT NULL via ALTER, and a table swap (with an
+     * incoming FK from shop_discount_redemptions) buys nothing here.
+     * Automatic rows carry an auto-generated `AUTO-<nanoid>` sentinel
+     * (see createDiscount); validateDiscount filters on method='code'
+     * so a sentinel can never be typed in at checkout.
+     */
     code: text("code").notNull(),
+    /**
+     * D3 (0028): 'code' = customer types it at checkout;
+     * 'automatic' = evaluated for every checkout while active
+     * (windows/caps/min-order all apply identically).
+     */
+    method: text("method", { enum: ["code", "automatic"] })
+      .notNull()
+      .default("code"),
     kind: text("kind", {
       enum: ["fixed_satang", "percent", "free_shipping"],
     }).notNull(),

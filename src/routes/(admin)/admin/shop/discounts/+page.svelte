@@ -9,12 +9,14 @@
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	let kind = $state<'fixed_satang' | 'percent' | 'free_shipping'>('percent');
+	let method = $state<'code' | 'automatic'>('code');
 	let submitting = $state(false);
 
 	type Code = PageData['codes'][number];
 
 	const columns: Column<Code>[] = [
 		{ key: 'code', header: m.shop_admin_col_code(), cell: codeCell },
+		{ key: 'method', header: m.shop_admin_col_method(), cell: methodCell },
 		{ key: 'kind', header: m.shop_admin_col_kind(), cell: kindCell },
 		{ key: 'value', header: m.shop_admin_col_value(), align: 'right', numeric: true, cell: valueCell },
 		{ key: 'used', header: m.shop_admin_col_used(), align: 'right', numeric: true, cell: usedCell },
@@ -24,10 +26,22 @@
 </script>
 
 {#snippet codeCell(c: Code)}
-	<code class="font-mono font-medium">{c.code}</code>
-	{#if c.description}
-		<div class="mt-0.5 text-xs text-muted-foreground">{c.description}</div>
+	{#if c.method === 'automatic'}
+		<!-- The AUTO-* sentinel is an implementation detail, not a code
+		     anyone can type — show the description (or a dash) instead. -->
+		<span class="text-sm">{c.description ?? '—'}</span>
+	{:else}
+		<code class="font-mono font-medium">{c.code}</code>
+		{#if c.description}
+			<div class="mt-0.5 text-xs text-muted-foreground">{c.description}</div>
+		{/if}
 	{/if}
+{/snippet}
+
+{#snippet methodCell(c: Code)}
+	<span class="text-xs text-muted-foreground">
+		{c.method === 'automatic' ? m.shop_admin_method_automatic() : m.shop_admin_method_code()}
+	</span>
 {/snippet}
 
 {#snippet kindCell(c: Code)}
@@ -98,8 +112,19 @@
 		>
 			<div class="grid grid-cols-2 gap-3">
 				<div class="space-y-1">
-					<Label for="code" class="text-xs">{m.shop_admin_code_label()}</Label>
-					<Input id="code" name="code" required maxlength={32} placeholder="SAVE10" />
+					<Label for="method" class="text-xs">{m.shop_admin_method_label()}</Label>
+					<select
+						id="method"
+						name="method"
+						bind:value={method}
+						class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+					>
+						<option value="code">{m.shop_admin_method_code()}</option>
+						<option value="automatic">{m.shop_admin_method_automatic()}</option>
+					</select>
+					{#if method === 'automatic'}
+						<p class="text-xs text-muted-foreground">{m.shop_admin_automatic_hint()}</p>
+					{/if}
 				</div>
 				<div class="space-y-1">
 					<Label for="kind" class="text-xs">{m.shop_admin_kind()}</Label>
@@ -111,10 +136,19 @@
 					>
 						<option value="percent">{m.shop_admin_kind_percent()}</option>
 						<option value="fixed_satang">{m.shop_admin_kind_fixed()}</option>
-						<option value="free_shipping" disabled>{m.shop_admin_kind_free_shipping()}</option>
+						<!-- Enabled since v3.13's server-priced shipping (#158) — the
+						     v3.5 "no shipping yet" block is gone. -->
+						<option value="free_shipping">{m.shop_admin_kind_free_shipping()}</option>
 					</select>
 				</div>
 			</div>
+
+			{#if method === 'code'}
+				<div class="space-y-1">
+					<Label for="code" class="text-xs">{m.shop_admin_code_label()}</Label>
+					<Input id="code" name="code" required maxlength={32} placeholder="SAVE10" />
+				</div>
+			{/if}
 
 			{#if kind === 'percent'}
 				<div class="space-y-1">

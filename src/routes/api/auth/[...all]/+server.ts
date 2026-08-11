@@ -35,6 +35,8 @@ const handleAuth: RequestHandler = async ({ request, platform }) => {
   const auth = createAuth(env.DB, {
     BETTER_AUTH_SECRET: env.BETTER_AUTH_SECRET,
     BETTER_AUTH_URL: env.BETTER_AUTH_URL,
+    RESEND_API_KEY: env.RESEND_API_KEY,
+    RESEND_FROM: env.RESEND_FROM,
   });
 
   return auth.handler(request);

@@ -213,25 +213,54 @@ export const POST: RequestHandler = async ({
     let discountCodeSnapshot: string | null = null;
     let discountId: string | null = null;
     let discountIsFreeShipping = false;
-    if (cart.discountCode && !cart.discountCode.startsWith("attribution:")) {
-      const { validateDiscount } =
-        await import("$plugins/shop/discount-service");
-      const outcome = await validateDiscount(env.DB, {
-        code: cart.discountCode,
+    {
+      const {
+        validateDiscount,
+        evaluateAutomaticDiscounts,
+        chooseBestDiscount,
+      } = await import("$plugins/shop/discount-service");
+      const discountContext = {
         subtotalSatang: shippingContext.subtotalSatang,
         shippingSatang,
         userId: locals.user?.id ?? null,
         userEmail: email,
-      });
-      if (outcome.ok) {
-        discountSatang = outcome.amountSatang;
-        discountCodeSnapshot = outcome.discount.code;
-        discountId = outcome.discount.id;
-        discountIsFreeShipping = outcome.freeShipping;
+      };
+      let codeOutcome: Awaited<ReturnType<typeof validateDiscount>> | null =
+        null;
+      if (cart.discountCode && !cart.discountCode.startsWith("attribution:")) {
+        codeOutcome = await validateDiscount(env.DB, {
+          code: cart.discountCode,
+          ...discountContext,
+        });
+        // Silent no-op on invalidation — customer proceeds without
+        // discount rather than being blocked at the door. The receipt
+        // won't show a discount they didn't get.
       }
-      // Silent no-op on invalidation — customer proceeds without
-      // discount rather than being blocked at the door. The receipt
-      // won't show a discount they didn't get.
+      // D3: ALSO evaluate active automatic discounts (same validation
+      // core — windows, caps, min-order). Combination rule = BEST-OF a
+      // single discount: no stacking, the customer gets whichever of
+      // {typed code, best automatic} is worth more. Shopify's 25-way
+      // combinability matrix (each discount class declaring what it
+      // stacks with) is explicitly skipped — it exists for merchants
+      // running dozens of concurrent promotions; one-discount-per-order
+      // has been the rule here since v3.5 and best-of preserves it
+      // while guaranteeing max customer benefit. Tie goes to the typed
+      // code — the customer expressed intent and expects to see THAT
+      // code on the receipt.
+      const autoOutcome = await evaluateAutomaticDiscounts(
+        env.DB,
+        discountContext,
+      );
+      const chosen = chooseBestDiscount(codeOutcome, autoOutcome);
+      if (chosen) {
+        discountSatang = chosen.amountSatang;
+        discountCodeSnapshot = chosen.discount.code;
+        discountId = chosen.discount.id;
+        // Free-shipping automatics ride the existing
+        // discountIsFreeShipping path — allocation and totals treat
+        // them identically to free-shipping codes.
+        discountIsFreeShipping = chosen.freeShipping;
+      }
     }
 
     // #107/#112: totals via the pure engine in totals.ts. The tax
@@ -280,7 +309,12 @@ export const POST: RequestHandler = async ({
       billingAddress,
       shippingSatang,
       taxSatang: totals.taxSatang,
+      // D5 (0028): persist the inclusive-mode VAT breakout + the tax
+      // mode snapshot so the finance report can label VAT per order.
+      taxIncludedSatang: totals.taxIncludedSatang,
+      taxMode: taxRate.pricesIncludeTax ? "inclusive" : "exclusive",
       discountSatang: totals.discountSatang,
+      discountIsFreeShipping,
       discountCodeSnapshot,
     });
 
@@ -288,7 +322,10 @@ export const POST: RequestHandler = async ({
     // the webhook can record the redemption. Format:
     //   `<discountId>:<code>` when a discount is applied
     //   `attribution:<articleId>` for v3.4 attribution
-    // The webhook parses both prefixes.
+    // The webhook parses both prefixes. D3: automatic discounts take
+    // the same path — their `code` is the AUTO-* sentinel, so the
+    // webhook records the redemption against the discount id with no
+    // customer-typed code involved (caps stay enforceable).
     if (discountId && discountCodeSnapshot) {
       const { drizzle } = await import("drizzle-orm/d1");
       const { eq } = await import("drizzle-orm");

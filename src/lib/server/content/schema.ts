@@ -15,7 +15,12 @@ export const users = sqliteTable("users", {
     .notNull()
     .default(false),
   image: text("image"),
-  role: text("role", { enum: ["super_admin", "admin", "editor", "author"] })
+  // `customer` (v3.17 D1): storefront shoppers created by the email-OTP
+  // sign-in. Sits BELOW `author` in the hierarchy — every hasRole()
+  // admin gate excludes it automatically.
+  role: text("role", {
+    enum: ["super_admin", "admin", "editor", "author", "customer"],
+  })
     .notNull()
     .default("author"),
   createdAt: text("created_at")
@@ -704,3 +709,30 @@ export const apiKeys = sqliteTable("api_keys", {
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
 });
+
+// ─── Customer saved addresses (v3.17 D1) ─────────────────
+// Saved shipping addresses for passwordless customer accounts. The
+// column shape mirrors `OrderAddress` in $plugins/shop/order-service —
+// a saved row converts to a checkout payload field-for-field.
+
+export const customerAddresses = sqliteTable("customer_addresses", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  line1: text("line1").notNull(),
+  line2: text("line2"),
+  city: text("city").notNull(),
+  region: text("region"),
+  postalCode: text("postal_code").notNull(),
+  countryCode: text("country_code").notNull(), // ISO-3166 alpha-2
+  phone: text("phone"),
+  isDefault: integer("is_default", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export type CustomerAddress = typeof customerAddresses.$inferSelect;

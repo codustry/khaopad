@@ -55,8 +55,22 @@ export const load: PageServerLoad = async ({
     );
   }
 
+  // v3.17 (D6): operator-configurable hero copy per locale. Missing
+  // locale falls back to en; null tells the page to use its Paraglide
+  // defaults (site_name / site_description).
+  const heroTitle = settings?.homepageHeroTitle as
+    | Partial<Record<Locale, string>>
+    | undefined;
+  const heroSubtitle = settings?.homepageHeroSubtitle as
+    | Partial<Record<Locale, string>>
+    | undefined;
+
   return {
     locale,
     seo,
+    hero: {
+      title: heroTitle?.[locale] ?? heroTitle?.en ?? null,
+      subtitle: heroSubtitle?.[locale] ?? heroSubtitle?.en ?? null,
+    },
   };
 };

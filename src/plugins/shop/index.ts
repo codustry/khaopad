@@ -19,9 +19,13 @@
  * up a placeholder route so the sidebar entry doesn't 404. The real
  * shop tables + admin CRUD land in follow-up sub-PRs.
  */
-import { ShoppingCart, Package, Boxes, Ticket } from "lucide-svelte";
+import { ShoppingCart, Package, Boxes, Ticket, BarChart3 } from "lucide-svelte";
 import { defineKhaopadPlugin } from "$lib/plugins/types";
-import { registerNavGroup } from "$lib/components/admin/sidebar-nav";
+import {
+  registerNavGroup,
+  registerNavItem,
+} from "$lib/components/admin/sidebar-nav";
+import * as m from "$lib/paraglide/messages";
 import { registerWebhookEvent } from "$lib/plugins/webhook-events";
 
 // Register shop-owned webhook events at module load. Storefront
@@ -75,6 +79,17 @@ registerNavGroup({
       roles: ["super_admin", "admin"],
     },
   ],
+});
+
+// D5: finance report lives in the MAIN group beside the dashboard (it
+// reports on the whole store, not just the shop plugin's admin CRUD).
+// registerNavItem appends after the core "main" items and is idempotent
+// on href, so repeated plugin boots are safe.
+registerNavItem("main", {
+  href: "/admin/reports",
+  label: m.shop_report_title,
+  icon: BarChart3,
+  roles: ["super_admin", "admin"],
 });
 
 export default defineKhaopadPlugin({

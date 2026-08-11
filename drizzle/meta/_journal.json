@@ -190,6 +190,27 @@
       "when": 1785945300000,
       "tag": "0026_fulfillments_events_returns",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1786031700000,
+      "tag": "0027_customer_retention",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1786118100000,
+      "tag": "0028_plugin_shop_automatic_discounts_finance",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1786204500000,
+      "tag": "0029_plugin_reviews_product_reviews",
+      "breakpoints": true
     }
   ]
 }

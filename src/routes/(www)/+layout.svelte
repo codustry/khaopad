@@ -21,14 +21,47 @@
 		image: undefined,
 		twitter: undefined,
 	});
+
+	// ─── Design settings (v3.17 D6) ─────────────────────────────
+	// themePrimaryColor overrides the --color-primary token via an
+	// inline style on the layout root: SSR renders it into the first
+	// HTML payload, so a re-branded store never flashes the default
+	// theme. The value is validated server-side to strict #hex before
+	// it can be stored, so interpolating it into a style attribute is
+	// safe. Empty/undefined leaves the app.css token untouched.
+	const themePrimaryColor = $derived(
+		typeof data.siteSettings?.themePrimaryColor === 'string' &&
+			/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(data.siteSettings.themePrimaryColor)
+			? data.siteSettings.themePrimaryColor
+			: null,
+	);
+	const themeLogoMediaId = $derived(
+		typeof data.siteSettings?.themeLogoMediaId === 'string' &&
+			data.siteSettings.themeLogoMediaId
+			? data.siteSettings.themeLogoMediaId
+			: null,
+	);
 </script>
 
 <Seo seo={pageSeo} defaults={seoDefaults} locale={toLocale(data.locale)} />
 
-<div class="min-h-screen flex flex-col">
+<div
+	class="min-h-screen flex flex-col"
+	style={themePrimaryColor ? `--color-primary: ${themePrimaryColor}` : undefined}
+>
 	<header class="border-b border-border">
 		<div class="container mx-auto px-4 py-4 flex items-center justify-between">
-			<a href="/" class="text-xl font-bold">{m.site_name()}</a>
+			<a href="/" class="flex items-center gap-2 text-xl font-bold">
+				{#if themeLogoMediaId}
+					<img
+						src={`/api/media/${themeLogoMediaId}`}
+						alt=""
+						class="h-8 w-auto"
+						height="32"
+					/>
+				{/if}
+				{data.siteSettings?.siteName ?? m.site_name()}</a
+			>
 			<nav class="flex items-center gap-4 text-sm">
 				{#each data.nav.primary as item (item.id)}
 					<a href={item.href} class="hover:text-primary">{item.label}</a>

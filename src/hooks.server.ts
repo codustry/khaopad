@@ -266,6 +266,8 @@ const authHook: Handle = async ({ event, resolve }) => {
   const auth = createAuth(env.DB, {
     BETTER_AUTH_SECRET: env.BETTER_AUTH_SECRET,
     BETTER_AUTH_URL: env.BETTER_AUTH_URL,
+    RESEND_API_KEY: env.RESEND_API_KEY,
+    RESEND_FROM: env.RESEND_FROM,
   });
 
   // Resolve session from request cookies. Wrap defensively: getSession
@@ -315,7 +317,13 @@ function isAdminPath(path: string): boolean {
  * a cookie is exactly as personal as the page it forwards to).
  */
 function isShopFunnelPath(path: string): boolean {
-  return /^(?:\/[a-z]{2})?\/(cart|checkout|lookup|order)(\/|$)/.test(path);
+  // `account` (v3.17 D1) is per-visitor by definition: order history +
+  // saved addresses. Public-caching it would serve one customer's
+  // orders to the next visitor on the same PoP — same failure mode as
+  // the original cart bug.
+  return /^(?:\/[a-z]{2})?\/(cart|checkout|lookup|order|account)(\/|$)/.test(
+    path,
+  );
 }
 
 /**

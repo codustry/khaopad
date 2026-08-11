@@ -21,6 +21,9 @@
  */
 import hello from "$plugins/hello";
 import shop from "$plugins/shop";
+// reviews must come after shop: its registerNavItem targets the "shop"
+// nav group, which must already exist.
+import reviews from "$plugins/reviews";
 
 // Silence unused-import warnings — the import is the point (side effects).
-export const _pluginModules = [hello, shop];
+export const _pluginModules = [hello, shop, reviews];

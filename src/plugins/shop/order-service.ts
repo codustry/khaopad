@@ -120,6 +120,14 @@ export type CreateOrderFromCartInput = {
   billingAddress?: OrderAddress | null;
   shippingSatang?: number;
   taxSatang?: number;
+  /**
+   * D5 (0028): VAT already contained in the total in prices-inclusive
+   * mode (computeTotals.taxIncludedSatang) — informational, never part
+   * of the total formula. Defaults to 0.
+   */
+  taxIncludedSatang?: number;
+  /** D5 (0028): tax-config snapshot at checkout. Defaults 'exclusive'. */
+  taxMode?: "exclusive" | "inclusive";
   discountSatang?: number;
   /**
    * True when the discount is a free-shipping code. The discount then
@@ -403,6 +411,8 @@ export class OrderService {
           subtotalSatang,
           shippingSatang,
           taxSatang,
+          taxIncludedSatang: input.taxIncludedSatang ?? 0,
+          taxMode: input.taxMode ?? "exclusive",
           discountSatang,
           totalSatang,
           shippingAddressJson: input.shippingAddress

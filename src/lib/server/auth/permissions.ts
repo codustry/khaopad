@@ -8,6 +8,9 @@ const ROLE_LEVEL: Record<UserRole, number> = {
   admin: 3,
   editor: 2,
   author: 1,
+  // Storefront shoppers (v3.17 D1). Level 0 means hasRole(user, "author")
+  // — the weakest admin gate — is already false for customers.
+  customer: 0,
 };
 
 /** Check if user has at least the given role level */

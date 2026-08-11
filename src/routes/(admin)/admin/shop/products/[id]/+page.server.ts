@@ -11,6 +11,7 @@ import { error, fail, redirect } from "@sveltejs/kit";
 import { hasRole } from "$lib/server/auth/permissions";
 import { logAudit } from "$lib/server/audit";
 import { ShopService, ShopValidationError } from "$plugins/shop/service";
+import { notifyBackInStock } from "$plugins/shop/back-in-stock";
 import { parseBahtToSatang } from "$plugins/shop/money";
 import { dispatchEvent } from "$lib/server/webhooks";
 import type { Actions, PageServerLoad } from "./$types";
@@ -192,6 +193,12 @@ export const actions: Actions = {
         productId: params.id,
         newOnHand: result.onHand,
       });
+      // Back-in-stock notify (v3.17 D4): fire on any on_hand INCREASE.
+      // Fire-and-forget — restock mail is best-effort and must never
+      // delay or fail the admin's stock adjustment.
+      if (delta > 0) {
+        void notifyBackInStock(env, env.DB, variantId);
+      }
       return {
         success: true,
         message: `Inventory adjusted (+${delta}, on_hand=${result.onHand})`,
