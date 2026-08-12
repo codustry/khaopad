@@ -205,11 +205,15 @@ describe("Beam payment-link creation (#151)", () => {
     });
   });
 
-  it("sends an Idempotency-Key header so client retries are safe", async () => {
+  it("sends BOTH idempotency header spellings so client retries are safe", async () => {
+    // The official docs name the header `X-Beam-Idempotency-Key` (12h
+    // retention, 412 on body mismatch); plain `Idempotency-Key` has
+    // worked against live Beam. Both are sent — belt and braces.
     const spy = mockFetch(LINK_RESPONSE);
     await provider.createCharge(CHARGE);
     const headers = spy.mock.calls[0][1].headers as Record<string, string>;
     expect(headers["idempotency-key"]).toBe("ord_1");
+    expect(headers["x-beam-idempotency-key"]).toBe("ord_1");
   });
 
   it("treats a 412 (key reuse, different body) as non-retryable", async () => {
@@ -238,15 +242,20 @@ describe("Beam payment-link creation (#151)", () => {
 describe("Beam in-page QR charge (#156)", () => {
   const provider = new BeamPaymentProvider(CONFIG);
 
-  /** What a successful direct QR charge returns — the encodedImage path
-   * is the one the #156 reporter validated live. */
+  /**
+   * Documented response shape, per
+   * https://docs.beamcheckout.com/charges/charges-api — `encodedImage`
+   * (with its `expiry`) at the TOP level, alongside chargeId and
+   * actionRequired: "ENCODED_IMAGE".
+   */
   const QR_RESPONSE = {
     chargeId: "ch_qr_1",
-    expiresAt: "2026-08-05T13:00:00.000Z",
-    paymentMethod: {
-      qrPromptPay: {
-        encodedImage: { imageBase64Encoded: "iVBORw0KGgoFAKE" },
-      },
+    actionRequired: "ENCODED_IMAGE",
+    paymentMethodType: "QR_PROMPT_PAY",
+    encodedImage: {
+      imageBase64Encoded: "iVBORw0KGgoFAKE",
+      expiry: "2026-08-05T13:00:00.000Z",
+      rawData: "Sample QR Code for payment",
     },
   };
 
@@ -257,42 +266,52 @@ describe("Beam in-page QR charge (#156)", () => {
     >;
   }
 
-  it("posts to /api/v1/charges with the money nested under `order`", async () => {
+  it("posts to /api/v1/charges with TOP-LEVEL money fields — no `order` block", async () => {
+    // Direct charges take {amount, currency, referenceId, returnUrl}
+    // at the top level, per
+    // https://docs.beamcheckout.com/charges/charges-api — unlike
+    // payment links, where money nests under `order` (#151).
     const spy = mockFetch(QR_RESPONSE);
     await provider.createQrCharge(CHARGE);
     expect(spy.mock.calls[0][0]).toBe(
       "https://api.beamcheckout.com/api/v1/charges",
     );
     const body = sentBody(spy);
-    // Same validated `order` block as payment links (#151) — top-level
-    // money fields 400 on real Beam.
-    expect(body.order).toEqual({
-      netAmount: 10000,
-      currency: "THB",
-      referenceId: "KP-2026-000123",
-      description: "test charge",
-    });
+    expect(body.amount).toBe(10000); // integer satang, never decimal baht
+    expect(body.currency).toBe("THB");
+    expect(body.referenceId).toBe("KP-2026-000123");
+    expect(body.returnUrl).toBe("https://example.com/return");
+    expect(body).not.toHaveProperty("order");
     expect(body).not.toHaveProperty("netAmount");
   });
 
-  it("selects QR PromptPay via a paymentMethod block", async () => {
+  it("selects QR PromptPay via paymentMethod with an expiryTime", async () => {
     const spy = mockFetch(QR_RESPONSE);
+    const before = Date.now();
     await provider.createQrCharge(CHARGE);
-    expect(sentBody(spy).paymentMethod).toEqual({
-      paymentMethodType: "QR_PROMPT_PAY",
-    });
+    const pm = sentBody(spy).paymentMethod as {
+      paymentMethodType: string;
+      qrPromptPay: { expiryTime: string };
+    };
+    expect(pm.paymentMethodType).toBe("QR_PROMPT_PAY");
+    // expiryTime: ISO timestamp in the near future (30-minute TTL).
+    const expiry = Date.parse(pm.qrPromptPay.expiryTime);
+    expect(Number.isNaN(expiry)).toBe(false);
+    expect(expiry - before).toBeGreaterThan(25 * 60 * 1000);
+    expect(expiry - before).toBeLessThan(35 * 60 * 1000);
   });
 
-  it("suffixes the Idempotency-Key with :qr — distinct from the link key", async () => {
+  it("suffixes both idempotency keys with :qr — distinct from the link key", async () => {
     // The same order may try QR first and fall back to a hosted link;
     // both calls must not collide on one idempotency scope.
     const spy = mockFetch(QR_RESPONSE);
     await provider.createQrCharge(CHARGE);
     const headers = spy.mock.calls[0][1].headers as Record<string, string>;
     expect(headers["idempotency-key"]).toBe("ord_1:qr");
+    expect(headers["x-beam-idempotency-key"]).toBe("ord_1:qr");
   });
 
-  it("maps imageBase64Encoded → a data:image/png;base64 URI", async () => {
+  it("maps the top-level encodedImage → a data:image/png;base64 URI", async () => {
     mockFetch(QR_RESPONSE);
     const res = await provider.createQrCharge(CHARGE);
     expect(res.ok).toBe(true);
@@ -301,6 +320,20 @@ describe("Beam in-page QR charge (#156)", () => {
       expect(res.providerChargeId).toBe("ch_qr_1");
       expect(res.qrExpiresAt).toBe("2026-08-05T13:00:00.000Z");
     }
+  });
+
+  it("still accepts the legacy nested paymentMethod.qrPromptPay path", async () => {
+    // A deployment observed live (#156) returned the image nested —
+    // kept as a fallback so it cannot regress while Beam migrates.
+    mockFetch({
+      chargeId: "ch_qr_2",
+      paymentMethod: {
+        qrPromptPay: { encodedImage: { imageBase64Encoded: "NESTED64" } },
+      },
+    });
+    const res = await provider.createQrCharge(CHARGE);
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.qrImage).toBe("data:image/png;base64,NESTED64");
   });
 
   it("returns ok:false when the response carries no QR image", async () => {
@@ -322,6 +355,100 @@ describe("Beam in-page QR charge (#156)", () => {
     // can fall back to the hosted payment link.
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("boom")));
     await expect(provider.createQrCharge(CHARGE)).resolves.toMatchObject({
+      ok: false,
+      code: "NETWORK_ERROR",
+    });
+  });
+});
+
+describe("Beam refunds (refunds-api)", () => {
+  // Shapes per https://docs.beamcheckout.com/refunds/refunds-api —
+  // this replaces the old guessed snake_case body (#151 point 4).
+  const provider = new BeamPaymentProvider(CONFIG);
+  const REFUND = {
+    providerChargeId: "ch_real_1",
+    amount: 5000,
+    currency: "THB",
+    reason: "customer request",
+  };
+
+  function sentBody(spy: ReturnType<typeof mockFetch>) {
+    return JSON.parse(spy.mock.calls[0][1].body as string) as Record<
+      string,
+      unknown
+    >;
+  }
+
+  it("posts a camelCase {chargeId, amount, reason} body — NO currency", async () => {
+    const spy = mockFetch({ refundId: "rf_1" });
+    await provider.refund(REFUND);
+    expect(spy.mock.calls[0][0]).toBe(
+      "https://api.beamcheckout.com/api/v1/refunds",
+    );
+    const body = sentBody(spy);
+    expect(body).toEqual({
+      chargeId: "ch_real_1",
+      amount: 5000,
+      reason: "customer request",
+    });
+    // The old guessed shape must be gone: snake_case chargeId and a
+    // currency field (the refund inherits the charge's currency).
+    expect(body).not.toHaveProperty("charge_id");
+    expect(body).not.toHaveProperty("currency");
+  });
+
+  it("ALWAYS sends an explicit amount — omitted/0 means 'max refundable' on Beam", async () => {
+    // A dropped amount silently becomes a FULL refund on Beam's side.
+    const spy = mockFetch({ refundId: "rf_1" });
+    await provider.refund(REFUND);
+    expect(sentBody(spy).amount).toBe(5000);
+  });
+
+  it("supplies a default reason when the admin left it blank — the field is required", async () => {
+    const spy = mockFetch({ refundId: "rf_1" });
+    await provider.refund({ ...REFUND, reason: undefined });
+    expect(sentBody(spy).reason).toBe("Merchant-initiated refund");
+  });
+
+  it("maps the {refundId} response to providerRefundId", async () => {
+    mockFetch({ refundId: "rf_doc_1" });
+    const res = await provider.refund(REFUND);
+    expect(res).toEqual({ ok: true, providerRefundId: "rf_doc_1" });
+  });
+
+  it("fails loudly when the response carries no refundId", async () => {
+    mockFetch({});
+    const res = await provider.refund(REFUND);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("NO_REFUND_ID_IN_RESPONSE");
+  });
+
+  it("appends the card-only-partial constraint to 4xx rejections", async () => {
+    // Beam: "Partial refund is only supported for CARD payment method
+    // charges" — a PromptPay partial 4xxes. The admin must see WHY,
+    // and the adapter must never silently retry as a full refund.
+    mockFetch({ error: "partial refund not supported" }, false, 400);
+    const res = await provider.refund(REFUND);
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.code).toBe("HTTP_400");
+      expect(res.message).toMatch(/CARD charges only/);
+      expect(res.message).toContain(
+        "docs.beamcheckout.com/refunds/refunds-api",
+      );
+    }
+  });
+
+  it("does not append the card-only hint to server errors", async () => {
+    mockFetch({ error: "internal" }, false, 500);
+    const res = await provider.refund(REFUND);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.message).not.toMatch(/CARD charges only/);
+  });
+
+  it("returns ok:false on network failure — never throws", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("boom")));
+    await expect(provider.refund(REFUND)).resolves.toMatchObject({
       ok: false,
       code: "NETWORK_ERROR",
     });
@@ -538,6 +665,57 @@ describe("Beam webhook payload parsing (#151)", () => {
     const result = await provider.verifyWebhook(body, await sign(body));
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.status).toBe("succeeded");
+  });
+
+  it("passes refund event payloads through: refundId + UPPERCASE status", async () => {
+    // Per https://docs.beamcheckout.com/webhook-event-types, refunds
+    // arrive as refund.succeeded/refund.failed events whose payload is
+    // {refundId, chargeId, referenceId, amount, status, refundReason}
+    // with UPPERCASE statuses — "refunded" never appears as a CHARGE
+    // status. The route keys ledger idempotency on the refundId.
+    const body = JSON.stringify({
+      refundId: "rf_evt_1",
+      chargeId: "ch_real_1",
+      referenceId: "KP-2026-000123",
+      amount: 5000,
+      currency: "THB",
+      status: "SUCCEEDED",
+      refundReason: "Customer requested refund",
+    });
+    const result = await provider.verifyWebhook(
+      body,
+      await sign(body),
+      "refund.succeeded",
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.eventType).toBe("refund.succeeded");
+      expect(result.providerRefundId).toBe("rf_evt_1");
+      expect(result.providerChargeId).toBe("ch_real_1");
+      expect(result.referenceId).toBe("KP-2026-000123");
+      expect(result.amount).toBe(5000);
+      // Case-insensitive normalization copes with the uppercase.
+      expect(result.status).toBe("succeeded");
+    }
+  });
+
+  it("normalizes a refund.failed FAILED status", async () => {
+    const body = JSON.stringify({
+      refundId: "rf_evt_2",
+      chargeId: "ch_real_1",
+      status: "FAILED",
+      failureCode: "insufficient_balance",
+    });
+    const result = await provider.verifyWebhook(
+      body,
+      await sign(body),
+      "refund.failed",
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.status).toBe("failed");
+      expect(result.providerRefundId).toBe("rf_evt_2");
+    }
   });
 
   it("returns an empty providerChargeId when the event predates a charge", async () => {

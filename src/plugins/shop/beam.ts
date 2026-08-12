@@ -74,6 +74,14 @@ const DEFAULT_BEAM_BASE_URL = "https://api.beamcheckout.com";
 /** Payment links expire; give the customer an hour to finish paying. */
 const PAYMENT_LINK_TTL_MS = 60 * 60 * 1000;
 
+/**
+ * In-page PromptPay QR expiry (charges-api `qrPromptPay.expiryTime`).
+ * Shorter than the link TTL: the QR is rendered inline on a page the
+ * customer is actively looking at, and the storefront polls order
+ * status — a stale tab should get a fresh QR, not a 55-minute-old one.
+ */
+const QR_CHARGE_TTL_MS = 30 * 60 * 1000;
+
 export type BeamConfig = {
   /** Basic-auth username. Required — Beam rejects requests without it. */
   merchantId: string;
@@ -143,17 +151,22 @@ type BeamPaymentLinkResponse = {
 };
 
 /**
- * Response of a direct QR PromptPay charge. Only the QR-image path was
- * validated live by the #156 reporter:
+ * Response of a direct QR PromptPay charge, per the official Charges
+ * API reference (https://docs.beamcheckout.com/charges/charges-api):
+ * `encodedImage` lives at the TOP level of the response, alongside
+ * `chargeId` and `actionRequired: "ENCODED_IMAGE"`, and its expiry
+ * field is named `expiry`.
  *
- *   paymentMethod.qrPromptPay.encodedImage.imageBase64Encoded
- *
- * The rest (chargeId, expiry) follows Beam's documented camelCase
- * conventions but should be treated as best-effort.
+ * The nested `paymentMethod.qrPromptPay.encodedImage` path is kept as
+ * a FALLBACK only: the #156 reporter observed it live, so a Beam
+ * deployment that still returns it must not break — but the documented
+ * top-level shape wins.
  */
 type BeamQrChargeResponse = {
   chargeId?: string;
   id?: string;
+  actionRequired?: string;
+  encodedImage?: { imageBase64Encoded?: string; expiry?: string };
   expiresAt?: string;
   paymentMethod?: {
     qrPromptPay?: {
@@ -163,11 +176,15 @@ type BeamQrChargeResponse = {
   };
 };
 
+/**
+ * POST /api/v1/refunds response, per
+ * https://docs.beamcheckout.com/refunds/refunds-api — the create call
+ * returns only `{ refundId }`. The refund is created PENDING and moves
+ * to SUCCEEDED asynchronously; the outcome arrives as a
+ * `refund.succeeded` / `refund.failed` webhook, not in this response.
+ */
 type BeamRefundResponse = {
-  id: string;
-  charge_id: string;
-  amount: number;
-  status: "pending" | "succeeded" | "failed";
+  refundId?: string;
 };
 
 /**
@@ -186,6 +203,15 @@ type BeamWebhookBody = {
   status?: string;
   amount?: number;
   currency?: string;
+  /**
+   * Present on refund lifecycle events only. Per
+   * https://docs.beamcheckout.com/webhook-event-types a refund arrives
+   * as a SEPARATE `refund.succeeded` / `refund.failed` event whose
+   * payload is {refundId, chargeId, referenceId, amount, status,
+   * refundReason, ...} — "refunded" never appears as a CHARGE status.
+   */
+  refundId?: string;
+  refundReason?: string;
 };
 
 export class BeamPaymentProvider implements PaymentProvider {
@@ -246,7 +272,13 @@ export class BeamPaymentProvider implements PaymentProvider {
           authorization: this.authHeader(),
           // Same key + same body: Beam replays the original response.
           // Same key + different body: 412, handled below.
+          //
+          // BOTH header spellings are sent deliberately: the official
+          // docs specify `X-Beam-Idempotency-Key` (12h retention), but
+          // the plain `Idempotency-Key` spelling has worked against
+          // live Beam — belt and braces until one is proven ignored.
           "idempotency-key": input.orderId,
+          "x-beam-idempotency-key": input.orderId,
         },
         // Validated shape (#151): camelCase, money fields nested under
         // `order`, `redirectUrl` not `returnUrl`, and NO customer_email
@@ -321,9 +353,18 @@ export class BeamPaymentProvider implements PaymentProvider {
    * hosted payment-link flow. A QR failure must never strand the
    * customer at checkout.
    *
-   * The RESPONSE path was validated live by the #156 reporter:
-   * `paymentMethod.qrPromptPay.encodedImage.imageBase64Encoded`, which
-   * we prefix into a self-contained `data:image/png;base64,…` URI.
+   * Request/response shapes follow the official Charges API reference,
+   * https://docs.beamcheckout.com/charges/charges-api:
+   *
+   *   - Request fields are TOP-LEVEL — {amount, currency, referenceId,
+   *     returnUrl} — unlike payment links, where money nests under
+   *     `order`. The method is chosen via
+   *     paymentMethod.paymentMethodType: "QR_PROMPT_PAY" with an
+   *     optional qrPromptPay.expiryTime.
+   *   - Response carries `chargeId`, `actionRequired: "ENCODED_IMAGE"`,
+   *     and a top-level `encodedImage: {imageBase64Encoded, expiry}`,
+   *     which we prefix into a self-contained
+   *     `data:image/png;base64,…` URI.
    */
   async createQrCharge(input: ChargeInput): Promise<QrChargeResult> {
     const referenceId =
@@ -336,25 +377,23 @@ export class BeamPaymentProvider implements PaymentProvider {
           authorization: this.authHeader(),
           // `:qr` suffix keeps this key distinct from the payment-link
           // key (plain orderId) — the same order may legitimately try
-          // QR first and fall back to a hosted link.
+          // QR first and fall back to a hosted link. Both spellings
+          // sent — see createCharge for why.
           "idempotency-key": `${input.orderId}:qr`,
+          "x-beam-idempotency-key": `${input.orderId}:qr`,
         },
+        // Documented direct-charge shape (charges-api, link above):
+        // top-level money fields — no `order` block here.
         body: JSON.stringify({
-          // ⚠️ UNVALIDATED REQUEST SHAPE — same policy as refund() below.
-          // The #156 reporter validated the RESPONSE path only. This
-          // paymentMethod block mirrors the response naming
-          // (qrPromptPay / QR_PROMPT_PAY) rather than inventing a
-          // "more plausible" second guess. If real Beam 400s here, the
-          // caller falls back to the hosted payment link — no customer
-          // is stranded — but capture the real shape and replace this.
-          paymentMethod: { paymentMethodType: "QR_PROMPT_PAY" },
-          // Money nests under `order` exactly like createCharge's
-          // validated payment-link block (#151) — top-level 400s.
-          order: {
-            netAmount: input.amount, // integer satang — never decimals
-            currency: input.currency,
-            referenceId,
-            description: input.description,
+          amount: input.amount, // integer satang — never decimals
+          currency: input.currency,
+          referenceId,
+          returnUrl: input.returnUrl,
+          paymentMethod: {
+            paymentMethodType: "QR_PROMPT_PAY",
+            qrPromptPay: {
+              expiryTime: new Date(Date.now() + QR_CHARGE_TTL_MS).toISOString(),
+            },
           },
         }),
       });
@@ -371,16 +410,19 @@ export class BeamPaymentProvider implements PaymentProvider {
       }
 
       const body = (await res.json()) as BeamQrChargeResponse;
-      // The one field the reporter validated live. Missing → the
-      // response is not the shape we understand; fail soft.
+      // Documented location first (top-level `encodedImage`, see
+      // charges-api), then the nested path a live deployment was seen
+      // returning (#156). Missing from both → not a shape we
+      // understand; fail soft so the caller falls back to the link.
       const imageBase64 =
+        body.encodedImage?.imageBase64Encoded ??
         body.paymentMethod?.qrPromptPay?.encodedImage?.imageBase64Encoded;
       if (!imageBase64) {
         return {
           ok: false,
           code: "NO_QR_IN_RESPONSE",
           message:
-            "Beam charge response carried no paymentMethod.qrPromptPay.encodedImage.imageBase64Encoded",
+            "Beam charge response carried no encodedImage.imageBase64Encoded (top-level or nested)",
         };
       }
       const providerChargeId = body.chargeId ?? body.id ?? "";
@@ -396,7 +438,9 @@ export class BeamPaymentProvider implements PaymentProvider {
         providerChargeId,
         qrImage: `data:image/png;base64,${imageBase64}`,
         qrExpiresAt:
-          body.paymentMethod?.qrPromptPay?.expiresAt ?? body.expiresAt,
+          body.encodedImage?.expiry ??
+          body.paymentMethod?.qrPromptPay?.expiresAt ??
+          body.expiresAt,
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -405,21 +449,22 @@ export class BeamPaymentProvider implements PaymentProvider {
   }
 
   /**
-   * ⚠️ REFUND SHAPE UNVALIDATED AGAINST REAL BEAM — #151 point 4.
+   * POST /api/v1/refunds, per the official reference at
+   * https://docs.beamcheckout.com/refunds/refunds-api:
    *
-   * The charge-creation and webhook shapes below/above were validated
-   * against two production Beam integrations; this refund body was NOT.
-   * It is almost certainly the same guessed disease (snake_case
-   * `charge_id`, top-level fields), but the #151 reporter had no real
-   * refund traffic to validate against, and guessing a "more plausible"
-   * camelCase shape would just be a second guess.
-   *
-   * DO NOT issue a production refund through this method until the real
-   * shape has been captured and this block replaced. Failures already
-   * surface loudly (ok:false with Beam's response text) — a wrong shape
-   * fails visibly at the admin refund screen, it does not lose money.
-   * A structural test (beam.node.test.ts) pins this warning so it
-   * cannot silently vanish before the shape is validated.
+   *   - Body is camelCase: {chargeId, amount, reason}. There is NO
+   *     currency field — the refund inherits the charge's currency.
+   *   - `amount` omitted or 0 means "max refundable". We ALWAYS send
+   *     the explicit amount our ledger authorised — a dropped field
+   *     must never silently become a full refund.
+   *   - Response is just {refundId}. The refund is created PENDING and
+   *     settles asynchronously; the outcome arrives as a
+   *     `refund.succeeded` / `refund.failed` webhook, which the
+   *     webhook route records against this refundId.
+   *   - PARTIAL REFUNDS ARE CARD-ONLY. Non-card charges (PromptPay QR,
+   *     e-wallets) must be refunded in full in a single request — Beam
+   *     4xxes a partial. We surface that constraint in the error
+   *     mapping below rather than guessing at intent.
    */
   async refund(input: RefundInput): Promise<RefundResult> {
     try {
@@ -430,29 +475,40 @@ export class BeamPaymentProvider implements PaymentProvider {
           authorization: this.authHeader(),
         },
         body: JSON.stringify({
-          charge_id: input.providerChargeId,
+          chargeId: input.providerChargeId,
           amount: input.amount,
-          currency: input.currency,
-          reason: input.reason,
+          reason: input.reason ?? "Merchant-initiated refund",
         }),
       });
       if (!res.ok) {
         const text = await res.text();
+        // Beam rejects a partial refund of a non-card charge with a
+        // client error (refunds-api: "Partial refund is only supported
+        // for CARD payment method charges"). The admin cannot see the
+        // charge's method from here, so append the constraint to every
+        // 4xx — the operator's fix is either a FULL refund or handling
+        // it in the Beam dashboard, never a silent amount rewrite.
+        const cardOnlyHint =
+          res.status >= 400 && res.status < 500
+            ? " Note: Beam supports partial refunds for CARD charges only — PromptPay/e-wallet charges must be refunded in full (https://docs.beamcheckout.com/refunds/refunds-api)."
+            : "";
         return {
           ok: false,
           code: `HTTP_${res.status}`,
-          message: text.slice(0, 500) || `Beam refund failed (${res.status})`,
+          message:
+            (text.slice(0, 500) || `Beam refund failed (${res.status})`) +
+            cardOnlyHint,
         };
       }
       const body = (await res.json()) as BeamRefundResponse;
-      if (body.status === "failed") {
+      if (!body.refundId) {
         return {
           ok: false,
-          code: "REFUND_FAILED",
-          message: `Refund ${body.id} rejected by Beam`,
+          code: "NO_REFUND_ID_IN_RESPONSE",
+          message: "Beam refund response carried no refundId",
         };
       }
-      return { ok: true, providerRefundId: body.id };
+      return { ok: true, providerRefundId: body.refundId };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return { ok: false, code: "NETWORK_ERROR", message };
@@ -528,6 +584,9 @@ export class BeamPaymentProvider implements PaymentProvider {
       referenceId: parsed.referenceId,
       status,
       amount: parsed.amount,
+      // Present on refund.* events only (see BeamWebhookBody) — the
+      // route keys refund idempotency on it: `beam:refund:<refundId>`.
+      providerRefundId: parsed.refundId,
       raw: parsed,
     };
   }

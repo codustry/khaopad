@@ -154,16 +154,19 @@ describe("order page arrival states (#157)", () => {
   });
 });
 
-describe("Beam QR request-shape flag (#156)", () => {
-  it("keeps the UNVALIDATED REQUEST SHAPE warning on the QR body", () => {
-    // Same policy as the refund() warning pinned in beam.node.test.ts:
-    // the request body mirrors the (validated) response naming but was
-    // never observed on the wire — the warning must survive until the
-    // real shape is captured.
-    expect(beamSrc).toContain("UNVALIDATED REQUEST SHAPE");
-    const warnAt = beamSrc.indexOf("UNVALIDATED REQUEST SHAPE");
+describe("Beam QR request shape provenance (#156)", () => {
+  it("cites the official charges reference — the UNVALIDATED warning is retired", () => {
+    // The QR request body was originally a guess carrying an
+    // "UNVALIDATED REQUEST SHAPE" warning. Beam's official docs
+    // (https://docs.beamcheckout.com/charges/charges-api) surfaced and
+    // confirmed the shape — the warning is gone, and the doc citation
+    // must survive in its place (see beam.node.test.ts for the same
+    // policy on refunds).
+    expect(beamSrc).not.toContain("UNVALIDATED REQUEST SHAPE");
+    const citeAt = beamSrc.indexOf("docs.beamcheckout.com/charges/charges-api");
     const methodAt = beamSrc.indexOf("paymentMethodType");
-    expect(methodAt).toBeGreaterThan(warnAt);
+    expect(citeAt).toBeGreaterThan(-1);
+    expect(methodAt).toBeGreaterThan(-1);
   });
 
   it("keeps QR failure non-fatal in the adapter", () => {
@@ -174,5 +177,45 @@ describe("Beam QR request-shape flag (#156)", () => {
     expect(warnAt).toBeGreaterThan(-1);
     expect(methodAt).toBeGreaterThan(warnAt);
     expect(methodAt - warnAt).toBeLessThan(1500);
+  });
+});
+
+describe("pay route persists providerName only AFTER a successful charge (audit F5)", () => {
+  // Flipping providerName before the attempt mislabels the order when
+  // the charge fails; the settling webhook is the final authority.
+  // Source-order pin, same spirit as the blocks above — no unit test
+  // can observe "the DB write happens after the provider call" without
+  // replaying the whole route.
+  it("defines a deferred persist helper instead of an eager update", () => {
+    expect(paySrc).toContain("const persistProviderName = async ()");
+    // The eager pre-charge update must not come back: no providerName
+    // write may appear between provider resolution and the helper.
+    const helperAt = paySrc.indexOf("const persistProviderName");
+    const firstWrite = paySrc.indexOf("providerName: provider.name");
+    expect(firstWrite).toBeGreaterThan(helperAt);
+  });
+
+  it("invokes the persist only inside the charge-success branches", () => {
+    const calls = [...paySrc.matchAll(/await persistProviderName\(\);/g)].map(
+      (m) => m.index ?? -1,
+    );
+    expect(calls).toHaveLength(2);
+    // QR branch: after the qr.ok check.
+    const qrOkAt = paySrc.indexOf("if (qr.ok)");
+    expect(calls[0]).toBeGreaterThan(qrOkAt);
+    // Hosted-link branch: after createCharge and its failure return.
+    const chargeAt = paySrc.indexOf("await provider.createCharge(chargeInput)");
+    const failReturnAt = paySrc.indexOf("if (!charge.ok)");
+    expect(calls[1]).toBeGreaterThan(chargeAt);
+    expect(calls[1]).toBeGreaterThan(failReturnAt);
+  });
+
+  it("touches updatedAt alongside providerName", () => {
+    const helper = paySrc.slice(
+      paySrc.indexOf("const persistProviderName"),
+      paySrc.indexOf("await persistProviderName"),
+    );
+    expect(helper).toContain("providerName: provider.name");
+    expect(helper).toContain("updatedAt");
   });
 });

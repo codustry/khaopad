@@ -65,7 +65,11 @@ import {
   type ShopOrderEvent,
   type ShopReturn,
 } from "./schema-operations";
-import { commitVariantSale, releaseVariant } from "./inventory";
+import {
+  commitVariantSale,
+  releaseVariant,
+  restoreVariantOnHand,
+} from "./inventory";
 import { ShopValidationError } from "./service";
 import { allocateDiscount } from "./totals";
 import { carrierLabel } from "./carriers";
@@ -140,6 +144,35 @@ export type CreateOrderFromCartInput = {
   // Sales channel — defaults to 'online_store'. Phase E adds
   // 'tonbab_pos' / 'marketplace' callers.
   channel?: string;
+};
+
+/**
+ * #160 Phase E — an order pushed in by an external system (Tonbab POS).
+ * Items are pre-resolved to variants by the sync layer (SKU matching
+ * lives there); totals are taken AS SUPPLIED — the external system is
+ * authoritative for its own sales and we never recompute them.
+ */
+export type CreateExternalOrderInput = {
+  externalSource: string;
+  externalId: string;
+  email: string;
+  channel: string;
+  /** POS sales usually arrive already paid. */
+  paid: boolean;
+  /** When the sale happened at the origin; defaults to now. */
+  placedAt?: string | null;
+  items: Array<{
+    variantId: string;
+    quantity: number;
+    titleSnapshot: string;
+    skuSnapshot: string | null;
+    priceSnapshotSatang: number;
+  }>;
+  subtotalSatang: number;
+  shippingSatang?: number;
+  taxSatang?: number;
+  discountSatang?: number;
+  totalSatang: number;
 };
 
 export type OrderWithItems = ShopOrder & {
@@ -506,6 +539,240 @@ export class OrderService {
     return { orderId, orderNumber };
   }
 
+  /** Locate an order by its external identity (#160 Phase E). */
+  async getOrderByExternal(
+    source: string,
+    externalId: string,
+  ): Promise<ShopOrder | null> {
+    const row = await this.db
+      .select()
+      .from(shopOrders)
+      .where(
+        and(
+          eq(shopOrders.externalSource, source),
+          eq(shopOrders.externalId, externalId),
+        ),
+      )
+      .limit(1)
+      .get();
+    return row ?? null;
+  }
+
+  /**
+   * Create an order pushed in by an external system (#160 Phase E —
+   * Tonbab POS sync). Differences from createFromCart, all deliberate:
+   *
+   *   - **No cart, no reservations.** The sale already happened at the
+   *     origin; there is nothing to reserve or commit. Inventory
+   *     bookkeeping is the CALLER's job (deductVariantOnHand — on-hand
+   *     only, since POS stock was never reserved).
+   *   - **Totals as supplied.** The external system is authoritative
+   *     for its own sales — we never recompute, re-tax or re-allocate
+   *     its numbers. Per-line discount allocation is likewise not
+   *     derived (discountAllocatedSatang = 0): refund math for POS
+   *     orders belongs to the POS.
+   *   - **NO order.created emission — echo-loop guard.** These orders
+   *     originate FROM the external system; echoing order.created back
+   *     out through the webhook dispatcher would make Tonbab re-import
+   *     its own sale. Later lifecycle events (paid/fulfilled/...) DO
+   *     emit, carrying `channel` in the payload so Tonbab self-filters.
+   *   - **Idempotent on (externalSource, externalId).** A replay
+   *     returns the existing order (`replayed: true`) instead of
+   *     duplicating; the 0030 partial UNIQUE index backstops races.
+   *     A replay against a HALF-created order (header row committed,
+   *     items insert died — D1 has no cross-statement transaction
+   *     here) repairs the missing item rows and reports
+   *     `repaired: true` so the caller re-runs its inventory
+   *     bookkeeping exactly once.
+   */
+  async createExternalOrder(input: CreateExternalOrderInput): Promise<{
+    orderId: string;
+    orderNumber: string;
+    replayed: boolean;
+    /** Replay found the order without items and re-inserted them. */
+    repaired: boolean;
+  }> {
+    if (input.items.length === 0) {
+      throw new ShopValidationError("External order has no items", "items");
+    }
+
+    const existing = await this.getOrderByExternal(
+      input.externalSource,
+      input.externalId,
+    );
+    if (existing) return this.replayExternalOrder(existing, input);
+
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const placedAt = input.placedAt ?? nowIso;
+    const orderId = nanoid();
+    const financialStatus: OrderFinancialStatus = input.paid
+      ? "paid"
+      : "pending";
+
+    let orderNumber = await nextOrderNumber(this.d1, now);
+    let attempts = 0;
+    while (attempts < 5) {
+      try {
+        await this.db.insert(shopOrders).values({
+          id: orderId,
+          orderNumber,
+          userId: null,
+          email: input.email,
+          status: deriveLegacyStatus(financialStatus, "unfulfilled"),
+          financialStatus,
+          fulfillmentStatus: "unfulfilled",
+          returnStatus: null,
+          channel: input.channel,
+          providerName: null,
+          providerChargeId: null,
+          subtotalSatang: input.subtotalSatang,
+          shippingSatang: input.shippingSatang ?? 0,
+          taxSatang: input.taxSatang ?? 0,
+          taxIncludedSatang: 0,
+          taxMode: "exclusive",
+          discountSatang: input.discountSatang ?? 0,
+          totalSatang: input.totalSatang,
+          shippingAddressJson: null,
+          billingAddressJson: null,
+          discountCodeSnapshot: null,
+          createdAt: placedAt,
+          updatedAt: nowIso,
+          paidAt: input.paid ? placedAt : null,
+          fulfilledAt: null,
+          deliveredAt: null,
+          refundedAt: null,
+          cancelledAt: null,
+          externalSource: input.externalSource,
+          externalId: input.externalId,
+        });
+        break;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("UNIQUE") && msg.includes("order_number")) {
+          attempts++;
+          orderNumber = await nextOrderNumber(this.d1, now);
+          continue;
+        }
+        if (msg.includes("UNIQUE") && msg.includes("external")) {
+          // Concurrent replay lost the race to the 0030 partial index —
+          // resolve as a replay of whichever writer won.
+          const winner = await this.getOrderByExternal(
+            input.externalSource,
+            input.externalId,
+          );
+          if (winner) return this.replayExternalOrder(winner, input);
+        }
+        throw err;
+      }
+    }
+    if (attempts >= 5) {
+      throw new ShopValidationError(
+        "Could not allocate a unique order number after 5 attempts",
+        "orderNumber",
+      );
+    }
+
+    await this.insertExternalOrderItems(orderId, input.items);
+
+    // Echo-loop guard: NO this.emit("order.created", ...) here — the
+    // origin system already knows about its own order (see docblock).
+    await this.logEvent({
+      orderId,
+      kind: "sync",
+      message: `Imported from ${input.externalSource} (${input.externalId}, ${formatSatang(
+        input.totalSatang as Satang,
+      )}${input.paid ? ", paid" : ""})`,
+      actorEmail: `${input.externalSource}-sync`,
+      at: nowIso,
+    });
+
+    return { orderId, orderNumber, replayed: false, repaired: false };
+  }
+
+  /**
+   * Insert external-order line items in chunks of ≤9 rows. Each row
+   * binds 10 columns, so a single multi-row INSERT crosses D1's
+   * 100-bind ceiling at 11+ items — a receipt-sized POS order. 9 rows
+   * = 90 binds, matching the project's 90-headroom convention.
+   */
+  private async insertExternalOrderItems(
+    orderId: string,
+    items: CreateExternalOrderInput["items"],
+  ): Promise<void> {
+    const CHUNK = 9;
+    for (let i = 0; i < items.length; i += CHUNK) {
+      await this.db.insert(shopOrderItems).values(
+        items.slice(i, i + CHUNK).map((item) => ({
+          id: nanoid(),
+          orderId,
+          variantId: item.variantId,
+          quantity: item.quantity,
+          titleSnapshot: item.titleSnapshot,
+          skuSnapshot: item.skuSnapshot,
+          priceSnapshotSatang: item.priceSnapshotSatang,
+          lineSubtotalSatang: item.priceSnapshotSatang * item.quantity,
+          lineTaxSatang: 0,
+          // Deliberately 0 — see createExternalOrder docblock
+          // (external totals are opaque).
+          discountAllocatedSatang: 0,
+        })),
+      );
+    }
+  }
+
+  /**
+   * Resolve a replayed external push against an existing order.
+   *
+   * The header insert and the items insert are separate D1 statements
+   * (no transaction), so a crash between them leaves a permanent
+   * order row with ZERO items — and a naive replay answer would then
+   * acknowledge that husk forever: totals but no lines, and no
+   * inventory ever deducted. Detect the husk and REPAIR it by
+   * inserting the items now; `repaired: true` tells the caller to run
+   * its inventory bookkeeping (which only ever ran after a fully
+   * successful create).
+   */
+  private async replayExternalOrder(
+    existing: ShopOrder,
+    input: CreateExternalOrderInput,
+  ): Promise<{
+    orderId: string;
+    orderNumber: string;
+    replayed: boolean;
+    repaired: boolean;
+  }> {
+    const itemCount = await this.db
+      .select({ n: sql<number>`COUNT(*)` })
+      .from(shopOrderItems)
+      .where(eq(shopOrderItems.orderId, existing.id))
+      .get();
+    if ((itemCount?.n ?? 0) > 0) {
+      // Fully-created order — plain idempotent replay, nothing changes.
+      return {
+        orderId: existing.id,
+        orderNumber: existing.orderNumber,
+        replayed: true,
+        repaired: false,
+      };
+    }
+
+    await this.insertExternalOrderItems(existing.id, input.items);
+    await this.logEvent({
+      orderId: existing.id,
+      kind: "sync",
+      message: `Repaired half-imported ${input.externalSource} order (${input.externalId}): item rows restored on replay`,
+      actorEmail: `${input.externalSource}-sync`,
+      at: this.nowIso(),
+    });
+    return {
+      orderId: existing.id,
+      orderNumber: existing.orderNumber,
+      replayed: true,
+      repaired: true,
+    };
+  }
+
   /**
    * Attach the provider's charge id to a pending order. Called after
    * `provider.createCharge()` returns a chargeId.
@@ -755,9 +1022,32 @@ export class OrderService {
       .where(eq(shopOrderItems.orderId, order.id))
       .all();
 
+    // Inventory unwind depends on how the stock was taken (#160 Phase
+    // E). Keyed on the ORDER here — not the calling path — so an
+    // admin-UI cancel of a POS order behaves exactly like a sync-path
+    // cancel.
+    //
+    //  - Native (web) orders reserved stock at checkout-start:
+    //    releaseVariant() gives the reservation back.
+    //  - External (POS) orders NEVER reserved: releaseVariant() would
+    //    decrement `reserved` that belongs to live web customers'
+    //    carts — silently stealing their holds. Instead, if the import
+    //    deducted on-hand (order arrived paid), put those units back.
+    //    An unpaid external order deducted nothing → nothing to unwind.
+    const isExternal =
+      Boolean(order.externalSource) || order.channel === "tonbab_pos";
     for (const item of items) {
       try {
-        await releaseVariant(this.d1, item.variantId, item.quantity);
+        if (isExternal) {
+          if (
+            order.financialStatus === "paid" ||
+            order.financialStatus === "partially_refunded"
+          ) {
+            await restoreVariantOnHand(this.d1, item.variantId, item.quantity);
+          }
+        } else {
+          await releaseVariant(this.d1, item.variantId, item.quantity);
+        }
       } catch {
         /* variant may be gone */
       }

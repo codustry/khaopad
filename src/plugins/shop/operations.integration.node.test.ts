@@ -490,6 +490,8 @@ function fakeOrder(): OrderWithItems {
     deliveredAt: null,
     refundedAt: null,
     cancelledAt: null,
+    externalSource: null,
+    externalId: null,
     items: [
       {
         id: "li-1",

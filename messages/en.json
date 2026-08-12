@@ -749,5 +749,6 @@
   "shop_report_export_csv": "Export CSV",
   "shop_report_by_day": "By day",
   "shop_report_empty": "No orders in this range.",
-  "shop_report_tax_id": "Tax ID"
+  "shop_report_tax_id": "Tax ID",
+  "cms_connections": "Connections"
 }

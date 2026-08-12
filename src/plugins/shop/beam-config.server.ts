@@ -28,11 +28,13 @@
  */
 import { getSecrets } from "$lib/server/secrets/service";
 import { BeamPaymentProvider } from "./beam";
+import { StripePaymentProvider } from "./stripe";
 import { getPaymentProvider, type PaymentProvider } from "./payment";
 
 type BeamEnv = Record<string, unknown> & {
   DB: D1Database;
   BEAM_BASE_URL?: string;
+  STRIPE_BASE_URL?: string;
 };
 
 /**
@@ -67,6 +69,31 @@ export async function resolveBeamProvider(
 }
 
 /**
+ * Build a Stripe provider from the currently-effective credentials, or
+ * null when unconfigured. `getSecrets` resolves env vars first, then
+ * DB-stored values from /admin/settings/secrets — same as Beam.
+ */
+export async function resolveStripeProvider(
+  env: BeamEnv,
+): Promise<PaymentProvider | null> {
+  const resolved = await getSecrets(env, [
+    "STRIPE_SECRET_KEY",
+    "STRIPE_WEBHOOK_SECRET",
+  ]);
+  const secretKey = resolved.STRIPE_SECRET_KEY;
+  const webhookSecret = resolved.STRIPE_WEBHOOK_SECRET;
+  // Both required: a provider that can charge but not verify webhooks
+  // would take money and never confirm orders.
+  if (!secretKey || !webhookSecret) return null;
+
+  return new StripePaymentProvider({
+    secretKey,
+    webhookSecret,
+    baseUrl: env.STRIPE_BASE_URL,
+  });
+}
+
+/**
  * Get a payment provider for a request, preferring one registered from env
  * at plugin init and falling back to DB-stored credentials.
  *
@@ -82,8 +109,30 @@ export async function resolveProviderForRequest(
 ): Promise<PaymentProvider | null> {
   const registered = getPaymentProvider(name);
   if (registered) return registered;
-  // Only Beam has a DB-credential path today. Other providers keep their
-  // existing env-only registration.
-  if (name !== "beam") return null;
-  return resolveBeamProvider(env);
+  if (name === "beam") return resolveBeamProvider(env);
+  if (name === "stripe") return resolveStripeProvider(env);
+  return null;
+}
+
+/**
+ * Per-METHOD provider routing (#160 E-3). The customer's chosen method
+ * decides the provider, not a global setting:
+ *
+ *   - 'promptpay' → Beam (in-page QR / hosted link — Thai rails).
+ *   - 'card'      → Stripe WHEN its keys are configured; otherwise the
+ *     Beam hosted link, which serves card too — an install that never
+ *     configured Stripe behaves exactly as before this change.
+ *   - anything else / no method → Beam hosted link (today's default).
+ *
+ * Returns null only when NO provider is configured at all.
+ */
+export async function resolveProviderForMethod(
+  env: BeamEnv,
+  method: string | undefined,
+): Promise<PaymentProvider | null> {
+  if (method === "card") {
+    const stripe = await resolveProviderForRequest(env, "stripe");
+    if (stripe) return stripe;
+  }
+  return resolveProviderForRequest(env, "beam");
 }

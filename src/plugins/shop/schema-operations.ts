@@ -74,7 +74,10 @@ export type OrderEventKind =
   | "return_approved"
   | "return_received"
   | "return_refunded"
-  | "return_rejected";
+  | "return_rejected"
+  // #160 Phase E — order created/updated by an external sync push
+  // (Tonbab POS). Free-text in SQL, so no migration needed.
+  | "sync";
 
 export const shopOrderEvents = sqliteTable(
   "shop_order_events",

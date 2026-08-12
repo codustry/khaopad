@@ -232,3 +232,112 @@ export async function commitVariantSale(
   if (!after) throw new Error(`No inventory level for variant ${variantId}`);
   return { onHand: after.onHand, reserved: after.reserved };
 }
+
+/**
+ * Direct on-hand deduction for externally-completed sales (#160 Phase
+ * E — Tonbab POS sync). A POS sale was rung up and paid at the counter:
+ * the stock physically left the store WITHOUT ever passing through the
+ * web shop's reserve → commit flow, so `reserved` must NOT be touched —
+ * commitVariantSale() would decrement a reservation that never existed
+ * and corrupt the availability books.
+ *
+ * Clamps to 0 like commitVariantSale (POS and web can genuinely race
+ * over the last unit; the physical sale already happened, so the books
+ * follow reality). Missing inventory rows throw — the sync caller
+ * reports that per order rather than silently dropping the deduction.
+ */
+export async function deductVariantOnHand(
+  d1: D1Database,
+  variantId: string,
+  qty: number,
+): Promise<{ onHand: number; reserved: number }> {
+  if (qty <= 0 || !Number.isInteger(qty)) {
+    throw new Error(
+      `deductVariantOnHand: qty must be a positive integer, got ${qty}`,
+    );
+  }
+  const db = drizzle(d1);
+  const item = await db
+    .select()
+    .from(shopInventoryItems)
+    .where(eq(shopInventoryItems.variantId, variantId))
+    .limit(1)
+    .get();
+  if (!item) throw new Error(`No inventory item for variant ${variantId}`);
+
+  // Log accounting divergence on clamp — same contract as
+  // commitVariantSale. A clamped deduction means POS and web genuinely
+  // raced over the last units; the physical sale already happened, so
+  // the books follow reality, but the operator should hear about it.
+  const pre = await db
+    .select()
+    .from(shopInventoryLevels)
+    .where(
+      and(
+        eq(shopInventoryLevels.itemId, item.id),
+        eq(shopInventoryLevels.locationId, "default"),
+      ),
+    )
+    .limit(1)
+    .get();
+  if (pre && pre.onHand < qty) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[shop.inventory] deductVariantOnHand silently clamps on_hand for variant ${variantId}: on_hand=${pre.onHand}, qty=${qty}`,
+    );
+  }
+
+  const rows = await d1
+    .prepare(
+      `UPDATE shop_inventory_levels
+       SET on_hand = MAX(on_hand - ?1, 0)
+       WHERE item_id = ?2 AND location_id = 'default'
+       RETURNING on_hand AS onHand, reserved`,
+    )
+    .bind(qty, item.id)
+    .all<{ onHand: number; reserved: number }>();
+  const after = rows.results?.[0];
+  if (!after) throw new Error(`No inventory level for variant ${variantId}`);
+  return { onHand: after.onHand, reserved: after.reserved };
+}
+
+/**
+ * Inverse of deductVariantOnHand — put externally-sold stock BACK
+ * (#160 Phase E): a POS order that was imported (on-hand deducted) and
+ * later cancelled returns its units to the shelf. `reserved` is again
+ * untouched: external stock never participated in the web shop's
+ * reservation flow, and releaseVariant() here would decrement live
+ * web-customer reservations that were never ours to release.
+ */
+export async function restoreVariantOnHand(
+  d1: D1Database,
+  variantId: string,
+  qty: number,
+): Promise<{ onHand: number; reserved: number }> {
+  if (qty <= 0 || !Number.isInteger(qty)) {
+    throw new Error(
+      `restoreVariantOnHand: qty must be a positive integer, got ${qty}`,
+    );
+  }
+  const db = drizzle(d1);
+  const item = await db
+    .select()
+    .from(shopInventoryItems)
+    .where(eq(shopInventoryItems.variantId, variantId))
+    .limit(1)
+    .get();
+  if (!item) throw new Error(`No inventory item for variant ${variantId}`);
+
+  const rows = await d1
+    .prepare(
+      `UPDATE shop_inventory_levels
+       SET on_hand = on_hand + ?1
+       WHERE item_id = ?2 AND location_id = 'default'
+       RETURNING on_hand AS onHand, reserved`,
+    )
+    .bind(qty, item.id)
+    .all<{ onHand: number; reserved: number }>();
+  const after = rows.results?.[0];
+  if (!after) throw new Error(`No inventory level for variant ${variantId}`);
+  return { onHand: after.onHand, reserved: after.reserved };
+}

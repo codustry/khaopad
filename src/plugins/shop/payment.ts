@@ -103,12 +103,36 @@ export type WebhookVerifyResult =
       status: "succeeded" | "failed" | "refunded" | "pending";
       /** Amount at the event moment (for partial refunds this may differ from original charge). */
       amount?: number;
+      /**
+       * Provider-native refund id, present on refund lifecycle events
+       * (Beam `refund.succeeded`/`refund.failed` carry `refundId`,
+       * Stripe refund events carry `re_...`). The webhook route keys
+       * refund idempotency on it — one ledger row per provider refund,
+       * regardless of retries.
+       */
+      providerRefundId?: string;
       raw: unknown;
     }
   | { ok: false; code: string; message: string };
 
 export interface PaymentProvider {
   readonly name: string;
+
+  /**
+   * OPTIONAL capability declaration consumed by callers that must
+   * validate BEFORE hitting the provider (the admin refund action).
+   *
+   * `partialRefunds`:
+   *   - `true`  — partial refunds always accepted (Stripe).
+   *   - `false` — never accepted; the admin action refuses a partial
+   *     amount up front instead of round-tripping a guaranteed 4xx.
+   *   - absent  — unknown or METHOD-DEPENDENT (Beam: card charges may
+   *     be partially refunded, PromptPay/e-wallet must be refunded in
+   *     full — https://docs.beamcheckout.com/refunds/refunds-api). The
+   *     caller lets the attempt through and surfaces the provider's
+   *     rejection verbatim; it must never silently full-refund.
+   */
+  readonly capabilities?: { partialRefunds: boolean };
 
   createCharge(input: ChargeInput): Promise<ChargeResult>;
 

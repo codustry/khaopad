@@ -749,5 +749,6 @@
   "shop_report_export_csv": "ส่งออก CSV",
   "shop_report_by_day": "รายวัน",
   "shop_report_empty": "ไม่มีออเดอร์ในช่วงนี้",
-  "shop_report_tax_id": "เลขประจำตัวผู้เสียภาษี"
+  "shop_report_tax_id": "เลขประจำตัวผู้เสียภาษี",
+  "cms_connections": "การเชื่อมต่อ"
 }

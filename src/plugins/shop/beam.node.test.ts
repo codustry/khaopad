@@ -2,32 +2,37 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 
 /**
- * Guards #151 point 4: the Beam REFUND body shape was never validated
- * against real Beam. Unlike the charge and webhook shapes (validated
- * against two production integrations), the refund call still carries
- * the original guessed snake_case body — deliberately unchanged,
- * because replacing one guess with another guess helps nobody.
+ * Structural guard for the Beam adapter's provenance.
  *
- * This structural test pins the warning block in beam.ts so it cannot
- * silently vanish in a refactor before someone captures the real shape.
- * When the refund contract IS validated: fix the body, delete the
- * warning, and update this test to pin the validated shape instead.
+ * History: the adapter was twice rewritten from guesses (#135, #151),
+ * and the refund body carried a "⚠️ UNVALIDATED" warning (pinned by an
+ * earlier version of this file) until Beam's official docs surfaced at
+ * https://docs.beamcheckout.com. Every shape is now doc-cited; this
+ * test pins those citations so a refactor cannot silently detach the
+ * code from its source of truth — the citation is the difference
+ * between "documented contract" and "third guess".
  */
 const BEAM_SRC = new URL("./beam.ts", import.meta.url).pathname;
 
-describe("Beam refund shape flag (#151 point 4)", () => {
+describe("Beam adapter doc citations", () => {
   const source = readFileSync(BEAM_SRC, "utf8");
 
-  it("keeps the UNVALIDATED warning on the refund method", () => {
-    expect(source).toContain("REFUND SHAPE UNVALIDATED AGAINST REAL BEAM");
-    expect(source).toContain("#151 point 4");
+  it("no longer carries the UNVALIDATED refund warning — the shape is documented", () => {
+    expect(source).not.toContain("REFUND SHAPE UNVALIDATED");
   });
 
-  it("keeps the warning attached to the refund implementation", () => {
-    // The warning must sit ABOVE the refund method, not drift elsewhere.
-    const warningAt = source.indexOf("REFUND SHAPE UNVALIDATED");
+  it("cites the official refunds reference on the refund method", () => {
+    const cite = source.indexOf("docs.beamcheckout.com/refunds/refunds-api");
     const refundAt = source.indexOf("async refund(");
-    expect(warningAt).toBeGreaterThan(-1);
-    expect(refundAt).toBeGreaterThan(warningAt);
+    expect(cite).toBeGreaterThan(-1);
+    expect(refundAt).toBeGreaterThan(-1);
+  });
+
+  it("cites the official charges reference for the direct QR charge", () => {
+    expect(source).toContain("docs.beamcheckout.com/charges/charges-api");
+  });
+
+  it("cites the official webhook event list for refund.* events", () => {
+    expect(source).toContain("docs.beamcheckout.com/webhook-event-types");
   });
 });

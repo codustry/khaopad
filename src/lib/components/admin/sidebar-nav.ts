@@ -19,6 +19,7 @@ import {
   Webhook,
   KeyRound,
   Ruler,
+  Plug,
 } from "lucide-svelte";
 import * as m from "$lib/paraglide/messages";
 
@@ -273,6 +274,15 @@ registerNavGroup({
       // super_admin only — these keys create charges and issue refunds.
       // Deliberately narrower than site settings, which admits `admin`.
       roles: ["super_admin"],
+    },
+    {
+      // #160 Phase E — commerce-network pairing (Tonbab sync). Guide +
+      // live status only; the secret VALUES stay on the super_admin
+      // Credentials page.
+      href: "/admin/settings/connections",
+      label: m.cms_connections,
+      icon: Plug,
+      roles: ["super_admin", "admin"],
     },
     {
       href: "/admin/settings",

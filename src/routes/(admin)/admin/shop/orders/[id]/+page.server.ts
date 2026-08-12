@@ -238,6 +238,24 @@ export const actions: Actions = {
         error: `Payment provider '${order.providerName}' is not configured — cannot process refund`,
       });
     }
+    // Provider capability check (#160 E-3): a provider that declares
+    // partialRefunds:false gets refused up front instead of
+    // round-tripping a guaranteed rejection. Beam declares NOTHING
+    // here on purpose — its partial-refund support is METHOD-dependent
+    // (card yes; PromptPay/e-wallet must refund in full, per
+    // https://docs.beamcheckout.com/refunds/refunds-api) and we don't
+    // know the charge's method, so the attempt goes through and Beam's
+    // rejection is surfaced verbatim (with the card-only constraint
+    // appended by beam.ts). Never silently rewrite a partial into a
+    // full refund.
+    if (
+      amount < refundable &&
+      provider.capabilities?.partialRefunds === false
+    ) {
+      return fail(400, {
+        error: `Payment provider '${provider.name}' does not support partial refunds — refund the full remaining ${refundable / 100}฿ or handle the partial amount in the provider's dashboard`,
+      });
+    }
     const refundResult = await provider.refund({
       providerChargeId: order.providerChargeId,
       amount,

@@ -211,6 +211,13 @@
       "when": 1786204500000,
       "tag": "0029_plugin_reviews_product_reviews",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1786290900000,
+      "tag": "0030_commerce_network_sync",
+      "breakpoints": true
     }
   ]
 }
