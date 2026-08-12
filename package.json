@@ -1,7 +1,7 @@
 {
   "name": "khaopad",
   "version": "4.1.0",
-  "description": "Khao Pad (\u0e02\u0e49\u0e32\u0e27\u0e1c\u0e31\u0e14) \u2014 Modular CMS for Cloudflare",
+  "description": "Khao Pad (ข้าวผัด) — Modular CMS for Cloudflare",
   "private": true,
   "type": "module",
   "scripts": {
