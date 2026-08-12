@@ -31,6 +31,20 @@ import {
 } from "./schema";
 import { type Satang } from "./money";
 import { refreshProductIndex } from "./search";
+// #165. Note the import cycle with bundles.ts (which imports
+// ShopValidationError from here): benign under ESM because neither
+// side touches the other's binding at module-evaluation time — the
+// class is only constructed inside a thrown error, and these
+// functions are only called from methods. Keeping ShopValidationError
+// in service.ts preserves the import path 13 other modules already use.
+import {
+  bundleAvailability,
+  componentValueSatang,
+  getBundleComponents,
+  setBundleComponents,
+  type BundleComponentDetail,
+  type BundleComponentInput,
+} from "./bundles";
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -104,11 +118,22 @@ export type ShopProductWithGraph = ShopProduct & {
   variants: Array<
     typeof shopProductVariants.$inferSelect & {
       optionValueIds: string[];
+      // For a BUNDLE variant, `available` is derived from the
+      // components (min over floor(available / qty)) rather than read
+      // from a stock row the bundle does not have. See hydrateProduct.
       inventory: {
         onHand: number;
         reserved: number;
         available: number;
       } | null;
+      /** Non-null only for bundle variants (#165). */
+      bundleComponents: BundleComponentDetail[] | null;
+      /**
+       * What the components would cost bought separately — DISPLAY
+       * ONLY ("normally 1,050฿"). The bundle's own priceSatang is the
+       * authoritative price and the only one that reaches an order.
+       */
+      bundleComponentValueSatang: number | null;
     }
   >;
 };
@@ -434,13 +459,78 @@ export class ShopService {
       }
     }
 
+    // Bundle components (#165). Only queried for products flagged as
+    // bundles — an ordinary product pays nothing for this feature.
+    //
+    // A bundle variant's `inventory.available` is REPLACED by the
+    // derived min-over-components figure, because the bundle itself
+    // owns no stock. Every existing availability read (storefront
+    // sold-out state, JSON-LD, admin table, cart checks) therefore
+    // becomes bundle-correct without touching a single call site.
+    // `onHand`/`reserved` are left as the raw bundle-row values (0 or
+    // null) — they describe a shelf the bundle does not have.
+    const bundleComponentsByVariant = new Map<
+      string,
+      BundleComponentDetail[]
+    >();
+    if (product.isBundle && variants.length > 0) {
+      const perVariant = await Promise.all(
+        variants.map(
+          async (v) =>
+            [v.id, await getBundleComponents(this.d1, v.id)] as const,
+        ),
+      );
+      // An EMPTY list is still recorded. A bundle whose components were
+      // cleared must render as sold out, not fall through to ordinary
+      // variant availability — where it would read its own (absent or
+      // stale) stock row and could go on sale as an empty box.
+      for (const [variantId, comps] of perVariant) {
+        bundleComponentsByVariant.set(variantId, comps);
+      }
+    }
+
     const variantsHydrated = variants
       .sort((a, b) => a.position - b.position)
-      .map((v) => ({
-        ...v,
-        optionValueIds: variantOptsByVariant.get(v.id) ?? [],
-        inventory: inventoryByVariant.get(v.id) ?? null,
-      }));
+      .map((v) => {
+        const components = bundleComponentsByVariant.get(v.id) ?? null;
+        const baseInventory = inventoryByVariant.get(v.id) ?? null;
+        if (!components) {
+          return {
+            ...v,
+            optionValueIds: variantOptsByVariant.get(v.id) ?? [],
+            inventory: baseInventory,
+            bundleComponents: null,
+            bundleComponentValueSatang: null,
+          };
+        }
+        const { available } = bundleAvailability(
+          components.map((c) => ({
+            componentVariantId: c.componentVariantId,
+            quantity: c.quantity,
+            available: c.available,
+          })),
+        );
+        const derived =
+          available === Infinity ? Number.MAX_SAFE_INTEGER : available;
+        return {
+          ...v,
+          optionValueIds: variantOptsByVariant.get(v.id) ?? [],
+          inventory: {
+            onHand: baseInventory?.onHand ?? 0,
+            reserved: baseInventory?.reserved ?? 0,
+            available: derived,
+          },
+          bundleComponents: components,
+          // Display-only "parts would cost this separately" figure.
+          // Never a price — see componentValueSatang in bundles.ts.
+          bundleComponentValueSatang: componentValueSatang(
+            components.map((c) => ({
+              quantity: c.quantity,
+              priceSatang: c.priceSatang,
+            })),
+          ),
+        };
+      });
 
     const localizations: ProductLocalizations = {};
     for (const l of locs) {
@@ -700,6 +790,8 @@ export class ShopService {
       seoDescription?: string | null;
       tags?: string[] | null;
       featuredMediaId?: string | null;
+      /** #165 — marks this product's variants as fixed bundles. */
+      isBundle?: boolean;
     },
   ): Promise<void> {
     const existing = await this.db
@@ -721,9 +813,167 @@ export class ShopService {
       set.seoDescription = fields.seoDescription ?? null;
     if ("tags" in fields)
       set.tags = fields.tags?.length ? JSON.stringify(fields.tags) : null;
+    if ("isBundle" in fields) set.isBundle = fields.isBundle ?? false;
     if ("featuredMediaId" in fields)
       set.featuredMediaId = fields.featuredMediaId ?? null;
     await this.db.update(shopProducts).set(set).where(eq(shopProducts.id, id));
+  }
+
+  /**
+   * Replace a bundle variant's component list (#165).
+   *
+   * Thin pass-through to `setBundleComponents` so admin callers keep
+   * talking to one service object. All the validation that matters —
+   * positive quantities, no duplicates, no self-reference and above
+   * all NO NESTED BUNDLES — lives in bundles.ts, which is where the
+   * unit tests point.
+   *
+   * Deliberately does NOT touch prices: a bundle's price is set on its
+   * variant like any other variant's, through updateVariant. Changing
+   * the component list must never move the price, or a merchant
+   * swapping a part would silently re-tag the product.
+   */
+  async setBundleComponents(
+    bundleVariantId: string,
+    components: readonly BundleComponentInput[],
+  ): Promise<void> {
+    await setBundleComponents(this.d1, bundleVariantId, components);
+  }
+
+  /** Hydrated component list for one bundle variant (#165). */
+  async getBundleComponents(
+    bundleVariantId: string,
+  ): Promise<BundleComponentDetail[]> {
+    return getBundleComponents(this.d1, bundleVariantId);
+  }
+
+  /**
+   * Active, non-bundle variants that a merchant may pick as bundle
+   * components — the admin picker's option list.
+   *
+   * Excludes bundle products at the source, so the picker cannot even
+   * offer a choice that `setBundleComponents` would reject. Archived
+   * variants are excluded too: adding one would build a bundle that
+   * can never be fulfilled.
+   */
+  async listBundleCandidateVariants(excludeProductId?: string): Promise<
+    Array<{
+      variantId: string;
+      variantTitle: string;
+      sku: string | null;
+      productId: string;
+      productTitle: string;
+      priceSatang: number;
+      /** Current available count; null when untracked (no ceiling). */
+      available: number | null;
+    }>
+  > {
+    // Explicit projection rather than `select()` over a join: the
+    // nested-by-table shape a bare join returns is easy to mis-key
+    // (both tables have an `id`), and this reads as what it is.
+    //
+    // `productId` deliberately comes from the VARIANT side, not
+    // `shopProducts.id`. Selecting two columns both named `id` in one
+    // join is a footgun in any driver that flattens result rows by
+    // column name (the integration harness's better-sqlite3 shim does
+    // exactly that, and the second `id` silently wins). The join
+    // predicate makes the two equal, so taking the non-colliding one
+    // is free.
+    const joined = await this.db
+      .select({
+        variantId: shopProductVariants.id,
+        variantTitle: shopProductVariants.titleCached,
+        sku: shopProductVariants.sku,
+        priceSatang: shopProductVariants.priceSatang,
+        productId: shopProductVariants.productId,
+        productSlug: shopProducts.slug,
+      })
+      .from(shopProductVariants)
+      .innerJoin(
+        shopProducts,
+        eq(shopProducts.id, shopProductVariants.productId),
+      )
+      .where(
+        and(
+          eq(shopProductVariants.status, "active"),
+          eq(shopProducts.isBundle, false),
+        ),
+      )
+      .all();
+
+    const productIds = [...new Set(joined.map((r) => r.productId))].filter(
+      (id) => id !== excludeProductId,
+    );
+    if (productIds.length === 0) return [];
+
+    const locs = await this.db
+      .select()
+      .from(shopProductLocalizations)
+      .where(
+        and(
+          inArray(shopProductLocalizations.productId, productIds),
+          eq(shopProductLocalizations.locale, "en"),
+        ),
+      )
+      .all();
+    const titleByProduct = new Map(locs.map((l) => [l.productId, l.title]));
+
+    // Live stock per candidate, so the picker can show the merchant
+    // how many bundles a given quantity would actually yield. Untracked
+    // variants map to null — "imposes no ceiling", the same reading
+    // bundleAvailability uses.
+    const eligible = joined.filter((r) => r.productId !== excludeProductId);
+    const invItems = eligible.length
+      ? await this.db
+          .select()
+          .from(shopInventoryItems)
+          .where(
+            inArray(
+              shopInventoryItems.variantId,
+              eligible.map((r) => r.variantId),
+            ),
+          )
+          .all()
+      : [];
+    const trackedItems = invItems.filter((i) => i.tracked);
+    const invLevels = trackedItems.length
+      ? await this.db
+          .select()
+          .from(shopInventoryLevels)
+          .where(
+            inArray(
+              shopInventoryLevels.itemId,
+              trackedItems.map((i) => i.id),
+            ),
+          )
+          .all()
+      : [];
+    const levelByItemId = new Map(invLevels.map((l) => [l.itemId, l]));
+    const availableByVariant = new Map<string, number>();
+    for (const item of trackedItems) {
+      const level = levelByItemId.get(item.id);
+      if (!level) continue;
+      availableByVariant.set(
+        item.variantId,
+        Math.max(0, level.onHand - level.reserved),
+      );
+    }
+
+    return eligible
+      .map((r) => ({
+        variantId: r.variantId,
+        variantTitle: r.variantTitle,
+        sku: r.sku,
+        productId: r.productId,
+        productTitle: titleByProduct.get(r.productId) ?? r.productSlug,
+        priceSatang: r.priceSatang,
+        available: availableByVariant.get(r.variantId) ?? null,
+      }))
+      .sort(
+        (a, b) =>
+          a.productTitle.localeCompare(b.productTitle) ||
+          a.variantTitle.localeCompare(b.variantTitle),
+      );
   }
 
   /**

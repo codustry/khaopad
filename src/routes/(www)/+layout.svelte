@@ -97,6 +97,11 @@
 				<a href={localePath(toLocale(data.locale), '/products')} class="hover:text-primary">
 					{m.nav_shop()}
 				</a>
+				{#if data.hasCareers}
+					<a href={localePath(toLocale(data.locale), '/careers')} class="hover:text-primary">
+						{m.careers_nav()}
+					</a>
+				{/if}
 				<HeaderSearch locale={toLocale(data.locale)} />
 				<a
 					href={localePath(toLocale(data.locale), '/account')}

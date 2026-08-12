@@ -218,6 +218,20 @@
       "when": 1786290900000,
       "tag": "0030_commerce_network_sync",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1786290960000,
+      "tag": "0031_external_order_item_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1786291020000,
+      "tag": "0032_plugin_shop_fixed_bundles",
+      "breakpoints": true
     }
   ]
 }

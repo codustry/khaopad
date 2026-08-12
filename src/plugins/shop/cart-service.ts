@@ -45,7 +45,13 @@ import {
   type ShopCartItem,
   type ShopCartItemWithContext,
 } from "./schema-cart";
-import { reserveVariant, releaseVariant } from "./inventory";
+// Bundle-aware wrappers (#165): identity for an ordinary variant, and
+// an all-or-nothing fan-out across component variants for a bundle.
+// The underlying oversell CAS is unchanged — see bundles.ts.
+import {
+  releaseVariantWithComponents,
+  reserveVariantWithComponents,
+} from "./bundles";
 import { ShopValidationError } from "./service";
 
 // ─── Constants ──────────────────────────────────────────────
@@ -485,7 +491,7 @@ export class CartService {
 
     try {
       for (const item of items) {
-        const outcome = await reserveVariant(
+        const outcome = await reserveVariantWithComponents(
           this.d1,
           item.variantId,
           item.quantity,
@@ -530,7 +536,11 @@ export class CartService {
     } catch (err) {
       for (const back of rolledBack) {
         try {
-          await releaseVariant(this.d1, back.variantId, back.quantity);
+          await releaseVariantWithComponents(
+            this.d1,
+            back.variantId,
+            back.quantity,
+          );
         } catch {
           /* best-effort rollback */
         }
@@ -631,7 +641,7 @@ export class CartService {
     let released = 0;
     for (const r of expired) {
       try {
-        await releaseVariant(this.d1, r.variantId, r.quantity);
+        await releaseVariantWithComponents(this.d1, r.variantId, r.quantity);
         released++;
       } catch {
         // Reservation refers to a deleted variant — skip, mark ledger

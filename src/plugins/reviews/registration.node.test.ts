@@ -33,10 +33,13 @@ describe("reviews plugin registration", () => {
   it("is enabled in BOTH plugin lists (registrations + runtime)", () => {
     // The two lists must stay in sync — registrations.ts feeds the
     // client bundle, runtime.ts the server loader.
+    // Matches the ordered prefix rather than the whole array — later
+    // plugins may append to these lists, and this test is about
+    // reviews being enabled after shop, not about being last.
     expect(registrations).toMatch(/import reviews from "\$plugins\/reviews"/);
-    expect(registrations).toMatch(/\[hello,\s*shop,\s*reviews\]/);
+    expect(registrations).toMatch(/\[hello,\s*shop,\s*reviews[,\]]/);
     expect(runtime).toMatch(/import reviews from "\$plugins\/reviews"/);
-    expect(runtime).toMatch(/\[hello,\s*shop,\s*reviews\]/);
+    expect(runtime).toMatch(/\[hello,\s*shop,\s*reviews[,\]]/);
   });
 
   it("registers reviews AFTER shop so the shop nav group exists", () => {

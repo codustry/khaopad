@@ -233,6 +233,52 @@
 		{/if}
 	</section>
 
+	<!-- ─── Bundle contents (#165) ─────────────────────────────
+	     Only rendered for a bundle variant. The prices shown here are
+	     the components' own; the BUNDLE's price above is what the
+	     customer pays and is never derived from these. The
+	     "bought separately" line is a saving claim, not a total. -->
+	{#if selectedVariant.bundleComponents && selectedVariant.bundleComponents.length > 0}
+		<section class="mb-8 space-y-3 rounded-lg border border-border p-4">
+			<h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+				{m.shop_bundle_contents()}
+			</h2>
+			<ul class="space-y-2">
+				{#each selectedVariant.bundleComponents as component (component.variantId)}
+					<li class="flex items-baseline justify-between gap-3 text-sm">
+						<span class:text-muted-foreground={!component.inStock}>
+							{m.shop_bundle_contains_qty({
+								quantity: component.quantity,
+								title: component.title
+							})}
+							{#if component.variantTitle}
+								<span class="text-muted-foreground">({component.variantTitle})</span>
+							{/if}
+						</span>
+						{#if !component.inStock}
+							<span class="shrink-0 text-xs text-destructive">
+								{m.shop_bundle_component_sold_out()}
+							</span>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+			{#if selectedVariant.bundleComponentValueSatang && selectedVariant.bundleComponentValueSatang > selectedVariant.priceSatang}
+				<p class="text-xs text-muted-foreground">
+					{m.shop_bundle_separately({
+						amount: formatSatang(
+							selectedVariant.bundleComponentValueSatang as Satang,
+							data.locale === 'th' ? 'th' : 'en'
+						)
+					})}
+				</p>
+			{/if}
+			{#if selectedVariant.available === 0}
+				<p class="text-xs text-destructive">{m.shop_bundle_sold_out_note()}</p>
+			{/if}
+		</section>
+	{/if}
+
 	{#if product.variants.length > 1}
 		<section class="mb-8 space-y-2">
 			<h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">

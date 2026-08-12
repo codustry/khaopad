@@ -133,8 +133,28 @@ export const load: PageServerLoad = async ({ params, url, platform }) => {
         titleCached: v.titleCached,
         priceSatang: v.priceSatang,
         compareAtSatang: v.compareAtSatang,
+        // For a bundle variant this is the DERIVED figure —
+        // min(floor(component.available / qty)) — so the sold-out
+        // badge, the variant picker's strike-through and the JSON-LD
+        // availability all become bundle-correct with no branching
+        // here. See hydrateProduct in service.ts.
         available: v.inventory?.available ?? 0,
         onHand: v.inventory?.onHand ?? 0,
+        // #165 — bundle contents for the product page. Null for an
+        // ordinary variant. Component stock is reduced to a boolean
+        // in-stock flag: shoppers need to know WHICH item is holding
+        // the bundle up, not the exact count of a thing they cannot
+        // buy from this page.
+        bundleComponents:
+          v.bundleComponents?.map((c) => ({
+            variantId: c.componentVariantId,
+            quantity: c.quantity,
+            title: c.productTitle,
+            variantTitle: c.variantTitle,
+            productSlug: c.productSlug,
+            inStock: c.available === null || c.available >= c.quantity,
+          })) ?? null,
+        bundleComponentValueSatang: v.bundleComponentValueSatang,
       })),
       selectedVariantId: selectedVariant.id,
     },

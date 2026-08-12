@@ -29,7 +29,11 @@ export const load: PageServerLoad = async ({ locals, platform, params }) => {
   const svc = new ShopService(env.DB);
   const product = await svc.getProduct(params.id);
   if (!product) throw error(404, "Product not found");
-  return { product };
+  // #165: options for the bundle component picker. Excludes this
+  // product's own variants and every bundle product, so the picker
+  // cannot offer a choice setBundleComponents would reject.
+  const bundleCandidates = await svc.listBundleCandidateVariants(params.id);
+  return { product, bundleCandidates };
 };
 
 export const actions: Actions = {
@@ -99,11 +103,43 @@ export const actions: Actions = {
       });
     }
 
+    // ── Bundle components (#165) ──
+    // The picker posts parallel arrays: one bundle_component_variant
+    // and one bundle_component_qty per row, in DOM order. Blank rows
+    // (the merchant added a row but picked nothing) are dropped rather
+    // than rejected — an empty select is an unfinished thought, not an
+    // error worth blocking a save over.
+    const isBundle = fd.get("is_bundle") === "on";
+    const componentVariantIds = fd
+      .getAll("bundle_component_variant")
+      .map((v) => String(v).trim());
+    const componentQtys = fd
+      .getAll("bundle_component_qty")
+      .map((v) => String(v).trim());
+    const bundleComponents: Array<{
+      componentVariantId: string;
+      quantity: number;
+    }> = [];
+    for (const [i, variantId] of componentVariantIds.entries()) {
+      if (!variantId) continue;
+      const qty = Number(componentQtys[i] ?? "1");
+      if (!Number.isInteger(qty) || qty <= 0 || qty > 10_000) {
+        return fail(400, {
+          error: "Bundle quantity must be a whole number between 1 and 10,000",
+          field: "bundle_component_qty",
+        });
+      }
+      bundleComponents.push({ componentVariantId: variantId, quantity: qty });
+    }
+
     const svc = new ShopService(env.DB);
+    const product = await svc.getProduct(params.id);
+    if (!product) return fail(404, { error: "Product not found" });
     try {
       await svc.updateProduct(params.id, {
         vendor: vendor || null,
         productType: productType || null,
+        isBundle,
       });
       // upsertLocalization refreshes products_fts after each write —
       // the reason edited titles don't go stale in search (#160 A3).
@@ -121,6 +157,23 @@ export const actions: Actions = {
           compareAtSatang: v.compareAtSatang,
           sku: v.sku,
         });
+      }
+      // Components hang off the bundle VARIANT, and the editor's picker
+      // is per-product, so it targets the product's first variant —
+      // the single-variant shape a fixed bundle has in practice. A
+      // multi-variant bundle would need a per-variant picker; that is
+      // deliberately out of scope for D7 ("a bundle product type
+      // referencing component variants at a fixed price").
+      //
+      // Turning the bundle flag OFF clears the component rows too:
+      // leaving them behind would keep the expansion path live for a
+      // product the merchant has decided is no longer a bundle.
+      const bundleVariantId = product.variants[0]?.id;
+      if (bundleVariantId) {
+        await svc.setBundleComponents(
+          bundleVariantId,
+          isBundle ? bundleComponents : [],
+        );
       }
     } catch (err) {
       if (err instanceof ShopValidationError) {

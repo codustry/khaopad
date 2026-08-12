@@ -26,8 +26,9 @@ import "./registrations";
 import hello from "$plugins/hello";
 import shop from "$plugins/shop";
 import reviews from "$plugins/reviews";
+import careers from "$plugins/careers";
 
-const enabledPlugins: KhaopadPlugin[] = [hello, shop, reviews];
+const enabledPlugins: KhaopadPlugin[] = [hello, shop, reviews, careers];
 
 let initialized = false;
 let initPromise: Promise<void> | null = null;

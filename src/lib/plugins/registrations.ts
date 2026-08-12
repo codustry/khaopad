@@ -24,6 +24,12 @@ import shop from "$plugins/shop";
 // reviews must come after shop: its registerNavItem targets the "shop"
 // nav group, which must already exist.
 import reviews from "$plugins/reviews";
+// careers registers nothing at module load (no nav group, no webhook
+// events) — it is listed here only to keep this file the single source
+// of truth for the enabled set. Its import chain is deliberately free
+// of $lib/components/admin/sidebar-nav, so it cannot participate in the
+// barrel-export/TDZ cycle documented there.
+import careers from "$plugins/careers";
 
 // Silence unused-import warnings — the import is the point (side effects).
-export const _pluginModules = [hello, shop, reviews];
+export const _pluginModules = [hello, shop, reviews, careers];

@@ -77,6 +77,14 @@ declare global {
          */
         RESEND_API_KEY?: string;
         RESEND_FROM?: string;
+        // ─── @khaopad/plugin-careers (optional) ────────────
+        /**
+         * Public ATS job feed URL (Tonbab People shape). Absent =
+         * /{locale}/careers 404s and the nav entry hides, so an
+         * install that never configured careers behaves as if the
+         * feature does not exist. See src/plugins/careers/README.md.
+         */
+        CAREERS_FEED_URL?: string;
       };
     }
   }

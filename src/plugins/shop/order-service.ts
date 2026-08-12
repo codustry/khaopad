@@ -65,11 +65,17 @@ import {
   type ShopOrderEvent,
   type ShopReturn,
 } from "./schema-operations";
+import { restoreVariantOnHand } from "./inventory";
+// Bundle-aware commit/release (#165). A bundle order line carries the
+// BUNDLE's variant id; the components are what actually move, so both
+// the pay-commit and the cancel-release fan out through bundles.ts.
+// `restoreVariantOnHand` deliberately stays the plain one: it serves
+// external (POS) orders, which never reserved and never route through
+// the web shop's bundle catalogue.
 import {
-  commitVariantSale,
-  releaseVariant,
-  restoreVariantOnHand,
-} from "./inventory";
+  commitVariantSaleWithComponents,
+  releaseVariantWithComponents,
+} from "./bundles";
 import { ShopValidationError } from "./service";
 import { allocateDiscount } from "./totals";
 import { carrierLabel } from "./carriers";
@@ -922,7 +928,11 @@ export class OrderService {
 
     for (const item of items) {
       try {
-        await commitVariantSale(this.d1, item.variantId, item.quantity);
+        await commitVariantSaleWithComponents(
+          this.d1,
+          item.variantId,
+          item.quantity,
+        );
       } catch (err) {
         // Customer already charged — never fail a paid order over
         // inventory bookkeeping. Log and continue.
@@ -1111,7 +1121,11 @@ export class OrderService {
             await restoreVariantOnHand(this.d1, item.variantId, item.quantity);
           }
         } else {
-          await releaseVariant(this.d1, item.variantId, item.quantity);
+          await releaseVariantWithComponents(
+            this.d1,
+            item.variantId,
+            item.quantity,
+          );
         }
       } catch {
         /* variant may be gone */

@@ -51,7 +51,16 @@
 					sku: v.sku ?? ''
 				}
 			])
-		)
+		),
+		// #165 — bundle config. Components hang off the first variant
+		// (see the note in the save action). Quantities are edited as
+		// strings because that is what an <input> holds; the server
+		// validates them as whole numbers.
+		isBundle: data.product.isBundle,
+		bundleComponents: (data.product.variants[0]?.bundleComponents ?? []).map((c) => ({
+			variantId: c.componentVariantId,
+			quantity: String(c.quantity)
+		}))
 	});
 	const seed = initialValues();
 
@@ -62,7 +71,44 @@
 	let vendor = $state(seed.vendor);
 	let productType = $state(seed.productType);
 	let variantFields = $state(seed.variantFields);
+	let isBundle = $state(seed.isBundle);
+	let bundleComponents = $state(seed.bundleComponents);
 	let saving = $state(false);
+
+	// ── Bundle component picker (#165) ──────────────────────
+	// Candidates are pre-filtered server-side to active, non-bundle
+	// variants outside this product, so nothing offered here can be
+	// rejected by the recursion guard.
+	const candidates = $derived(data.bundleCandidates);
+	const chosenIds = $derived(new Set(bundleComponents.map((c) => c.variantId)));
+
+	function addComponent() {
+		bundleComponents = [...bundleComponents, { variantId: '', quantity: '1' }];
+	}
+
+	function removeComponent(index: number) {
+		bundleComponents = bundleComponents.filter((_, i) => i !== index);
+	}
+
+	/**
+	 * How many bundles current stock can make — the same
+	 * min(floor(available / qty)) the server derives, mirrored here so
+	 * the merchant sees the consequence of a quantity edit before
+	 * saving. Purely advisory; the server recomputes on every read.
+	 */
+	const bundleAvailability = $derived.by(() => {
+		if (!isBundle || bundleComponents.length === 0) return 0;
+		let min = Infinity;
+		for (const row of bundleComponents) {
+			const candidate = candidates.find((c) => c.variantId === row.variantId);
+			if (!candidate) continue;
+			const qty = Number(row.quantity);
+			if (!Number.isInteger(qty) || qty <= 0) continue;
+			if (candidate.available === null) continue;
+			min = Math.min(min, Math.floor(candidate.available / qty));
+		}
+		return min === Infinity ? 0 : Math.max(0, min);
+	});
 
 	// Dirty tracking drives the SaveBar's visibility and the
 	// navigate-away guard (see dirty-state.svelte.ts for why the
@@ -75,7 +121,9 @@
 			descTh,
 			vendor,
 			productType,
-			Object.entries(variantFields).map(([id, f]) => [id, f.price, f.compareAt, f.sku])
+			Object.entries(variantFields).map(([id, f]) => [id, f.price, f.compareAt, f.sku]),
+			isBundle,
+			bundleComponents.map((c) => [c.variantId, c.quantity])
 		]);
 	const dirty = new DirtyState(snapshot());
 	$effect(() => dirty.update(snapshot()));
@@ -90,6 +138,8 @@
 		vendor = fresh.vendor;
 		productType = fresh.productType;
 		variantFields = fresh.variantFields;
+		isBundle = fresh.isBundle;
+		bundleComponents = fresh.bundleComponents;
 		dirty.reset(snapshot());
 	}
 
@@ -329,6 +379,110 @@
 						/>
 					</div>
 				</div>
+			</section>
+
+			<!-- ─── Bundle contents (#165) ─────────────────────────
+			     The bundle's PRICE is edited in the variants table like
+			     any other variant's — it is fixed and authoritative, not
+			     a sum of what is picked here. This section only decides
+			     which stock a sale draws down. -->
+			<section class="space-y-4 rounded-lg border border-border p-4">
+				<h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+					{m.shop_admin_bundle_section()}
+				</h2>
+				<label class="flex items-center gap-2 text-sm">
+					<input
+						type="checkbox"
+						name="is_bundle"
+						bind:checked={isBundle}
+						disabled={saving}
+						class="h-4 w-4 rounded border-input"
+					/>
+					{m.shop_admin_is_bundle()}
+				</label>
+				<p class="text-xs text-muted-foreground">{m.shop_admin_bundle_help()}</p>
+
+				{#if isBundle}
+					{#if candidates.length === 0}
+						<p class="text-sm text-muted-foreground">{m.shop_admin_bundle_no_candidates()}</p>
+					{:else}
+						{#if bundleComponents.length === 0}
+							<p class="text-sm text-muted-foreground">{m.shop_admin_bundle_none()}</p>
+						{/if}
+						<div class="space-y-2">
+							{#each bundleComponents as component, index (index)}
+								<div class="flex items-end gap-2">
+									<div class="flex-1 space-y-1">
+										<Label for={`bundle_component_${index}`} class="text-xs">
+											{m.shop_admin_bundle_component()}
+										</Label>
+										<select
+											id={`bundle_component_${index}`}
+											name="bundle_component_variant"
+											bind:value={component.variantId}
+											disabled={saving}
+											class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+										>
+											<option value="">{m.shop_admin_bundle_choose()}</option>
+											{#each candidates as candidate (candidate.variantId)}
+												<!-- Already-picked variants are hidden from the
+												     other rows: a duplicate component is rejected
+												     server-side, so it must not be offerable. -->
+												{#if candidate.variantId === component.variantId || !chosenIds.has(candidate.variantId)}
+													<option value={candidate.variantId}>
+														{candidate.productTitle}{candidate.variantTitle
+															? ` — ${candidate.variantTitle}`
+															: ''}{candidate.sku ? ` (${candidate.sku})` : ''}
+													</option>
+												{/if}
+											{/each}
+										</select>
+									</div>
+									<div class="w-32 space-y-1">
+										<Label for={`bundle_qty_${index}`} class="text-xs">
+											{m.shop_admin_bundle_quantity()}
+										</Label>
+										<Input
+											id={`bundle_qty_${index}`}
+											name="bundle_component_qty"
+											type="number"
+											min="1"
+											step="1"
+											bind:value={component.quantity}
+											disabled={saving}
+											class="h-9 text-right tabular-nums"
+										/>
+									</div>
+									<Button
+										type="button"
+										variant="outline"
+										size="sm"
+										onclick={() => removeComponent(index)}
+										disabled={saving}
+									>
+										{m.shop_admin_bundle_remove()}
+									</Button>
+								</div>
+							{/each}
+						</div>
+						<div class="flex items-center justify-between gap-3">
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								onclick={addComponent}
+								disabled={saving}
+							>
+								{m.shop_admin_bundle_add_component()}
+							</Button>
+							{#if bundleComponents.length > 0}
+								<p class="text-xs tabular-nums text-muted-foreground">
+									{m.shop_admin_bundle_availability({ count: bundleAvailability })}
+								</p>
+							{/if}
+						</div>
+					{/if}
+				{/if}
 			</section>
 		</form>
 

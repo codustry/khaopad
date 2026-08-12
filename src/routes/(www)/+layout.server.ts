@@ -3,6 +3,7 @@ import { loadNavigation, navItemHref } from "$lib/server/content/navigation";
 import type { Locale } from "$lib/server/content/types";
 import { CartService } from "$plugins/shop/cart-service";
 import { readCartSession } from "$plugins/shop/cart-cookie";
+import { resolveFeedUrl } from "$plugins/careers/service";
 import type { LayoutServerLoad } from "./$types";
 
 export const load: LayoutServerLoad = async ({
@@ -72,11 +73,17 @@ export const load: LayoutServerLoad = async ({
     }
   })();
 
+  // Careers nav entry — shown only when a feed URL is configured. The
+  // route itself 404s when unset, so rendering the link unconditionally
+  // would advertise a dead page on every install that doesn't recruit.
+  const hasCareers = resolveFeedUrl(platform?.env) !== null;
+
   return {
     locale: locals.locale,
     siteSettings,
     consent,
     hasPrivacyPage,
+    hasCareers,
     cartItemCount,
     nav: {
       primary: renderMenu("primary"),

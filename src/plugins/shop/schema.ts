@@ -63,6 +63,7 @@
  *      cleanup independently.
  */
 import {
+  index,
   integer,
   primaryKey,
   sqliteTable,
@@ -82,6 +83,13 @@ export const shopProducts = sqliteTable(
       .default("draft"),
     vendor: text("vendor"),
     productType: text("product_type"),
+    // v4.1 D7 (#165): this product's variants are fixed bundles — each
+    // has rows in shop_bundle_components naming the component variants
+    // it draws stock from. The bundle's own price_satang stands; it is
+    // never the sum of its components.
+    isBundle: integer("is_bundle", { mode: "boolean" })
+      .notNull()
+      .default(false),
     tags: text("tags"), // JSON string array
     featuredMediaId: text("featured_media_id"),
     seoTitle: text("seo_title"),
@@ -222,6 +230,52 @@ export const shopInventoryLevels = sqliteTable(
   }),
 );
 
+// ─── Bundles (v4.1 D7, #165) ────────────────────────────────
+
+/**
+ * Component list for a fixed bundle: one row per (bundle variant →
+ * component variant), with how many of the component one bundle
+ * contains.
+ *
+ * The bundle variant itself has NO inventory rows. Its purchasable
+ * quantity is derived — `min(floor(component.available / quantity))`
+ * across components (bundleAvailability() in bundles.ts) — because a
+ * stored bundle on-hand would be a second source of truth that drifts
+ * from its components the first time one is sold separately or rung
+ * up at the POS.
+ *
+ * Selling one bundle reserves/commits/releases `bundleQty × quantity`
+ * of EACH component through the same oversell-safe CAS every other
+ * sale uses (expandVariantForInventory() in bundles.ts). There is no
+ * separate bundle inventory path.
+ *
+ * A component variant must NOT itself belong to a bundle product —
+ * enforced in the service layer, pinned by a test. One level deep by
+ * construction means expansion always terminates.
+ */
+export const shopBundleComponents = sqliteTable(
+  "shop_bundle_components",
+  {
+    bundleVariantId: text("bundle_variant_id")
+      .notNull()
+      .references(() => shopProductVariants.id, { onDelete: "cascade" }),
+    // RESTRICT (matching shop_order_items.variant_id): a component a
+    // live bundle depends on must not vanish underneath it.
+    componentVariantId: text("component_variant_id")
+      .notNull()
+      .references(() => shopProductVariants.id, { onDelete: "restrict" }),
+    // How many of this component one bundle contains. Always >= 1.
+    quantity: integer("quantity").notNull().default(1),
+    position: integer("position").notNull().default(0),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.bundleVariantId, t.componentVariantId] }),
+    componentIdx: index("shop_bundle_components_component_idx").on(
+      t.componentVariantId,
+    ),
+  }),
+);
+
 // ─── Collections ────────────────────────────────────────────
 
 export const shopCollections = sqliteTable("shop_collections", {
@@ -288,6 +342,7 @@ export type ShopProductVariant = typeof shopProductVariants.$inferSelect;
 export type ShopInventoryItem = typeof shopInventoryItems.$inferSelect;
 export type ShopInventoryLevel = typeof shopInventoryLevels.$inferSelect;
 export type ShopCollection = typeof shopCollections.$inferSelect;
+export type ShopBundleComponent = typeof shopBundleComponents.$inferSelect;
 
 /**
  * Locale is free text (validated at write time against

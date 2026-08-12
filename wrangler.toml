@@ -59,6 +59,16 @@ PUBLIC_SITE_URL = "https://example.com"
 CMS_SITE_URL = "https://example.com"
 BETTER_AUTH_URL = "https://example.com"
 
+# ─── @khaopad/plugin-careers (optional) ───────────────────────
+# Public job feed for /{locale}/careers, in the Tonbab People
+# (Greenhouse/Lever-shaped) format. Leave UNSET to disable: the careers
+# route 404s and no nav entry is rendered, so an install that doesn't
+# recruit behaves as if the feature doesn't exist.
+#
+# Not a secret — the feed is a public, unauthenticated, read-only
+# endpoint, so [vars] is the right home for it rather than a secret.
+# CAREERS_FEED_URL = "https://app.tonbab.com/api/careers/<tenant-slug>/jobs"
+
 # ──────────────────────────────────────
 # Environments
 # ──────────────────────────────────────
