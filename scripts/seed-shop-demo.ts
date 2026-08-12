@@ -1481,10 +1481,23 @@ const variantIndex = new Map<
   SeedVariant & { id: string; productId: string }
 >();
 
+/**
+ * Product imagery lives in R2 under `products/<slug>.jpg`, with a `media`
+ * row per image (see scripts/seed-shop-media.ts). Seeding is decoupled
+ * from uploading: this script emits the media_id its sibling would have
+ * created and lets a LEFT JOIN decide. If the object was never uploaded
+ * the media row is absent, the subquery yields NULL, and the storefront
+ * falls back to its placeholder tile — so a reseed on a fresh database
+ * degrades cleanly instead of pointing at broken images.
+ */
+const mediaIdFor = (slug: string) => `seed_media_${slug.replace(/-/g, "_")}`;
+
 for (const p of products) {
+  const mediaId = mediaIdFor(p.slug);
   lines.push(
     `INSERT OR REPLACE INTO shop_products (id, slug, status, vendor, product_type, tags, featured_media_id, seo_title, seo_description, created_at, updated_at, published_at) VALUES (` +
-      `${q(p.id)}, ${q(p.slug)}, 'active', ${q(p.vendor)}, ${q(p.productType)}, ${q(JSON.stringify(p.tags))}, NULL, ` +
+      `${q(p.id)}, ${q(p.slug)}, 'active', ${q(p.vendor)}, ${q(p.productType)}, ${q(JSON.stringify(p.tags))}, ` +
+      `(SELECT id FROM media WHERE id = ${q(mediaId)}), ` +
       `${q(p.titleEn)}, ${q(p.descEn.slice(0, 155))}, ${q(now)}, ${q(now)}, ${q(now)});`,
   );
 

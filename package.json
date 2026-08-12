@@ -24,7 +24,8 @@
     "db:seed:registry": "tsx scripts/seed-registry-demo.ts",
     "db:seed:specs": "tsx scripts/seed-specs-demo.ts",
     "db:seed:demo-user": "tsx scripts/seed-demo-user.ts",
-    "db:seed:shop": "tsx scripts/seed-shop-demo.ts"
+    "db:seed:shop": "tsx scripts/seed-shop-demo.ts",
+    "db:seed:media": "tsx scripts/seed-shop-media.ts"
   },
   "dependencies": {
     "@inlang/paraglide-js": "^2.0.0",
