@@ -155,22 +155,94 @@ export const POST: RequestHandler = async ({
         data?: { object?: { amount_refunded?: number } };
       }
     )?.data?.object?.amount_refunded;
-    const recordedSoFar = order.totalSatang - remaining;
+    // AUDIT F4 — SILENT MONEY ERROR in the old delta calculation.
+    //
+    // It computed `recordedSoFar = order.totalSatang - remaining`,
+    // i.e. the WHOLE ledger's refund sum, and subtracted that from
+    // Stripe's `amount_refunded`. But amount_refunded is cumulative AT
+    // STRIPE ONLY, so any refund booked through another path (a Tonbab
+    // POS refund, a manual admin goodwill adjustment) inflated
+    // recordedSoFar and shrank the delta. Worked example: order 10,000
+    // satang; admin books a 2,000 goodwill refund outside Stripe; a
+    // 3,000 dashboard refund then fires charge.refunded with
+    // amount_refunded:3000 → recordedSoFar 2,000 → delta 1,000 → the
+    // ledger under-books by 2,000 satang, permanently and silently.
+    //
+    // Fix: subtract only the STRIPE-ATTRIBUTABLE refund sum — the rows
+    // `amount_refunded` already counts. A row is Stripe-attributable
+    // when EITHER marker says so:
+    //   - provider_refund_id is a Stripe refund id (`re_...`), or
+    //   - idempotency_key carries this route's `stripe:refund:` prefix
+    //     (also written by the admin refund action for Stripe orders).
+    // The key-prefix arm matters because on newer API versions there is
+    // no re_ id to persist, so those rows would otherwise be invisible
+    // to the next event's delta and each refund would re-book the full
+    // cumulative amount. Rows from other paths (a Tonbab POS refund, a
+    // manual admin credit) match neither marker and are correctly
+    // excluded. Inline rather than in order-service.ts because this is
+    // Stripe-specific reconciliation, not domain logic.
+    const ledgerRows = await db
+      .select({
+        amountSatang: shopOrderAdjustments.amountSatang,
+        providerRefundId: shopOrderAdjustments.providerRefundId,
+        idempotencyKey: shopOrderAdjustments.idempotencyKey,
+      })
+      .from(shopOrderAdjustments)
+      .where(eq(shopOrderAdjustments.orderId, order.id))
+      .all();
+    const stripeRecordedSoFar = ledgerRows
+      .filter(
+        (r) =>
+          (typeof r.providerRefundId === "string" &&
+            r.providerRefundId.startsWith("re_")) ||
+          (typeof r.idempotencyKey === "string" &&
+            r.idempotencyKey.startsWith("stripe:refund:")),
+      )
+      .reduce((sum, r) => sum + Math.abs(r.amountSatang), 0);
     const delta =
-      typeof cumulative === "number" ? cumulative - recordedSoFar : remaining;
+      typeof cumulative === "number"
+        ? cumulative - stripeRecordedSoFar
+        : remaining;
     const amountSatang = Math.min(verified.amount ?? delta, remaining);
     if (amountSatang <= 0) {
       return json({ ok: true, orderStatus: "refunded", replayed: true });
     }
+    // AUDIT F5 — the idempotency key must vary per refund event.
+    //
+    // With no re_ id (exactly the newer-API case F4's fallback
+    // handles) the key used to collapse to
+    // `stripe:refund:<providerChargeId>`, which is CONSTANT per order.
+    // Two genuine partial dashboard refunds then produced the SAME key
+    // with DIFFERENT amounts: the second tripped recordRefund's
+    // body-fingerprint check, threw ShopValidationError, was
+    // caught-and-200'd below, and was permanently lost — Stripe never
+    // retries a 200.
+    //
+    // Every real Stripe event envelope carries a unique per-event `id`
+    // (evt_...), so key on that when the refund id is absent. Distinct
+    // events then get distinct keys (both refunds recorded), while a
+    // genuine REDELIVERY reuses its evt id and still dedupes as a
+    // replay — at-least-once idempotency is preserved.
+    //
+    // Preference order: re_ id (most specific, and shared with the
+    // admin refund path for echo dedupe) → evt id → charge id. The
+    // charge-id arm is the last resort for a payload carrying neither
+    // id; it is order-constant, so it can still collapse a second
+    // refund, but by then we have no varying identifier at all and a
+    // 503 loop would be worse than one logged ShopValidationError.
+    const eventId = (verified.raw as { id?: unknown } | undefined)?.id;
+    const refundKey =
+      refundId ||
+      (typeof eventId === "string" && eventId
+        ? `evt:${eventId}`
+        : order.providerChargeId || order.id);
     try {
       await orderSvc.recordRefund({
         orderId: order.id,
         amountSatang,
         reason: "Stripe-initiated refund",
         kind: amountSatang >= remaining ? "refund_full" : "refund_partial",
-        idempotencyKey: `stripe:refund:${
-          refundId || order.providerChargeId || order.id
-        }`,
+        idempotencyKey: `stripe:refund:${refundKey}`,
         providerRefundId: refundId,
       });
     } catch (err) {

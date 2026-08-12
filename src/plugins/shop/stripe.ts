@@ -49,6 +49,20 @@ const DEFAULT_STRIPE_BASE_URL = "https://api.stripe.com";
  */
 const SIGNATURE_TOLERANCE_SECONDS = 300;
 
+/**
+ * AUDIT F11 — how far in the FUTURE a timestamp may sit.
+ *
+ * The old check used `Math.abs(now - t)`, which treated "5 minutes in
+ * the past" and "5 minutes in the future" identically and so accepted
+ * events timestamped up to 5 minutes ahead of our clock. A future
+ * timestamp is never legitimate beyond ordinary clock skew between
+ * Stripe and this Worker, and accepting a wide future window hands an
+ * attacker who obtains a signature a payload that stays "fresh" for
+ * longer than intended. Past tolerance stays generous (retry latency,
+ * queueing); future tolerance is a small skew allowance only.
+ */
+const SIGNATURE_FUTURE_TOLERANCE_SECONDS = 30;
+
 export type StripeConfig = {
   secretKey: string;
   webhookSecret: string;
@@ -105,6 +119,13 @@ type StripeChargeObject = {
 };
 
 type StripeEventEnvelope = {
+  /**
+   * Unique per-event id (evt_...). Stable across REDELIVERIES of the
+   * same event but distinct between events, which is exactly what the
+   * webhook route needs to key refund idempotency when a charge object
+   * carries no re_... refund id (audit F5).
+   */
+  id?: string;
   type?: string;
   data?: { object?: StripeCheckoutSession & StripeChargeObject };
 };
@@ -315,17 +336,21 @@ export class StripePaymentProvider implements PaymentProvider {
     }
     // Staleness AFTER authenticity: only a genuinely-signed timestamp
     // is worth trusting enough to compare against the clock.
-    const ageSeconds = Math.abs(
-      Date.now() / 1000 - Number.parseInt(timestamp, 10),
-    );
+    // SIGNED, not absolute (audit F11): positive = the timestamp is in
+    // the past (normal), negative = in the future (only clock skew
+    // should ever produce this). A non-numeric `t` yields NaN, which
+    // fails Number.isFinite and is rejected — that path is deliberate
+    // and must stay, since NaN compares false against every bound.
+    const ageSeconds = Date.now() / 1000 - Number.parseInt(timestamp, 10);
     if (
       !Number.isFinite(ageSeconds) ||
-      ageSeconds > SIGNATURE_TOLERANCE_SECONDS
+      ageSeconds > SIGNATURE_TOLERANCE_SECONDS ||
+      ageSeconds < -SIGNATURE_FUTURE_TOLERANCE_SECONDS
     ) {
       return {
         ok: false,
         code: "SIGNATURE_TOO_OLD",
-        message: `Webhook timestamp outside the ${SIGNATURE_TOLERANCE_SECONDS}s replay window`,
+        message: `Webhook timestamp outside the replay window (${SIGNATURE_TOLERANCE_SECONDS}s past / ${SIGNATURE_FUTURE_TOLERANCE_SECONDS}s future)`,
       };
     }
     let event: StripeEventEnvelope;

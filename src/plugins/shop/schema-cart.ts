@@ -40,6 +40,7 @@
  */
 import { sql } from "drizzle-orm";
 import {
+  index,
   integer,
   sqliteTable,
   text,
@@ -259,36 +260,49 @@ export const shopOrders = sqliteTable(
 
 // ─── Order line items ───────────────────────────────────────
 
-export const shopOrderItems = sqliteTable("shop_order_items", {
-  id: text("id").primaryKey(),
-  orderId: text("order_id")
-    .notNull()
-    .references(() => shopOrders.id, { onDelete: "cascade" }),
-  // Variant FK is `RESTRICT` (not CASCADE) — historical orders must
-  // always resolve back to a variant even if the product was later
-  // deleted. Enforced by the variant status=archived flow (never
-  // hard-delete a variant).
-  variantId: text("variant_id")
-    .notNull()
-    .references(() => shopProductVariants.id, { onDelete: "restrict" }),
-  quantity: integer("quantity").notNull(),
-  // Snapshot columns — design-review must-fix. Never lazy-join the
-  // variant row for historical receipts.
-  titleSnapshot: text("title_snapshot").notNull(),
-  skuSnapshot: text("sku_snapshot"),
-  priceSnapshotSatang: integer("price_snapshot_satang").notNull(),
-  // Line total = priceSnapshotSatang * quantity, stored so the order
-  // summary doesn't have to recompute on every read.
-  lineSubtotalSatang: integer("line_subtotal_satang").notNull(),
-  // Per-line tax (frozen at checkout).
-  lineTaxSatang: integer("line_tax_satang").notNull().default(0),
-  // Portion of the order-level discount allocated to this line (B1–B4
-  // pure allocateDiscount()). Frozen at checkout like the other
-  // snapshots; sums across lines to shop_orders.discount_satang.
-  discountAllocatedSatang: integer("discount_allocated_satang")
-    .notNull()
-    .default(0),
-});
+export const shopOrderItems = sqliteTable(
+  "shop_order_items",
+  {
+    id: text("id").primaryKey(),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => shopOrders.id, { onDelete: "cascade" }),
+    // Variant FK is `RESTRICT` (not CASCADE) — historical orders must
+    // always resolve back to a variant even if the product was later
+    // deleted. Enforced by the variant status=archived flow (never
+    // hard-delete a variant).
+    variantId: text("variant_id")
+      .notNull()
+      .references(() => shopProductVariants.id, { onDelete: "restrict" }),
+    quantity: integer("quantity").notNull(),
+    // Snapshot columns — design-review must-fix. Never lazy-join the
+    // variant row for historical receipts.
+    titleSnapshot: text("title_snapshot").notNull(),
+    skuSnapshot: text("sku_snapshot"),
+    priceSnapshotSatang: integer("price_snapshot_satang").notNull(),
+    // Line total = priceSnapshotSatang * quantity, stored so the order
+    // summary doesn't have to recompute on every read.
+    lineSubtotalSatang: integer("line_subtotal_satang").notNull(),
+    // Per-line tax (frozen at checkout).
+    lineTaxSatang: integer("line_tax_satang").notNull().default(0),
+    // Portion of the order-level discount allocated to this line (B1–B4
+    // pure allocateDiscount()). Frozen at checkout like the other
+    // snapshots; sums across lines to shop_orders.discount_satang.
+    discountAllocatedSatang: integer("discount_allocated_satang")
+      .notNull()
+      .default(0),
+  },
+  (t) => ({
+    // Covers the (order_id, id) lookup an external-order REPAIR does
+    // (0031). External item ids are deterministic —
+    // `ext:<orderId>:<lineIndex>` — so a replayed receipt collides on
+    // the PRIMARY KEY rather than duplicating lines. A
+    // UNIQUE(order_id, variant_id) is deliberately NOT used: a POS
+    // receipt may carry the same SKU on two lines at different
+    // counter prices.
+    orderIdx: index("shop_order_items_order_id_idx").on(t.orderId, t.id),
+  }),
+);
 
 // ─── Order adjustments ──────────────────────────────────────
 

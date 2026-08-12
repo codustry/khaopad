@@ -112,7 +112,7 @@
     <!-- Pairing guide -->
     <section class="mb-8">
       <h2 class="mb-3 text-sm font-semibold uppercase tracking-wide">
-        How to pair (Beam model)
+        How to pair
       </h2>
       <ol class="list-decimal space-y-3 pl-5 text-sm">
         <li>

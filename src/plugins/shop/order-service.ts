@@ -205,6 +205,22 @@ export type OrderWithItems = ShopOrder & {
  * keeps presenting its fulfillment progress, matching pre-#110
  * behavior where partial refunds never touched `status`.)
  */
+/**
+ * Deterministic line-item id for EXTERNALLY-pushed orders (#160 Phase
+ * E; audit C1/C2 fix). Derived from (orderId, lineIndex) so replaying
+ * the same receipt payload re-derives the same primary keys: a repair
+ * of a partially-written order inserts only the rows that are missing,
+ * and two concurrent deliveries of the same push cannot double the
+ * lines. Native (cart-derived) orders keep nanoid() ids — they are
+ * written in one statement and have no replay path.
+ */
+export function externalOrderItemId(
+  orderId: string,
+  lineIndex: number,
+): string {
+  return `ext:${orderId}:${lineIndex}`;
+}
+
 export function deriveLegacyStatus(
   financial: OrderFinancialStatus,
   fulfillment: OrderFulfillmentStatus,
@@ -579,11 +595,14 @@ export class OrderService {
    *   - **Idempotent on (externalSource, externalId).** A replay
    *     returns the existing order (`replayed: true`) instead of
    *     duplicating; the 0030 partial UNIQUE index backstops races.
-   *     A replay against a HALF-created order (header row committed,
-   *     items insert died — D1 has no cross-statement transaction
-   *     here) repairs the missing item rows and reports
-   *     `repaired: true` so the caller re-runs its inventory
-   *     bookkeeping exactly once.
+   *     A replay against a PARTIALLY created order (header row
+   *     committed, the chunked items insert died part-way — D1 has no
+   *     cross-statement transaction here) repairs whichever item rows
+   *     are missing and reports `repaired: true` so the caller runs
+   *     its inventory bookkeeping exactly once. "Partial" is decided
+   *     by comparing the persisted row count against the payload's
+   *     item count, and repair is claimed via a header CAS so that
+   *     concurrent replays cannot both deduct inventory.
    */
   async createExternalOrder(input: CreateExternalOrderInput): Promise<{
     orderId: string;
@@ -695,6 +714,17 @@ export class OrderService {
    * binds 10 columns, so a single multi-row INSERT crosses D1's
    * 100-bind ceiling at 11+ items — a receipt-sized POS order. 9 rows
    * = 90 binds, matching the project's 90-headroom convention.
+   *
+   * Item ids are DETERMINISTIC — `ext:<orderId>:<lineIndex>` — not
+   * nanoid(). That is the uniqueness mechanism for external orders
+   * (audit C1/C2): a re-insert of the same payload collides on the
+   * PRIMARY KEY instead of duplicating the line, so partial-write
+   * repair and concurrent replays can never fan a 12-line receipt out
+   * to 24 rows. A UNIQUE(order_id, variant_id) was rejected
+   * deliberately: a POS receipt may legitimately scan the same SKU on
+   * two lines at different counter prices, and 0031 enforces the
+   * deterministic-id shape instead. Insert is OR IGNORE so a chunk
+   * that partially landed before a crash replays cleanly.
    */
   private async insertExternalOrderItems(
     orderId: string,
@@ -702,22 +732,25 @@ export class OrderService {
   ): Promise<void> {
     const CHUNK = 9;
     for (let i = 0; i < items.length; i += CHUNK) {
-      await this.db.insert(shopOrderItems).values(
-        items.slice(i, i + CHUNK).map((item) => ({
-          id: nanoid(),
-          orderId,
-          variantId: item.variantId,
-          quantity: item.quantity,
-          titleSnapshot: item.titleSnapshot,
-          skuSnapshot: item.skuSnapshot,
-          priceSnapshotSatang: item.priceSnapshotSatang,
-          lineSubtotalSatang: item.priceSnapshotSatang * item.quantity,
-          lineTaxSatang: 0,
-          // Deliberately 0 — see createExternalOrder docblock
-          // (external totals are opaque).
-          discountAllocatedSatang: 0,
-        })),
-      );
+      await this.db
+        .insert(shopOrderItems)
+        .values(
+          items.slice(i, i + CHUNK).map((item, offset) => ({
+            id: externalOrderItemId(orderId, i + offset),
+            orderId,
+            variantId: item.variantId,
+            quantity: item.quantity,
+            titleSnapshot: item.titleSnapshot,
+            skuSnapshot: item.skuSnapshot,
+            priceSnapshotSatang: item.priceSnapshotSatang,
+            lineSubtotalSatang: item.priceSnapshotSatang * item.quantity,
+            lineTaxSatang: 0,
+            // Deliberately 0 — see createExternalOrder docblock
+            // (external totals are opaque).
+            discountAllocatedSatang: 0,
+          })),
+        )
+        .onConflictDoNothing();
     }
   }
 
@@ -725,13 +758,23 @@ export class OrderService {
    * Resolve a replayed external push against an existing order.
    *
    * The header insert and the items insert are separate D1 statements
-   * (no transaction), so a crash between them leaves a permanent
-   * order row with ZERO items — and a naive replay answer would then
-   * acknowledge that husk forever: totals but no lines, and no
-   * inventory ever deducted. Detect the husk and REPAIR it by
-   * inserting the items now; `repaired: true` tells the caller to run
-   * its inventory bookkeeping (which only ever ran after a fully
-   * successful create).
+   * (no transaction), and the items insert is itself CHUNKED — so a
+   * crash between them leaves a PARTIAL order: anywhere from zero to
+   * `items.length - 1` lines committed, with totals that describe the
+   * whole receipt and no inventory ever deducted. Comparing the
+   * persisted count against the count the payload expects (audit C1 —
+   * the old `> 0` test only ever caught the zero-item case, so a
+   * 12-line receipt that died after chunk 1 stayed permanently stuck
+   * at 9 lines) is what detects that. Repair re-runs the insert; the
+   * deterministic ids from `insertExternalOrderItems` mean already-
+   * present lines are ignored and only the missing rows land.
+   *
+   * Repair is gated by a compare-and-swap on the order header (audit
+   * C2), mirroring markPaid's `UPDATE ... WHERE`/`changes` idiom: two
+   * concurrent deliveries of the same externalId both see the same
+   * stale count, but only ONE wins the CAS and therefore only one
+   * returns `repaired: true` — so the caller's inventory deduction
+   * runs exactly once instead of twice.
    */
   private async replayExternalOrder(
     existing: ShopOrder,
@@ -747,8 +790,28 @@ export class OrderService {
       .from(shopOrderItems)
       .where(eq(shopOrderItems.orderId, existing.id))
       .get();
-    if ((itemCount?.n ?? 0) > 0) {
+    if ((itemCount?.n ?? 0) >= input.items.length) {
       // Fully-created order — plain idempotent replay, nothing changes.
+      return {
+        orderId: existing.id,
+        orderNumber: existing.orderNumber,
+        replayed: true,
+        repaired: false,
+      };
+    }
+
+    // CAS: claim the repair by stamping `updated_at`, guarded on the
+    // value we read. Exactly one concurrent writer sees changes=1.
+    const claim = await this.d1
+      .prepare(
+        `UPDATE shop_orders SET updated_at = ?1
+         WHERE id = ?2 AND updated_at = ?3`,
+      )
+      .bind(this.nowIso(), existing.id, existing.updatedAt)
+      .run();
+    if (((claim.meta as { changes?: number })?.changes ?? 0) === 0) {
+      // Lost the race — the winner is repairing (or already did) and
+      // owns the inventory deduction. Never deduct twice.
       return {
         orderId: existing.id,
         orderNumber: existing.orderNumber,
@@ -761,7 +824,9 @@ export class OrderService {
     await this.logEvent({
       orderId: existing.id,
       kind: "sync",
-      message: `Repaired half-imported ${input.externalSource} order (${input.externalId}): item rows restored on replay`,
+      message: `Repaired half-imported ${input.externalSource} order (${input.externalId}): ${
+        input.items.length - (itemCount?.n ?? 0)
+      } of ${input.items.length} item rows restored on replay`,
       actorEmail: `${input.externalSource}-sync`,
       at: this.nowIso(),
     });
@@ -1124,6 +1189,31 @@ export class OrderService {
    */
   async refundableSatang(orderId: string): Promise<number> {
     return this.paidTotalSatang(orderId);
+  }
+
+  /**
+   * Has a refund with this idempotency key already been recorded?
+   * Lets a sync caller distinguish "replay of a refund we already
+   * booked" from "a new refund against an exhausted balance" BEFORE
+   * consulting the balance — without that, a replay of a full refund
+   * reads as `skipped` and a genuinely new over-balance refund reads
+   * as success (audit MAJOR 7b).
+   */
+  async findRefundByIdempotencyKey(
+    idempotencyKey: string,
+  ): Promise<{ adjustmentId: string; amountSatang: number } | null> {
+    const row = await this.db
+      .select({
+        id: shopOrderAdjustments.id,
+        amountSatang: shopOrderAdjustments.amountSatang,
+      })
+      .from(shopOrderAdjustments)
+      .where(eq(shopOrderAdjustments.idempotencyKey, idempotencyKey))
+      .limit(1)
+      .get();
+    return row
+      ? { adjustmentId: row.id, amountSatang: Math.abs(row.amountSatang) }
+      : null;
   }
 
   /**

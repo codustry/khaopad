@@ -12,6 +12,8 @@
  *         but 503 signals "temporarily not ready" honestly)
  *   401 — missing or invalid signature
  *   400 — signed but unparseable/malformed envelope
+ *   413 — batch exceeds MAX_ORDERS_PER_BATCH / MAX_ITEMS_PER_ORDER
+ *         (`BATCH_TOO_LARGE`; split and resend)
  *   200 — batch processed; per-order results in the body (individual
  *         order failures are results entries, never a batch failure —
  *         Tonbab retries only the failed items)
@@ -54,9 +56,13 @@ export const POST: RequestHandler = async ({ request, platform, locals }) => {
 
   const parsed = parseTonbabSyncBody(rawBody);
   if (!parsed.ok) {
+    // 413 for size, 400 for shape. The batch is rejected WHOLE — a
+    // batch big enough to exhaust the Workers CPU/subrequest budget
+    // would otherwise die mid-loop and leave a committed prefix,
+    // which an at-least-once sender cannot reason about.
     return json(
       { ok: false, code: parsed.code, message: parsed.message },
-      { status: 400 },
+      { status: parsed.code === "BATCH_TOO_LARGE" ? 413 : 400 },
     );
   }
 

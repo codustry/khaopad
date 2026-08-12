@@ -101,19 +101,54 @@ export type BeamConfig = {
  *    DECODED to bytes before use. Using the base64 string as raw key
  *    material produces a digest that never matches.
  *
- * Falls back to raw-string key material when the secret is not valid
- * base64, so a misconfigured key fails signature comparison (rejecting
- * the webhook) rather than throwing inside the handler.
+ * AUDIT F8 — the old `try { atob() } catch { raw string }` fallback was
+ * UNREACHABLE for exactly the input it was written for. `atob` only
+ * throws on characters outside the base64 alphabet; a plain-ASCII
+ * secret like "mysecret123" is *alphabet-valid*, so atob decoded it to
+ * garbage bytes WITHOUT throwing and the raw-string branch never fired.
+ * The operator got permanent, silent signature failures with no
+ * diagnostic. We now validate STRICTLY (alphabet + length + padding)
+ * before decoding, and fall back to raw-string key material only when
+ * the secret is definitively not base64 — the fallback the original
+ * comment promised, now actually reachable.
  */
+const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/**
+ * True only for a well-formed canonical base64 string: valid alphabet,
+ * length a multiple of 4, and padding only at the end. A plain-ASCII
+ * passphrase fails at least one of these in almost every case (the
+ * length check catches "mysecret123" at 11 chars), which is what makes
+ * the raw-string fallback reachable again.
+ */
+export function isStrictBase64(value: string): boolean {
+  if (value.length === 0 || value.length % 4 !== 0) return false;
+  if (!BASE64_RE.test(value)) return false;
+  try {
+    atob(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function hmacSha256Base64(
   base64Secret: string,
   body: string,
 ): Promise<string> {
   const enc = new TextEncoder();
   let decoded: Uint8Array;
-  try {
+  if (isStrictBase64(base64Secret)) {
     decoded = Uint8Array.from(atob(base64Secret), (c) => c.charCodeAt(0));
-  } catch {
+  } else {
+    // Not base64 — use the raw string as key material. Beam's documented
+    // secret IS base64, so this branch means a misconfigured secret;
+    // warn loudly so the operator sees WHY every webhook 400s instead of
+    // silently HMAC-ing with garbage bytes.
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[shop.beam] BEAM_WEBHOOK_SECRET is not valid base64 — using it as raw key material. Beam issues base64 secrets; if webhook verification fails, re-copy the secret from the Lighthouse dashboard.",
+    );
     decoded = enc.encode(base64Secret);
   }
   // Copy into a freshly-allocated ArrayBuffer. Both branches above are

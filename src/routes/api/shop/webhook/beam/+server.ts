@@ -158,10 +158,38 @@ export const POST: RequestHandler = async ({
   // X-Beam-Event header was dropped by a proxy — routing it off the
   // header alone would let exactly that markPaid misread through
   // (CAS no-op, refund silently lost).
-  if (
-    (verified.eventType ?? "").startsWith("refund.") ||
-    verified.providerRefundId
-  ) {
+  // AUDIT F3 — the old guard was `startsWith("refund.") || providerRefundId`,
+  // which leaked one case: header dropped AND refundId absent or "".
+  // BeamWebhookBody.refundId is optional and unvalidated, so "" is
+  // falsy; a refund.succeeded body normalizes to status "succeeded"
+  // and fell straight into `case "succeeded"` → markPaid. On an
+  // already-paid order the CAS no-ops, so the customer isn't harmed —
+  // but the REFUND IS SILENTLY SWALLOWED (never written to the ledger)
+  // and Beam gets a 200, so it never retries. On a pending order it
+  // would mark the order PAID off a refund event.
+  //
+  // Fix, in two layers:
+  //  1. Widen the fingerprint. A body carrying `refundReason` is a
+  //     refund payload per Beam's documented refund shape
+  //     ({refundId, chargeId, referenceId, amount, status,
+  //     refundReason}), as is one whose status is a refund state.
+  //  2. Backstop with a RETRYABLE 503 below when the header is missing
+  //     and the body carries no fingerprint at all. Guessing is what
+  //     caused the bug; a 503 makes Beam redeliver (headers included)
+  //     instead of us silently mis-routing money.
+  const rawBody_ = verified.raw as
+    | { refundReason?: unknown; refundId?: unknown; status?: unknown }
+    | undefined;
+  const bodyStatus =
+    typeof rawBody_?.status === "string" ? rawBody_.status.toLowerCase() : "";
+  const looksLikeRefundBody =
+    Boolean(verified.providerRefundId) ||
+    // Non-empty refundId even if the adapter didn't surface it.
+    (typeof rawBody_?.refundId === "string" && rawBody_.refundId.length > 0) ||
+    typeof rawBody_?.refundReason === "string" ||
+    bodyStatus.startsWith("refund");
+  const eventType = verified.eventType ?? "";
+  if (eventType.startsWith("refund.") || looksLikeRefundBody) {
     if (verified.status !== "succeeded") {
       // refund.failed (or a novel refund state): the ledger records
       // only settled money. The admin sees the failure in Beam's
@@ -187,6 +215,26 @@ export const POST: RequestHandler = async ({
         return json({ ok: true, orderStatus: "refunded", replayed: true });
       }
     }
+    // AUDIT F5 — the idempotency key must not collapse distinct
+    // refunds. When refundId is absent the old key fell back to
+    // `beam:refund:<providerChargeId>`, which is CONSTANT per order:
+    // two genuine partial refunds produced the SAME key with DIFFERENT
+    // amounts, so the second hit recordRefund's body-fingerprint check,
+    // threw ShopValidationError, got caught-and-200'd below, and was
+    // permanently lost — Beam never retries a 200.
+    //
+    // Beam's payload carries no per-event id to key on (unlike Stripe's
+    // event `id`), so there is nothing safe to substitute. Fail loudly
+    // and RETRYABLY instead of silently mis-recording: a redelivery may
+    // carry the refundId, and a persistent failure is visible to an
+    // operator who can reconcile in the Beam dashboard.
+    if (!refundId) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[shop.webhook] beam refund event for ${order.orderNumber} carries no refundId — cannot key the ledger safely (a charge-id key would collapse distinct partial refunds); returning 503 for redelivery`,
+      );
+      return json({ ok: false, code: "REFUND_ID_MISSING" }, { status: 503 });
+    }
     const remaining = await orderSvc.refundableSatang(order.id);
     // The event's amount is authoritative for Beam-initiated refunds;
     // cap at the ledger's remaining balance so a replay/echo can never
@@ -201,11 +249,10 @@ export const POST: RequestHandler = async ({
         amountSatang,
         reason: "Beam-initiated refund",
         kind: amountSatang >= remaining ? "refund_full" : "refund_partial",
-        // refundId exists on every documented refund event; the charge
-        // id fallback only guards a payload that omitted it.
-        idempotencyKey: `beam:refund:${
-          refundId || order.providerChargeId || order.id
-        }`,
+        // Guaranteed non-empty by the guard above — no charge-id
+        // fallback, which would collapse distinct partial refunds
+        // onto one key (audit F5).
+        idempotencyKey: `beam:refund:${refundId}`,
         providerRefundId: refundId,
       });
     } catch (err) {
@@ -221,6 +268,29 @@ export const POST: RequestHandler = async ({
       }
     }
     return json({ ok: true, orderStatus: "refunded" });
+  }
+
+  // AUDIT F3 layer 2 — money-moving events REQUIRE the event header.
+  //
+  // By here the body carries no refund fingerprint, but the header is
+  // also gone, so we cannot actually tell a `charge.succeeded` from a
+  // `refund.succeeded` whose refundId/refundReason were absent. The
+  // pre-fix code guessed "payment", which is the unsafe guess: it
+  // marks orders paid off refund events and swallows refunds with a
+  // 200 that stops Beam retrying.
+  //
+  // 503 instead — Beam RETRIES, and a retry that carries the header
+  // resolves correctly. A transport that permanently strips the header
+  // surfaces as loud, visible retry failure (an operator can fix the
+  // proxy) rather than as silently wrong books. Deliberately NOT
+  // applied to the pending path, which no-ops before the lookup and
+  // moves no money either way.
+  if (!eventType) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[shop.webhook] beam webhook for ${order.orderNumber} arrived without X-Beam-Event and carries no refund fingerprint — refusing to guess payment vs refund; returning 503 for redelivery`,
+    );
+    return json({ ok: false, code: "MISSING_EVENT_HEADER" }, { status: 503 });
   }
 
   switch (verified.status) {
@@ -354,9 +424,16 @@ export const POST: RequestHandler = async ({
             amountSatang: remaining,
             reason: "Beam-initiated refund",
             kind: "refund_full",
+            // AUDIT F5: charge-id keying is only safe here because this
+            // branch records the FULL remaining balance — it is
+            // by construction a once-per-order operation (a second
+            // delivery finds remaining === 0 and skips), so unlike the
+            // refund.* path there are no distinct amounts to collapse.
+            // Suffixed `:full` to keep it in a separate key namespace
+            // from the refundId-keyed rows above.
             idempotencyKey: `beam:refund:${
               verified.providerChargeId || order.providerChargeId || order.id
-            }`,
+            }:full`,
           });
         } catch (err) {
           if (err instanceof ShopValidationError) {

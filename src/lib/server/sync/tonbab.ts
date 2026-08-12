@@ -38,6 +38,18 @@ import { syncLog } from "./schema";
 
 export const TONBAB_SOURCE = "tonbab";
 export const TONBAB_SYNC_ACTOR = "tonbab-sync";
+/** Channel stamped on every order this endpoint creates or may touch. */
+export const TONBAB_CHANNEL = "tonbab_pos";
+
+// ─── Batch limits (audit MINOR 9) ───────────────────────────
+// A Workers request has a hard CPU + subrequest budget, and every
+// order in a batch is a sequence of SEQUENTIAL D1 round-trips. An
+// unbounded batch (500 orders × 20 lines ≈ 35k round-trips) does not
+// fail cleanly — it dies mid-batch leaving a committed prefix, which
+// is the worst outcome for an at-least-once sender. Reject oversized
+// batches up front with 413 instead.
+export const MAX_ORDERS_PER_BATCH = 100;
+export const MAX_ITEMS_PER_ORDER = 200;
 
 // ─── Signature verification ─────────────────────────────────
 // Mirrors BeamPaymentProvider.verifyWebhook's idiom exactly:
@@ -46,15 +58,36 @@ export const TONBAB_SYNC_ACTOR = "tonbab-sync";
 // base64 in constant time. Beam's helpers are module-private, so the
 // idiom is reproduced here rather than imported.
 
+/**
+ * Strict base64 test (audit MINOR 8). `atob()` only throws on invalid
+ * CHARACTERS, so a plain-ASCII secret like "mysecret123" is a valid
+ * base64 alphabet string: atob decodes it to garbage WITHOUT throwing,
+ * the old try/catch fallback never fired for exactly the input it was
+ * written for, and the operator got permanently failing signatures
+ * with no diagnostic. Validate the shape (alphabet + length%4 + at
+ * most two trailing '=') before decoding, and log loudly on mismatch.
+ */
+export function isStrictBase64(value: string): boolean {
+  if (value.length === 0 || value.length % 4 !== 0) return false;
+  return /^[A-Za-z0-9+/]+={0,2}$/.test(value);
+}
+
 async function hmacSha256Base64(
   base64Secret: string,
   body: string,
 ): Promise<string> {
   const enc = new TextEncoder();
   let decoded: Uint8Array;
-  try {
+  if (isStrictBase64(base64Secret)) {
     decoded = Uint8Array.from(atob(base64Secret), (c) => c.charCodeAt(0));
-  } catch {
+  } else {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[sync.tonbab] TONBAB_WEBHOOK_SECRET is not valid base64 — " +
+        "using its raw bytes as the HMAC key. Tonbab mints this secret " +
+        "as base64; if signatures keep failing, re-paste the secret " +
+        "exactly as minted (no truncation, no added whitespace).",
+    );
     decoded = enc.encode(base64Secret);
   }
   // Fresh ArrayBuffer copy — importKey's BufferSource wants the
@@ -154,7 +187,11 @@ export type TonbabSyncBody = {
 
 export type TonbabParseResult =
   | { ok: true; body: TonbabSyncBody }
-  | { ok: false; code: "INVALID_JSON" | "MALFORMED_PAYLOAD"; message: string };
+  | {
+      ok: false;
+      code: "INVALID_JSON" | "MALFORMED_PAYLOAD" | "BATCH_TOO_LARGE";
+      message: string;
+    };
 
 /**
  * Shape-check the (already signature-verified) body. Per-ORDER field
@@ -190,6 +227,25 @@ export function parseTonbabSyncBody(rawBody: string): TonbabParseResult {
       message: "orders must be an array",
     };
   }
+  // Size gate (audit MINOR 9) — rejected WHOLE, before any write, so
+  // an oversized batch can never leave a committed prefix behind.
+  if (body.orders.length > MAX_ORDERS_PER_BATCH) {
+    return {
+      ok: false,
+      code: "BATCH_TOO_LARGE",
+      message: `Batch has ${body.orders.length} orders; the limit is ${MAX_ORDERS_PER_BATCH}. Split it and resend.`,
+    };
+  }
+  for (const [i, order] of body.orders.entries()) {
+    const items = (order as { items?: unknown }).items;
+    if (Array.isArray(items) && items.length > MAX_ITEMS_PER_ORDER) {
+      return {
+        ok: false,
+        code: "BATCH_TOO_LARGE",
+        message: `orders[${i}] has ${items.length} items; the limit is ${MAX_ITEMS_PER_ORDER} per order.`,
+      };
+    }
+  }
   return { ok: true, body: body as unknown as TonbabSyncBody };
 }
 
@@ -207,6 +263,12 @@ export type TonbabOrderResult = {
   skipped?: boolean;
   reason?: string;
   error?: string;
+  /**
+   * Which key located the order on a transition (audit MAJOR 6). Kept
+   * in the response AND in sync_log so an operator can tell a
+   * POS-owned identity match from the much weaker order-number path.
+   */
+  joinKey?: "external" | "orderNumber";
 };
 
 async function writeSyncLog(
@@ -401,12 +463,41 @@ async function processTransition(
   const base = { externalId: order.externalId ?? null, action };
 
   // Locate by external identity first (POS-originated orders), then by
-  // order number (Khao Pad-originated orders Tonbab acts on).
+  // order number.
+  //
+  // The order-number path is DELIBERATELY narrow (audit MAJOR 6).
+  // KHP-YYYY-NNNNN order numbers are sequential and documented
+  // elsewhere in this repo as a weak secret, so an unrestricted
+  // fallback let any signed batch cancel or REFUND an arbitrary native
+  // web order by guessing a number — a POS shipping a stale
+  // order-number mapping would silently refund real customers. Two
+  // guards now:
+  //   1. Only orders on a Tonbab-owned channel are reachable this way.
+  //   2. Even then, the destructive money transitions (`refunded`,
+  //      `cancelled`) require the external identity join — the POS
+  //      must prove it knows the order it minted.
   let target = order.externalId
     ? await orderSvc.getOrderByExternal(TONBAB_SOURCE, order.externalId)
     : null;
+  let joinKey: "external" | "orderNumber" = "external";
   if (!target && order.orderNumber) {
-    target = await orderSvc.getOrderByNumber(order.orderNumber);
+    if (order.to === "refunded" || order.to === "cancelled") {
+      return {
+        ...base,
+        ok: false,
+        error: `'${order.to}' requires externalId — an order number alone cannot authorize it`,
+      };
+    }
+    const candidate = await orderSvc.getOrderByNumber(order.orderNumber);
+    if (candidate && candidate.channel !== TONBAB_CHANNEL) {
+      return {
+        ...base,
+        ok: false,
+        error: `Order ${order.orderNumber} is not a ${TONBAB_CHANNEL} order — refusing to transition it by order number`,
+      };
+    }
+    target = candidate;
+    joinKey = "orderNumber";
   }
   if (!target) {
     return { ...base, ok: false, error: "Order not found" };
@@ -415,6 +506,7 @@ async function processTransition(
     ...base,
     orderId: target.id,
     orderNumber: target.orderNumber,
+    joinKey,
   };
   const skip = (reason: string): TonbabOrderResult => ({
     ...found,
@@ -474,19 +566,45 @@ async function processTransition(
       if (
         !refund ||
         !Number.isInteger(refund.amountSatang) ||
-        refund.amountSatang <= 0 ||
-        !Number.isInteger(refund.seq)
+        refund.amountSatang <= 0
       ) {
         return {
           ...found,
           ok: false,
           error:
-            "refund transition requires refund.amountSatang and refund.seq",
+            "refund transition requires refund.amountSatang (positive integer satang)",
         };
       }
+      // seq is the per-order idempotency SEQUENCE, not a free integer
+      // (audit MAJOR 7a): the old check accepted -5, 0 and 1e9, and a
+      // POS bug reusing seq 1 with a different amount then threw a
+      // key-fingerprint ShopValidationError that no retry could clear
+      // — the refund was silently dropped. Require a real sequence.
+      if (!Number.isInteger(refund.seq) || refund.seq < 1) {
+        return {
+          ...found,
+          ok: false,
+          error: `refund.seq must be an integer >= 1, got ${String(refund.seq)}`,
+        };
+      }
+      // Idempotency BEFORE balance (audit MAJOR 7b). The ledger lookup
+      // has to come first: checking `remaining <= 0` up front reported
+      // a replay of an already-recorded FULL refund as `skipped`
+      // rather than `replayed`, and — worse — acknowledged a genuinely
+      // NEW refund arriving after the ledger was exhausted as success
+      // instead of surfacing it. recordRefund itself is the
+      // idempotency authority, so let it answer; only a refund it has
+      // never seen is measured against the balance.
+      const idempotencyKey = `tonbab:${target.id}:${refund.seq}`;
+      const alreadyRecorded =
+        await orderSvc.findRefundByIdempotencyKey(idempotencyKey);
       const remaining = await orderSvc.refundableSatang(target.id);
-      if (remaining <= 0) {
-        return skip("already fully refunded");
+      if (!alreadyRecorded && remaining <= 0) {
+        return {
+          ...found,
+          ok: false,
+          error: `Order is already fully refunded — refund seq ${refund.seq} (${refund.amountSatang} satang) cannot be applied`,
+        };
       }
       try {
         const recorded = await orderSvc.recordRefund({
@@ -501,7 +619,7 @@ async function processTransition(
           // dependent key (externalId vs orderNumber) would let the
           // same refund record twice when Tonbab retries via the other
           // join key.
-          idempotencyKey: `tonbab:${target.id}:${refund.seq}`,
+          idempotencyKey,
         });
         return { ...found, ok: true, replayed: recorded.replayed };
       } catch (err) {
@@ -570,10 +688,17 @@ export async function processTonbabSync(
             : result.action === "upsert"
               ? "created"
               : "applied",
-      detail:
-        result.error ??
-        result.reason ??
-        (result.orderNumber ? `→ ${result.orderNumber}` : null),
+      // Join key is appended to every transition detail (audit MAJOR
+      // 6) so an audit can separate identity-matched transitions from
+      // the weaker order-number path.
+      detail: (() => {
+        const suffix = result.joinKey ? ` [join:${result.joinKey}]` : "";
+        const body =
+          result.error ??
+          result.reason ??
+          (result.orderNumber ? `→ ${result.orderNumber}` : null);
+        return body === null ? suffix || null : `${body}${suffix}`;
+      })(),
     });
   }
   return results;

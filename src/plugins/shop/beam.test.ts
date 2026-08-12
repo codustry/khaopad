@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { BeamPaymentProvider } from "./beam";
+import { BeamPaymentProvider, isStrictBase64 } from "./beam";
 
 /**
  * Contract tests against BeamCheckout's REAL API.
@@ -564,6 +564,61 @@ describe("Beam webhook verification", () => {
   it("tolerates a sha256= prefix", async () => {
     const sig = await sign(body, CONFIG.webhookSecret);
     expect((await provider.verifyWebhook(body, `sha256=${sig}`)).ok).toBe(true);
+  });
+
+  // ── Audit F8: the raw-string fallback must actually be reachable ──
+  it("uses RAW key material for a plain-ASCII (non-base64) secret", async () => {
+    // The old code was `try { atob(secret) } catch { raw }`. atob only
+    // throws on characters outside the base64 ALPHABET — "mysecret123"
+    // is alphabet-valid, so atob decoded it to garbage WITHOUT
+    // throwing and the raw-string branch never fired for exactly the
+    // input it was written for. Operators got permanent, silent
+    // signature failures. Strict validation (length % 4, padding)
+    // rejects it up front, so the raw fallback now runs.
+    const RAW_SECRET = "mysecret123"; // 11 chars — not a multiple of 4
+    const rawProvider = new BeamPaymentProvider({
+      ...CONFIG,
+      webhookSecret: RAW_SECRET,
+    });
+    // Sign with the secret used AS RAW BYTES — what the fallback promises.
+    const key = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(RAW_SECRET),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    const sig = await crypto.subtle.sign(
+      "HMAC",
+      key,
+      new TextEncoder().encode(body),
+    );
+    const expected = btoa(
+      Array.from(new Uint8Array(sig), (b) => String.fromCharCode(b)).join(""),
+    );
+    const result = await rawProvider.verifyWebhook(body, expected);
+    expect(result.ok).toBe(true);
+  });
+
+  it("still base64-DECODES a properly base64 secret (no regression)", async () => {
+    // The strict check must not push valid base64 secrets — the
+    // documented, overwhelmingly common case — onto the raw path.
+    const result = await provider.verifyWebhook(
+      body,
+      await sign(body, CONFIG.webhookSecret),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("classifies base64-alphabet-but-malformed secrets as NOT base64", async () => {
+    // "mysecret123" is the exact string from the audit finding: every
+    // character is in the base64 alphabet, so atob() does not throw,
+    // but the length is not a multiple of 4 — it is not real base64.
+    expect(isStrictBase64("mysecret123")).toBe(false);
+    expect(isStrictBase64(btoa("webhook-key-bytes"))).toBe(true);
+    expect(isStrictBase64("")).toBe(false);
+    // Non-alphabet characters.
+    expect(isStrictBase64("not base64!!")).toBe(false);
   });
 });
 

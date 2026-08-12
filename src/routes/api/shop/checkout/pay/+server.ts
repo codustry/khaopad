@@ -87,11 +87,31 @@ export const POST: RequestHandler = async ({
     ? await resolveProviderForMethod(env, body.method)
     : await resolveProviderForRequest(env, order.providerName ?? "beam");
   if (!provider) {
+    // AUDIT F12: the message used to interpolate order.providerName
+    // unconditionally, so a method-routed request (where the order's
+    // stored name is irrelevant, and often NULL before any charge) read
+    // "Payment provider 'null' is not configured" and pointed the
+    // operator at Beam's env vars even when Stripe was the provider
+    // actually attempted. Name what we TRIED to resolve, and list the
+    // env vars for that provider.
+    const attempted = body.method
+      ? // resolveProviderForMethod routes 'card' → Stripe (Beam hosted
+        // link as fallback) and everything else → Beam.
+        body.method === "card"
+        ? "stripe"
+        : "beam"
+      : (order.providerName ?? "beam");
+    const envHint =
+      attempted === "stripe"
+        ? "Set STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET (or BEAM_MERCHANT_ID + BEAM_API_KEY + BEAM_WEBHOOK_SECRET to serve card via Beam's hosted link)"
+        : "Set BEAM_MERCHANT_ID + BEAM_API_KEY + BEAM_WEBHOOK_SECRET";
     return json(
       {
         ok: false,
         code: "PAYMENT_PROVIDER_NOT_CONFIGURED",
-        message: `Payment provider '${order.providerName}' is not configured. Set BEAM_API_KEY + BEAM_WEBHOOK_SECRET (or your provider's equivalent) in wrangler.toml [vars] and redeploy.`,
+        message: `Payment provider '${attempted}' is not configured${
+          body.method ? ` for method '${body.method}'` : ""
+        }. ${envHint} in wrangler.toml [vars] and redeploy.`,
       },
       { status: 503 },
     );

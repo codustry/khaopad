@@ -289,6 +289,51 @@ describe("Stripe webhook verification", () => {
     if (!result.ok) expect(result.code).toBe("SIGNATURE_TOO_OLD");
   });
 
+  // ── Audit F11: replay window must not be symmetric ──────────
+  it("rejects a timestamp far in the FUTURE (audit F11)", async () => {
+    // The old check used Math.abs(now - t), so a timestamp up to the
+    // full 5-minute tolerance AHEAD of our clock was accepted — the
+    // replay window was silently twice as wide as intended. A future
+    // timestamp is never legitimate beyond small clock skew.
+    const future = Math.floor(Date.now() / 1000) + 4 * 60;
+    const result = await provider.verifyWebhook(
+      COMPLETED,
+      await signHeader(COMPLETED, { t: future }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("SIGNATURE_TOO_OLD");
+  });
+
+  it("still tolerates small forward clock skew", async () => {
+    // Stripe's clock running a few seconds ahead of the Worker's must
+    // not reject genuine events — the fix tightens, it does not forbid.
+    const skewed = Math.floor(Date.now() / 1000) + 10;
+    const result = await provider.verifyWebhook(
+      COMPLETED,
+      await signHeader(COMPLETED, { t: skewed }),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("still accepts a recent past timestamp (generous past tolerance)", async () => {
+    const recent = Math.floor(Date.now() / 1000) - 4 * 60;
+    const result = await provider.verifyWebhook(
+      COMPLETED,
+      await signHeader(COMPLETED, { t: recent }),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("still rejects a non-numeric timestamp (NaN path must not regress)", async () => {
+    // Number.parseInt("abc") is NaN; NaN fails every comparison, so the
+    // explicit Number.isFinite guard is what rejects it. Switching from
+    // Math.abs to a signed age must keep that guard working.
+    const header = await signHeader(COMPLETED);
+    const v1 = header.split(",")[1];
+    const result = await provider.verifyWebhook(COMPLETED, `t=abc,${v1}`);
+    expect(result.ok).toBe(false);
+  });
+
   it("accepts any matching v1 among several (secret rotation)", async () => {
     const good = await signHeader(COMPLETED);
     const [t, v1] = good.split(",");

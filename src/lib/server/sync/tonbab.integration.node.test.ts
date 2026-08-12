@@ -16,6 +16,9 @@ import {
   restoreVariantOnHand,
 } from "$plugins/shop/inventory";
 import {
+  isStrictBase64,
+  MAX_ITEMS_PER_ORDER,
+  MAX_ORDERS_PER_BATCH,
   parseTonbabSyncBody,
   processTonbabSync,
   verifyTonbabSignature,
@@ -151,6 +154,20 @@ function sign(body: string, secret = SECRET): string {
   return createHmac("sha256", Buffer.from(secret, "base64"))
     .update(body)
     .digest("base64");
+}
+
+/** Module-level route caller (the audit-regression blocks use this). */
+async function postSync(body: string, signature: string) {
+  const request = new Request("https://shop.example.com/api/sync/tonbab", {
+    method: "POST",
+    headers: new Headers({ "x-tonbab-signature": signature }),
+    body,
+  });
+  return POST({
+    request,
+    platform: { env: { DB: d1, TONBAB_WEBHOOK_SECRET: SECRET } },
+    locals: { content: {} },
+  } as unknown as Parameters<typeof POST>[0]);
 }
 
 function upsertBody(
@@ -719,35 +736,23 @@ describe("transitions", () => {
     expect(order.financial_status).toBe("refunded");
   });
 
-  it("refund dedupes across join keys: same seq via externalId then via orderNumber records once", async () => {
+  it("refund is idempotent on repeated externalId deliveries and records exactly one ledger row", async () => {
     const orderId = await seedPosOrder();
-    const orderNumber = (
-      sqlite
-        .prepare(`SELECT order_number AS n FROM shop_orders WHERE id = ?`)
-        .get(orderId) as { n: string }
-    ).n;
 
-    const viaExternal = await processTonbabSync(
+    const first = await processTonbabSync(
       d1,
       orderSvc(),
       transition("refunded", { refund: { amountSatang: 40000, seq: 1 } }),
     );
-    expect(viaExternal[0]).toMatchObject({ ok: true, replayed: false });
+    expect(first[0]).toMatchObject({ ok: true, replayed: false });
 
-    // Retry of the SAME refund, joining by orderNumber instead. A
-    // join-key-dependent idempotency key would double-record here.
-    const viaNumber = await processTonbabSync(d1, orderSvc(), {
-      source: "tonbab",
-      orders: [
-        {
-          orderNumber,
-          action: "transition",
-          to: "refunded",
-          refund: { amountSatang: 40000, seq: 1 },
-        },
-      ],
-    } as TonbabSyncBody);
-    expect(viaNumber[0]).toMatchObject({ ok: true, replayed: true });
+    // At-least-once redelivery of the SAME refund.
+    const retry = await processTonbabSync(
+      d1,
+      orderSvc(),
+      transition("refunded", { refund: { amountSatang: 40000, seq: 1 } }),
+    );
+    expect(retry[0]).toMatchObject({ ok: true, replayed: true });
 
     const ledger = sqlite
       .prepare(
@@ -848,20 +853,23 @@ describe("transitions", () => {
     expect(cancel[0]).toMatchObject({ ok: true, skipped: true });
     expect(cancel[0].reason).toMatch(/refunded/);
 
-    // A second full refund on a fully-refunded order → skipped too.
+    // A NEW refund (seq 2) against an exhausted balance is NOT a
+    // skip — audit MAJOR 7b. It is money Tonbab believes it returned
+    // that Khao Pad's ledger cannot account for, so it must surface as
+    // a per-order error instead of being acknowledged as success.
     const again = await processTonbabSync(
       d1,
       orderSvc(),
       transition("refunded", { refund: { amountSatang: 96300, seq: 2 } }),
     );
-    expect(again[0]).toMatchObject({ ok: true, skipped: true });
-    expect(again[0].reason).toMatch(/already fully refunded/);
+    expect(again[0]).toMatchObject({ ok: false });
+    expect(again[0].error).toMatch(/already fully refunded/);
 
     expect(
       syncLogRows()
         .filter((r) => r.result === "skipped")
         .map((r) => r.action),
-    ).toEqual(["transition:cancelled", "transition:refunded"]);
+    ).toEqual(["transition:cancelled"]);
   });
 
   it("locates Khao Pad-originated orders by orderNumber and errors cleanly on unknown orders", async () => {
@@ -931,5 +939,462 @@ describe("parseTonbabSyncBody", () => {
     expect(
       parseTonbabSyncBody(JSON.stringify({ source: "tonbab", orders: {} })).ok,
     ).toBe(false);
+  });
+});
+
+// ─── v4.0.1 audit regressions ───────────────────────────────
+//
+// Every test below FAILS on the pre-fix code. Each is annotated with
+// the audit finding it pins.
+
+describe("audit C1 — partial-receipt repair (not just zero items)", () => {
+  /** A 12-line receipt: crosses the CHUNK=9 items-insert boundary. */
+  function receipt(externalId = "TB-12"): TonbabSyncBody {
+    return {
+      source: "tonbab",
+      orders: [
+        {
+          externalId,
+          action: "upsert",
+          paid: true,
+          items: Array.from({ length: 12 }, (_, i) => ({
+            sku: `SKU-${i}`,
+            quantity: 1,
+            priceSatang: 1000,
+          })),
+          totals: { subtotalSatang: 12000, totalSatang: 12000 },
+        },
+      ],
+    } as TonbabSyncBody;
+  }
+
+  function seed12() {
+    for (let i = 0; i < 12; i++) seedVariant(`var-${i}`, `SKU-${i}`, 100);
+  }
+
+  it("repairs a receipt stuck at 9 of 12 lines and deducts inventory exactly once", async () => {
+    seed12();
+    // Reproduce the real crash shape: header + chunk 1 (9 rows)
+    // committed, chunk 2 died. Pre-fix, replayExternalOrder counted
+    // 9 > 0 and returned repaired:false forever — the order kept 9 of
+    // 12 lines while total_satang described all 12, and NO inventory
+    // was ever deducted.
+    sqlite
+      .prepare(
+        `INSERT INTO shop_orders
+           (id, order_number, email, status, financial_status,
+            fulfillment_status, channel, subtotal_satang, total_satang,
+            created_at, updated_at, paid_at, external_source, external_id)
+         VALUES ('partial-1', 'KHP-2026-00001', 'pos@tonbab.sync', 'paid',
+                 'paid', 'unfulfilled', 'tonbab_pos', 12000, 12000,
+                 '2026-08-12', '2026-08-12', '2026-08-12',
+                 'tonbab', 'TB-12')`,
+      )
+      .run();
+    for (let i = 0; i < 9; i++) {
+      sqlite
+        .prepare(
+          `INSERT INTO shop_order_items
+             (id, order_id, variant_id, quantity, title_snapshot,
+              sku_snapshot, price_snapshot_satang, line_subtotal_satang,
+              line_tax_satang, discount_allocated_satang)
+           VALUES (?, 'partial-1', ?, 1, 'Default', ?, 1000, 1000, 0, 0)`,
+        )
+        .run(`ext:partial-1:${i}`, `var-${i}`, `SKU-${i}`);
+    }
+
+    const res = await processTonbabSync(d1, orderSvc(), receipt());
+    expect(res[0]).toMatchObject({ ok: true, orderId: "partial-1" });
+
+    // All 12 lines now present — and NOT 21 (the 9 existing rows were
+    // not re-inserted; deterministic ids made the re-insert a no-op).
+    const rows = sqlite
+      .prepare(`SELECT id FROM shop_order_items WHERE order_id = 'partial-1'`)
+      .all() as Array<{ id: string }>;
+    expect(rows).toHaveLength(12);
+    expect(new Set(rows.map((r) => r.id)).size).toBe(12);
+
+    // Inventory deducted once per line.
+    for (let i = 0; i < 12; i++) {
+      expect(inventoryLevel(`var-${i}`).onHand).toBe(99);
+    }
+
+    // A further replay is a plain no-op.
+    await processTonbabSync(d1, orderSvc(), receipt());
+    expect(
+      (
+        sqlite
+          .prepare(
+            `SELECT COUNT(*) AS n FROM shop_order_items WHERE order_id = 'partial-1'`,
+          )
+          .get() as { n: number }
+      ).n,
+    ).toBe(12);
+    expect(inventoryLevel("var-0").onHand).toBe(99);
+  });
+
+  it("external item ids are deterministic from (orderId, lineIndex)", async () => {
+    seed12();
+    const res = await processTonbabSync(d1, orderSvc(), receipt("TB-DET"));
+    const orderId = res[0].orderId!;
+    const ids = (
+      sqlite
+        .prepare(
+          `SELECT id FROM shop_order_items WHERE order_id = ? ORDER BY id`,
+        )
+        .all(orderId) as Array<{ id: string }>
+    ).map((r) => r.id);
+    expect(ids).toEqual(
+      Array.from({ length: 12 }, (_, i) => `ext:${orderId}:${i}`).sort(),
+    );
+  });
+});
+
+describe("audit C2 — concurrent replays must not double-deduct", () => {
+  it("two simultaneous deliveries of the same partial order repair once", async () => {
+    for (let i = 0; i < 12; i++) seedVariant(`var-${i}`, `SKU-${i}`, 100);
+    sqlite
+      .prepare(
+        `INSERT INTO shop_orders
+           (id, order_number, email, status, financial_status,
+            fulfillment_status, channel, subtotal_satang, total_satang,
+            created_at, updated_at, paid_at, external_source, external_id)
+         VALUES ('race-1', 'KHP-2026-00001', 'pos@tonbab.sync', 'paid',
+                 'paid', 'unfulfilled', 'tonbab_pos', 12000, 12000,
+                 '2026-08-12', '2026-08-12', '2026-08-12',
+                 'tonbab', 'TB-RACE')`,
+      )
+      .run();
+
+    const body = () =>
+      ({
+        source: "tonbab",
+        orders: [
+          {
+            externalId: "TB-RACE",
+            action: "upsert",
+            paid: true,
+            items: Array.from({ length: 12 }, (_, i) => ({
+              sku: `SKU-${i}`,
+              quantity: 1,
+              priceSatang: 1000,
+            })),
+            totals: { subtotalSatang: 12000, totalSatang: 12000 },
+          },
+        ],
+      }) as TonbabSyncBody;
+
+    // Both writers observe the SAME pre-insert state (count 0) before
+    // either repairs — the exact interleaving the audit describes.
+    // The header CAS lets only one through.
+    const [a, b] = await Promise.all([
+      processTonbabSync(d1, orderSvc(), body()),
+      processTonbabSync(d1, orderSvc(), body()),
+    ]);
+    expect(a[0].ok).toBe(true);
+    expect(b[0].ok).toBe(true);
+
+    // 12 rows, not 24.
+    expect(
+      (
+        sqlite
+          .prepare(
+            `SELECT COUNT(*) AS n FROM shop_order_items WHERE order_id = 'race-1'`,
+          )
+          .get() as { n: number }
+      ).n,
+    ).toBe(12);
+    // Deducted once, not twice.
+    for (let i = 0; i < 12; i++) {
+      expect(inventoryLevel(`var-${i}`).onHand).toBe(99);
+    }
+  });
+});
+
+describe("audit MAJOR 6 — order-number join key is restricted", () => {
+  async function seedNativeWebOrder(): Promise<string> {
+    seedVariant("var-web", "SKU-WEB");
+    sqlite
+      .prepare(
+        `INSERT INTO shop_orders
+           (id, order_number, email, status, financial_status,
+            fulfillment_status, channel, subtotal_satang, total_satang,
+            created_at, updated_at, paid_at)
+         VALUES ('web-1', 'KHP-2026-00107', 'real@customer.example',
+                 'paid', 'paid', 'unfulfilled', 'web', 96300, 96300,
+                 '2026-08-12', '2026-08-12', '2026-08-12')`,
+      )
+      .run();
+    return "KHP-2026-00107";
+  }
+
+  const byNumber = (
+    orderNumber: string,
+    to: string,
+    extra: Record<string, unknown> = {},
+  ) =>
+    ({
+      source: "tonbab",
+      orders: [{ orderNumber, action: "transition", to, ...extra }],
+    }) as TonbabSyncBody;
+
+  it("refusing refund/cancel by order number alone — a guessed number cannot refund a web order", async () => {
+    const orderNumber = await seedNativeWebOrder();
+
+    const refund = await processTonbabSync(
+      d1,
+      orderSvc(),
+      byNumber(orderNumber, "refunded", {
+        refund: { amountSatang: 96300, seq: 1 },
+      }),
+    );
+    expect(refund[0].ok).toBe(false);
+    expect(refund[0].error).toMatch(/requires externalId/);
+
+    const cancel = await processTonbabSync(
+      d1,
+      orderSvc(),
+      byNumber(orderNumber, "cancelled"),
+    );
+    expect(cancel[0].ok).toBe(false);
+    expect(cancel[0].error).toMatch(/requires externalId/);
+
+    // The web order is untouched — no ledger row, still paid.
+    expect(
+      (
+        sqlite
+          .prepare(
+            `SELECT COUNT(*) AS n FROM shop_order_adjustments WHERE order_id = 'web-1'`,
+          )
+          .get() as { n: number }
+      ).n,
+    ).toBe(0);
+    expect(
+      (
+        sqlite
+          .prepare(
+            `SELECT financial_status AS s FROM shop_orders WHERE id = 'web-1'`,
+          )
+          .get() as { s: string }
+      ).s,
+    ).toBe("paid");
+  });
+
+  it("refuses even non-destructive transitions on a non-tonbab channel", async () => {
+    const orderNumber = await seedNativeWebOrder();
+    const res = await processTonbabSync(
+      d1,
+      orderSvc(),
+      byNumber(orderNumber, "fulfilled"),
+    );
+    expect(res[0].ok).toBe(false);
+    expect(res[0].error).toMatch(/not a tonbab_pos order/);
+    expect(
+      (
+        sqlite
+          .prepare(
+            `SELECT fulfillment_status AS s FROM shop_orders WHERE id = 'web-1'`,
+          )
+          .get() as { s: string }
+      ).s,
+    ).toBe("unfulfilled");
+  });
+
+  it("records the join key in sync_log so the weaker path is auditable", async () => {
+    seedVariant("var-1", "SKU-A");
+    const created = await processTonbabSync(d1, orderSvc(), upsertBody("TB-J"));
+    const orderId = created[0].orderId!;
+    const orderNumber = (
+      sqlite
+        .prepare(`SELECT order_number AS n FROM shop_orders WHERE id = ?`)
+        .get(orderId) as { n: string }
+    ).n;
+
+    // Identity join.
+    const viaExternal = await processTonbabSync(d1, orderSvc(), {
+      source: "tonbab",
+      orders: [{ externalId: "TB-J", action: "transition", to: "fulfilled" }],
+    } as TonbabSyncBody);
+    expect(viaExternal[0].joinKey).toBe("external");
+
+    // Order-number join, on a tonbab_pos order (allowed, non-destructive).
+    const viaNumber = await processTonbabSync(
+      d1,
+      orderSvc(),
+      byNumber(orderNumber, "delivered"),
+    );
+    expect(viaNumber[0]).toMatchObject({ ok: true, joinKey: "orderNumber" });
+
+    const details = syncLogRows()
+      .filter((r) => String(r.action).startsWith("transition:"))
+      .map((r) => String(r.detail));
+    expect(details.some((d) => d.includes("[join:external]"))).toBe(true);
+    expect(details.some((d) => d.includes("[join:orderNumber]"))).toBe(true);
+  });
+});
+
+describe("audit MAJOR 7 — refund seq validation and ordering", () => {
+  async function seedPos(): Promise<string> {
+    seedVariant("var-1", "SKU-A");
+    const r = await processTonbabSync(d1, orderSvc(), upsertBody("TB-1"));
+    return r[0].orderId!;
+  }
+
+  const refundBody = (refund: Record<string, unknown>) =>
+    ({
+      source: "tonbab",
+      orders: [
+        { externalId: "TB-1", action: "transition", to: "refunded", refund },
+      ],
+    }) as TonbabSyncBody;
+
+  it("rejects seq values that are not a real sequence (0, negative)", async () => {
+    const orderId = await seedPos();
+    for (const seq of [0, -5, 1.5]) {
+      const res = await processTonbabSync(
+        d1,
+        orderSvc(),
+        refundBody({ amountSatang: 1000, seq }),
+      );
+      expect(res[0].ok).toBe(false);
+      expect(res[0].error).toMatch(/refund\.seq must be an integer >= 1/);
+    }
+    // Nothing was written for any of them.
+    expect(
+      (
+        sqlite
+          .prepare(
+            `SELECT COUNT(*) AS n FROM shop_order_adjustments WHERE order_id = ?`,
+          )
+          .get(orderId) as { n: number }
+      ).n,
+    ).toBe(0);
+    // seq 1 is accepted.
+    const ok = await processTonbabSync(
+      d1,
+      orderSvc(),
+      refundBody({ amountSatang: 1000, seq: 1 }),
+    );
+    expect(ok[0].ok).toBe(true);
+  });
+
+  it("a replay of a recorded FULL refund reports replayed, not skipped", async () => {
+    await seedPos();
+    const first = await processTonbabSync(
+      d1,
+      orderSvc(),
+      refundBody({ amountSatang: 96300, seq: 1 }),
+    );
+    expect(first[0]).toMatchObject({ ok: true, replayed: false });
+
+    // Balance is now 0. Pre-fix the balance check ran BEFORE the
+    // idempotency lookup, so this redelivery of an ALREADY-RECORDED
+    // refund reported {skipped: true, reason: "already fully
+    // refunded"} — indistinguishable from a rejection.
+    const replay = await processTonbabSync(
+      d1,
+      orderSvc(),
+      refundBody({ amountSatang: 96300, seq: 1 }),
+    );
+    expect(replay[0]).toMatchObject({ ok: true, replayed: true });
+    expect(replay[0].skipped).toBeUndefined();
+
+    expect(
+      syncLogRows().filter((r) => r.result === "replayed").length,
+    ).toBeGreaterThan(0);
+  });
+});
+
+describe("audit MINOR 8 — base64 secret validation", () => {
+  it("isStrictBase64 rejects plain-ASCII secrets that atob() silently mis-decodes", () => {
+    // The motivating input: valid base64 ALPHABET, so atob never
+    // throws — the old raw-string catch fallback was unreachable.
+    expect(isStrictBase64("mysecret123")).toBe(false); // length 11, %4 != 0
+    expect(isStrictBase64("my secret")).toBe(false); // space
+    expect(isStrictBase64("")).toBe(false);
+    expect(
+      isStrictBase64(Buffer.from("tonbab-pairing-secret").toString("base64")),
+    ).toBe(true);
+    expect(isStrictBase64("YWJjZA==")).toBe(true);
+  });
+
+  it("a non-base64 secret still verifies via raw bytes AND logs a diagnostic", async () => {
+    const raw = "mysecret123"; // NOT base64 — 11 chars
+    const body = JSON.stringify({ source: "tonbab", orders: [] });
+    const sig = createHmac("sha256", Buffer.from(raw, "utf8"))
+      .update(body)
+      .digest("base64");
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const res = await verifyTonbabSignature(raw, body, sig);
+      expect(res.ok).toBe(true);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("not valid base64"),
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+describe("audit MINOR 9 — batch size caps", () => {
+  const bigBatch = (n: number) => ({
+    source: "tonbab",
+    orders: Array.from({ length: n }, (_, i) => ({
+      externalId: `TB-${i}`,
+      action: "upsert",
+      items: [{ sku: "SKU-A", quantity: 1, priceSatang: 100 }],
+      totals: { subtotalSatang: 100, totalSatang: 100 },
+    })),
+  });
+
+  it("parse rejects an oversized batch WHOLE, before any write", () => {
+    const parsed = parseTonbabSyncBody(
+      JSON.stringify(bigBatch(MAX_ORDERS_PER_BATCH + 1)),
+    );
+    expect(parsed.ok).toBe(false);
+    expect(parsed.ok === false && parsed.code).toBe("BATCH_TOO_LARGE");
+    expect(parseTonbabSyncBody(JSON.stringify(bigBatch(2))).ok).toBe(true);
+  });
+
+  it("parse rejects a single order with too many items", () => {
+    const parsed = parseTonbabSyncBody(
+      JSON.stringify({
+        source: "tonbab",
+        orders: [
+          {
+            externalId: "TB-WIDE",
+            action: "upsert",
+            items: Array.from({ length: MAX_ITEMS_PER_ORDER + 1 }, (_, i) => ({
+              sku: `S-${i}`,
+              quantity: 1,
+              priceSatang: 1,
+            })),
+            totals: { subtotalSatang: 1, totalSatang: 1 },
+          },
+        ],
+      }),
+    );
+    expect(parsed.ok).toBe(false);
+    expect(parsed.ok === false && parsed.code).toBe("BATCH_TOO_LARGE");
+    expect(parsed.ok === false && parsed.message).toMatch(/orders\[0\]/);
+  });
+
+  it("the endpoint answers 413 BATCH_TOO_LARGE and stores nothing", async () => {
+    const body = JSON.stringify(bigBatch(MAX_ORDERS_PER_BATCH + 1));
+    const res = await postSync(body, sign(body));
+    expect(res.status).toBe(413);
+    expect(await res.json()).toMatchObject({
+      ok: false,
+      code: "BATCH_TOO_LARGE",
+    });
+    expect(
+      (
+        sqlite.prepare(`SELECT COUNT(*) AS n FROM shop_orders`).get() as {
+          n: number;
+        }
+      ).n,
+    ).toBe(0);
   });
 });

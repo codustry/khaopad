@@ -327,6 +327,114 @@ describe("Beam refund.* webhook events", () => {
     expect(orderRow("ord-1").financial_status).toBe("refunded");
   });
 
+  // ── Audit F3: headerless refund must never be read as a payment ──
+  it("routes a headerless refund body with an EMPTY refundId via refundReason (audit F3)", async () => {
+    // The pre-fix guard was `eventType.startsWith("refund.") ||
+    // providerRefundId`. With the X-Beam-Event header dropped by a
+    // proxy AND refundId an empty string (optional + unvalidated on
+    // BeamWebhookBody, so "" is falsy), BOTH disjuncts were false: the
+    // body's status "SUCCEEDED" fell into `case "succeeded"` → markPaid.
+    // On this already-paid order the CAS no-ops, so the customer isn't
+    // harmed — but the refund was SILENTLY SWALLOWED and Beam got a 200,
+    // so it never retried. `refundReason` fingerprints it as a refund.
+    seedOrder("ord-1");
+    const res = await postBeamWebhook(refundEvent({ refundId: "" }), undefined);
+    // No usable refundId → the route refuses to key the ledger and asks
+    // for redelivery (audit F5) rather than mis-recording. The critical
+    // assertion is that it did NOT silently 200 as a payment.
+    expect(res.status).toBe(503);
+    expect(orderRow("ord-1").financial_status).toBe("paid");
+    expect(adjustmentRows("ord-1")).toHaveLength(0);
+  });
+
+  it("does NOT mark a PENDING order paid off a headerless refund body (audit F3)", async () => {
+    // The dangerous half of F3: on a pending order the same fall-through
+    // reached markPaid with no CAS to save it, marking the order PAID
+    // off a REFUND event.
+    seedOrder("ord-1", { status: "pending", financialStatus: "pending" });
+    const res = await postBeamWebhook(refundEvent({ refundId: "" }), undefined);
+    expect(res.status).toBe(503);
+    // The order must still be pending — never paid off a refund.
+    expect(orderRow("ord-1").financial_status).toBe("pending");
+    expect(orderRow("ord-1").status).toBe("pending");
+  });
+
+  it("503s rather than guessing when the header is absent and the body has no refund fingerprint (audit F3)", async () => {
+    // A genuinely ambiguous body: no header, no refundId, no
+    // refundReason, no refund-ish status. We cannot tell a payment from
+    // a refund, and guessing "payment" is what caused F3. 503 makes Beam
+    // redeliver (with headers) instead of us silently mis-routing money.
+    seedOrder("ord-1", { status: "pending", financialStatus: "pending" });
+    const res = await postBeamWebhook(
+      JSON.stringify({
+        chargeId: "ch_real_1",
+        referenceId: "KP-2026-ord-1",
+        status: "SUCCEEDED",
+        amount: 25000,
+        currency: "THB",
+      }),
+      undefined,
+    );
+    expect(res.status).toBe(503);
+    expect(orderRow("ord-1").financial_status).toBe("pending");
+  });
+
+  it("still marks paid on a normal charge.succeeded WITH the header (no regression)", async () => {
+    seedOrder("ord-1", { status: "pending", financialStatus: "pending" });
+    const res = await postBeamWebhook(
+      JSON.stringify({
+        chargeId: "ch_real_1",
+        referenceId: "KP-2026-ord-1",
+        status: "SUCCEEDED",
+        amount: 25000,
+        currency: "THB",
+      }),
+      "charge.succeeded",
+    );
+    expect(res.status).toBe(200);
+    expect(orderRow("ord-1").financial_status).toBe("paid");
+  });
+
+  // ── Audit F5: Beam refund key must not collapse distinct refunds ──
+  it("503s instead of collapsing two partial refunds onto a charge-id key (audit F5)", async () => {
+    // Pre-fix, a refund event without a refundId keyed
+    // `beam:refund:<providerChargeId>` — CONSTANT per order. A first
+    // partial refund recorded fine; a SECOND genuine partial refund of a
+    // different amount reused that key, tripped recordRefund's
+    // fingerprint check, threw ShopValidationError, was caught + logged
+    // + 200'd, and was PERMANENTLY LOST (Beam never retries a 200).
+    // Beam has no per-event id to substitute, so we fail retryably.
+    seedOrder("ord-1");
+    const first = await postBeamWebhook(
+      refundEvent({ refundId: undefined, amount: 10000 }),
+      "refund.succeeded",
+    );
+    expect(first.status).toBe(503);
+    expect(adjustmentRows("ord-1")).toHaveLength(0);
+  });
+
+  it("records two DISTINCT partial refunds when each carries its own refundId", async () => {
+    // The happy path the key fix protects: distinct refundIds → distinct
+    // keys → both refunds land in the ledger.
+    seedOrder("ord-1");
+    await postBeamWebhook(
+      refundEvent({ refundId: "rf_a", amount: 10000 }),
+      "refund.succeeded",
+    );
+    await postBeamWebhook(
+      refundEvent({ refundId: "rf_b", amount: 5000 }),
+      "refund.succeeded",
+    );
+    const rows = adjustmentRows("ord-1");
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.idempotency_key).sort()).toEqual([
+      "beam:refund:rf_a",
+      "beam:refund:rf_b",
+    ]);
+    // 15,000 of 25,000 refunded — still partial.
+    expect(orderRow("ord-1").financial_status).toBe("partially_refunded");
+  });
+
   it("dedupes the echo of an admin-initiated refund by providerRefundId", async () => {
     seedOrder("ord-1");
     // Admin already recorded this refund under its form-nonce key,
@@ -578,6 +686,170 @@ describe("Stripe charge.refunded webhook", () => {
   it("acknowledges (200) a refund for an unknown order — retrying can never match", async () => {
     const res = await postStripeWebhook(chargeRefunded());
     expect(res.status).toBe(200);
+  });
+
+  // ── Audit F4: cumulative delta vs a MIXED ledger ────────────
+  it("does not under-book when the ledger holds a NON-Stripe refund (audit F4)", async () => {
+    // The audit's worked example. Order 10,000 satang. An admin books a
+    // 2,000 goodwill refund OUTSIDE Stripe (POS/manual — provider_refund_id
+    // is not an re_ id). Then a 3,000 Stripe dashboard refund fires
+    // charge.refunded with amount_refunded:3000 (cumulative AT STRIPE
+    // ONLY) and no refunds list.
+    //
+    // Pre-fix: recordedSoFar = totalSatang - remaining = the WHOLE
+    // ledger's refund sum = 2,000 → delta = 3000 - 2000 = 1,000 → the
+    // ledger booked 1,000 instead of 3,000, under-booking by 2,000
+    // satang, silently and permanently.
+    //
+    // Post-fix: only re_-prefixed rows count toward the Stripe sum, so
+    // stripeRecordedSoFar = 0 → delta = 3,000. Correct.
+    seedOrder("ord-s1", {
+      providerName: "stripe",
+      providerChargeId: "pi_123",
+      totalSatang: 10000,
+    });
+    sqlite
+      .prepare(
+        `INSERT INTO shop_order_adjustments
+           (id, order_id, kind, amount_satang, idempotency_key,
+            provider_refund_id, created_at)
+         VALUES ('pos-1', 'ord-s1', 'refund_partial', -2000, 'tonbab-pos-1',
+                 'tonbab_rf_9', ?)`,
+      )
+      .run(NOW);
+
+    const res = await postStripeWebhook(
+      JSON.stringify({
+        id: "evt_stripe_1",
+        type: "charge.refunded",
+        data: {
+          object: {
+            id: "ch_1",
+            payment_intent: "pi_123",
+            amount_refunded: 3000,
+            // Newer API version — no refunds list, so the route must
+            // use the cumulative-delta fallback.
+          },
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+
+    const stripeRow = adjustmentRows("ord-s1").find(
+      (r) => r.idempotency_key !== "tonbab-pos-1",
+    );
+    // The Stripe refund must book its FULL 3,000 — not 1,000.
+    expect(stripeRow?.amount_satang).toBe(-3000);
+    // Ledger total = 2,000 POS + 3,000 Stripe = 5,000 of 10,000.
+    const total = adjustmentRows("ord-s1").reduce(
+      (s, r) => s + Math.abs(r.amount_satang),
+      0,
+    );
+    expect(total).toBe(5000);
+  });
+
+  it("still subtracts PRIOR STRIPE refunds from the cumulative amount (no regression)", async () => {
+    // The delta logic must keep working for genuinely Stripe-attributed
+    // prior refunds: a first 4,000 re_ refund, then amount_refunded
+    // climbs to 6,000 → the new event books only the 2,000 delta.
+    seedOrder("ord-s1", {
+      providerName: "stripe",
+      providerChargeId: "pi_123",
+      totalSatang: 10000,
+    });
+    sqlite
+      .prepare(
+        `INSERT INTO shop_order_adjustments
+           (id, order_id, kind, amount_satang, idempotency_key,
+            provider_refund_id, created_at)
+         VALUES ('s-1', 'ord-s1', 'refund_partial', -4000, 'stripe:refund:re_1',
+                 're_1', ?)`,
+      )
+      .run(NOW);
+
+    const res = await postStripeWebhook(
+      JSON.stringify({
+        id: "evt_stripe_2",
+        type: "charge.refunded",
+        data: {
+          object: {
+            id: "ch_1",
+            payment_intent: "pi_123",
+            amount_refunded: 6000,
+          },
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const newRow = adjustmentRows("ord-s1").find(
+      (r) => r.idempotency_key !== "stripe:refund:re_1",
+    );
+    expect(newRow?.amount_satang).toBe(-2000);
+  });
+
+  // ── Audit F5: Stripe refund key must vary per event ─────────
+  it("records TWO partial dashboard refunds that carry no re_ id (audit F5)", async () => {
+    // Pre-fix both events keyed `stripe:refund:pi_123` (the order's
+    // charge id, constant). The first recorded; the SECOND, with a
+    // different amount, hit recordRefund's fingerprint check, threw
+    // ShopValidationError, was caught + logged + 200'd — permanently
+    // lost, and Stripe never retries a 200.
+    //
+    // Post-fix each event keys on Stripe's unique envelope id (evt_...),
+    // so both are recorded; a genuine redelivery reuses its evt id and
+    // still dedupes.
+    seedOrder("ord-s1", {
+      providerName: "stripe",
+      providerChargeId: "pi_123",
+      totalSatang: 10000,
+    });
+    const refundNoList = (eventId: string, cumulative: number) =>
+      JSON.stringify({
+        id: eventId,
+        type: "charge.refunded",
+        data: {
+          object: {
+            id: "ch_1",
+            payment_intent: "pi_123",
+            amount_refunded: cumulative,
+          },
+        },
+      });
+
+    await postStripeWebhook(refundNoList("evt_1", 3000));
+    await postStripeWebhook(refundNoList("evt_2", 5000));
+
+    const rows = adjustmentRows("ord-s1");
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.idempotency_key).sort()).toEqual([
+      "stripe:refund:evt:evt_1",
+      "stripe:refund:evt:evt_2",
+    ]);
+    // 3,000 then a 2,000 delta = 5,000 booked, matching the cumulative.
+    expect(rows.map((r) => r.amount_satang).sort((a, b) => a - b)).toEqual([
+      -3000, -2000,
+    ]);
+  });
+
+  it("still dedupes a REDELIVERY of the same event id", async () => {
+    // Keying on the event id must not break at-least-once idempotency:
+    // Stripe reuses the evt id when it redelivers.
+    seedOrder("ord-s1", {
+      providerName: "stripe",
+      providerChargeId: "pi_123",
+      totalSatang: 10000,
+    });
+    const body = JSON.stringify({
+      id: "evt_same",
+      type: "charge.refunded",
+      data: {
+        object: { id: "ch_1", payment_intent: "pi_123", amount_refunded: 3000 },
+      },
+    });
+    await postStripeWebhook(body);
+    const replay = await postStripeWebhook(body);
+    expect(replay.status).toBe(200);
+    expect(adjustmentRows("ord-s1")).toHaveLength(1);
   });
 });
 
