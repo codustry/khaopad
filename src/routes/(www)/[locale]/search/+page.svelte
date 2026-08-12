@@ -56,8 +56,15 @@
     {:else}
       <div class="mb-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
         {#each data.products as product (product.productId)}
+          <!--
+            The anchor wrapped an <h3> but exposed no accessible name, so
+            screen readers announced a bare "link". aria-label gives the
+            link the product's title regardless of how the heading is
+            nested.
+          -->
           <a
             href={localePath(locale, `/products/${product.slug}`)}
+            aria-label={product.title}
             class="border border-border rounded-lg p-4 hover:shadow-md transition-shadow flex flex-col gap-1"
           >
             <h3 class="font-semibold">{product.title}</h3>
@@ -86,8 +93,10 @@
             <article
               class="border border-border rounded-lg p-6 hover:shadow-md transition-shadow"
             >
+              <!-- Same missing-accessible-name bug as the product results. -->
               <a
                 href={localePath(locale, `/blog/${article.slug}`)}
+                aria-label={loc.title}
                 class="block"
               >
                 <h3 class="text-lg font-semibold mb-2">{loc.title}</h3>

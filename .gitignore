@@ -40,3 +40,6 @@ graphify-out/
 * [0-9].sql
 * [0-9].ts
 * [0-9].json
+
+# Generated demo seed SQL (build output, not a migration)
+.seed/

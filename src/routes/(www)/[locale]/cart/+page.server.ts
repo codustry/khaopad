@@ -10,9 +10,17 @@ import { CartService } from "$plugins/shop/cart-service";
 import { ensureCartSession } from "$plugins/shop/cart-cookie";
 import type { PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = async ({ platform, cookies, locals }) => {
+export const load: PageServerLoad = async ({
+  platform,
+  cookies,
+  locals,
+  depends,
+}) => {
   const env = platform?.env;
   if (!env) throw error(503, "Platform not ready");
+  // Lets the page's qty/remove handlers refresh via
+  // invalidate('/api/shop/cart') instead of a full location.reload().
+  depends("/api/shop/cart");
   const sessionId = ensureCartSession(cookies);
   const svc = new CartService(env.DB);
   const cart = await svc.ensureCart({

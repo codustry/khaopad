@@ -4,6 +4,7 @@
 	import { Button, Input, Label } from '$lib/components/ui';
 	import * as m from '$lib/paraglide/messages';
 	import { localePath } from '$lib/i18n';
+	import { orderStatusLabel } from '$lib/shop/order-status';
 	import { formatSatang, type Satang } from '$plugins/shop/money';
 	import type { PageData } from './$types';
 
@@ -178,7 +179,7 @@
 							<div>
 								<div class="text-sm font-medium tabular-nums">{order.orderNumber}</div>
 								<div class="text-xs text-muted-foreground">
-									{dateFmt.format(new Date(order.createdAt))} · {order.status}
+									{dateFmt.format(new Date(order.createdAt))} · {orderStatusLabel(order.status)}
 								</div>
 							</div>
 							<div class="flex items-center gap-4">
@@ -235,7 +236,7 @@
 								class="grid gap-3 sm:grid-cols-2"
 							>
 								<input type="hidden" name="addressId" value={addr.id} />
-								{@render addressFields(addr)}
+								{@render addressFields(addr, addr.id)}
 								<div class="flex gap-2 sm:col-span-2">
 									<Button type="submit" size="sm">{m.account_address_save()}</Button>
 								</div>
@@ -314,7 +315,7 @@
 						}}
 					class="mt-4 grid gap-3 rounded-lg border border-border p-4 sm:grid-cols-2"
 				>
-					{@render addressFields(null)}
+					{@render addressFields(null, 'new')}
 					<div class="flex gap-2 sm:col-span-2">
 						<Button type="submit" size="sm">{m.account_address_save()}</Button>
 					</div>
@@ -324,45 +325,55 @@
 	{/if}
 </div>
 
-{#snippet addressFields(addr: {
-	name: string;
-	line1: string;
-	line2: string | null;
-	city: string;
-	region: string | null;
-	postalCode: string;
-	countryCode: string;
-	phone: string | null;
-	isDefault: boolean;
-} | null)}
+<!--
+	`uid` disambiguates the input ids. This snippet renders once per saved
+	address plus once for the add form, so hardcoded ids like "addr-name"
+	were duplicated across the document and every <label for> bound to the
+	FIRST matching input — clicking a label in the third address focused a
+	field in the first. Callers pass the address id, or "new".
+-->
+{#snippet addressFields(
+	addr: {
+		name: string;
+		line1: string;
+		line2: string | null;
+		city: string;
+		region: string | null;
+		postalCode: string;
+		countryCode: string;
+		phone: string | null;
+		isDefault: boolean;
+	} | null,
+	uid: string,
+)}
 	<div class="space-y-1.5">
-		<Label for="addr-name">{m.shop_addr_name()}</Label>
-		<Input id="addr-name" name="name" value={addr?.name ?? ''} required />
+		<Label for="addr-name-{uid}">{m.shop_addr_name()}</Label>
+		<Input id="addr-name-{uid}" name="name" value={addr?.name ?? ''} required />
 	</div>
 	<div class="space-y-1.5">
-		<Label for="addr-line1">{m.shop_addr_line1()}</Label>
-		<Input id="addr-line1" name="line1" value={addr?.line1 ?? ''} required />
+		<Label for="addr-line1-{uid}">{m.shop_addr_line1()}</Label>
+		<Input id="addr-line1-{uid}" name="line1" value={addr?.line1 ?? ''} required />
 	</div>
 	<div class="space-y-1.5">
-		<Label for="addr-line2">{m.shop_addr_line2()}</Label>
-		<Input id="addr-line2" name="line2" value={addr?.line2 ?? ''} />
+		<Label for="addr-line2-{uid}">{m.shop_addr_line2()}</Label>
+		<Input id="addr-line2-{uid}" name="line2" value={addr?.line2 ?? ''} />
 	</div>
 	<div class="space-y-1.5">
-		<Label for="addr-city">{m.shop_addr_city()}</Label>
-		<Input id="addr-city" name="city" value={addr?.city ?? ''} required />
+		<Label for="addr-city-{uid}">{m.shop_addr_city()}</Label>
+		<Input id="addr-city-{uid}" name="city" value={addr?.city ?? ''} required />
 	</div>
 	<div class="space-y-1.5">
-		<Label for="addr-region">{m.shop_addr_region()}</Label>
-		<Input id="addr-region" name="region" value={addr?.region ?? ''} />
+		<Label for="addr-region-{uid}">{m.shop_addr_region()}</Label>
+		<Input id="addr-region-{uid}" name="region" value={addr?.region ?? ''} />
 	</div>
 	<div class="space-y-1.5">
-		<Label for="addr-postal">{m.shop_addr_postal()}</Label>
-		<Input id="addr-postal" name="postalCode" value={addr?.postalCode ?? ''} required />
+		<Label for="addr-postal-{uid}">{m.shop_addr_postal()}</Label>
+		<Input id="addr-postal-{uid}" name="postalCode" value={addr?.postalCode ?? ''} required />
 	</div>
 	<div class="space-y-1.5">
-		<Label for="addr-country">{m.shop_addr_country()}</Label>
+		<Label for="addr-country-{uid}">{m.shop_addr_country()}</Label>
 		<Input
-			id="addr-country"
+			id="addr-country-{uid}"
 			name="countryCode"
 			value={addr?.countryCode ?? (data.locale === 'th' ? 'TH' : '')}
 			maxlength={2}
@@ -370,8 +381,8 @@
 		/>
 	</div>
 	<div class="space-y-1.5">
-		<Label for="addr-phone">{m.shop_addr_phone()}</Label>
-		<Input id="addr-phone" name="phone" value={addr?.phone ?? ''} />
+		<Label for="addr-phone-{uid}">{m.shop_addr_phone()}</Label>
+		<Input id="addr-phone-{uid}" name="phone" value={addr?.phone ?? ''} />
 	</div>
 	<label class="flex items-center gap-2 text-sm sm:col-span-2">
 		<input type="checkbox" name="isDefault" checked={addr?.isDefault ?? false} />

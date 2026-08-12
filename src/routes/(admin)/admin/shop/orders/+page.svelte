@@ -35,6 +35,28 @@
 		}
 	];
 
+	// Axis labels. Admin is English-only this phase (the Paraglide
+	// catalogue has no keys for the axis values yet), matching the
+	// order-detail page.
+	const FINANCIAL_LABELS: Record<string, string> = {
+		pending: 'Payment pending',
+		paid: 'Paid',
+		partially_refunded: 'Partially refunded',
+		refunded: 'Refunded',
+		cancelled: 'Payment cancelled'
+	};
+	const FULFILLMENT_LABELS: Record<string, string> = {
+		unfulfilled: 'Unfulfilled',
+		fulfilled: 'Fulfilled',
+		delivered: 'Delivered'
+	};
+	const RETURN_LABELS: Record<string, string> = {
+		requested: 'Return requested',
+		approved: 'Return approved',
+		received: 'Return received',
+		resolved: 'Return resolved'
+	};
+
 	function onSort(key: string, dir: SortDirection) {
 		const url = new URL(page.url);
 		url.searchParams.set('sort', key);
@@ -72,7 +94,33 @@
 {/snippet}
 
 {#snippet statusCell(order: Order)}
-	<StatusBadge status={order.status} tone={order.status === 'delivered' ? 'success' : undefined} />
+	<!--
+		#109: three orthogonal axes are stored; collapsing them to one
+		hides exactly the cases the model exists for ("delivered but
+		partially refunded"). Secondary axes render only when they differ
+		from the headline status, so the common row stays a single badge.
+	-->
+	<div class="flex flex-wrap items-center gap-1">
+		<StatusBadge status={order.status} tone={order.status === 'delivered' ? 'success' : undefined} />
+		{#if order.financialStatus && order.financialStatus !== order.status}
+			<StatusBadge
+				status={order.financialStatus}
+				label={FINANCIAL_LABELS[order.financialStatus] ?? order.financialStatus}
+			/>
+		{/if}
+		{#if order.fulfillmentStatus && order.fulfillmentStatus !== order.status}
+			<StatusBadge
+				status={order.fulfillmentStatus}
+				label={FULFILLMENT_LABELS[order.fulfillmentStatus] ?? order.fulfillmentStatus}
+			/>
+		{/if}
+		{#if order.returnStatus}
+			<StatusBadge
+				status={order.returnStatus}
+				label={RETURN_LABELS[order.returnStatus] ?? order.returnStatus}
+			/>
+		{/if}
+	</div>
 {/snippet}
 
 {#snippet totalCell(order: Order)}

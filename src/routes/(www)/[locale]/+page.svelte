@@ -14,10 +14,19 @@
 	<p class="text-xl text-muted-foreground mb-8">
 		{data.hero?.subtitle ?? m.site_description()}
 	</p>
-	<div class="flex gap-4 justify-center">
+	<div class="flex flex-wrap gap-4 justify-center">
+		<!-- Shop is the primary CTA on a commerce site; the hero used to
+		     offer Blog alone, leaving no path from the home page into the
+		     catalog at all. -->
+		<a
+			href={localePath(locale, '/products')}
+			class="inline-flex items-center px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:opacity-90"
+		>
+			{m.home_cta_shop()}
+		</a>
 		<a
 			href={localePath(locale, '/blog')}
-			class="inline-flex items-center px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:opacity-90"
+			class="inline-flex items-center px-6 py-3 border border-border rounded-lg hover:bg-muted"
 		>
 			{m.nav_blog()}
 		</a>

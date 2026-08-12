@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { goto, invalidate } from '$app/navigation';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 	import { track } from '$lib/analytics/track';
@@ -137,12 +137,15 @@
 				addError =
 					(body && typeof body === 'object' && 'message' in body
 						? String(body.message)
-						: null) ?? 'Could not add to cart. Please try again.';
+						: null) ?? m.shop_err_add_to_cart();
 				return;
 			}
 			added = true;
+			// Refresh the layout's cart badge — the layout load `depends`
+			// on this key, so the header count updates without a reload.
+			await invalidate('/api/shop/cart');
 		} catch {
-			addError = 'Network error. Please try again.';
+			addError = m.shop_err_network_retry();
 		} finally {
 			adding = false;
 		}
@@ -165,7 +168,13 @@
 			{localization.title}
 		</h1>
 		{#if product.vendor}
-			<p class="text-sm text-muted-foreground">by {product.vendor}</p>
+			<p class="text-sm text-muted-foreground">{m.shop_by_vendor({ vendor: product.vendor })}</p>
+		{/if}
+		<!-- LOW 18: the requested locale had no localization, so this page
+		     is showing the English fallback. Understated by design — a
+		     note, not a warning. -->
+		{#if data.localizationFellBack}
+			<p class="text-xs text-muted-foreground">{m.shop_locale_fallback_note()}</p>
 		{/if}
 	</header>
 
@@ -184,11 +193,11 @@
 		{#if selectedVariant.available > 0}
 			<p class="text-sm text-green-700">
 				{selectedVariant.available > 10
-					? 'In stock'
-					: `Only ${selectedVariant.available} left`}
+					? m.shop_in_stock()
+					: m.shop_only_n_left({ count: selectedVariant.available })}
 			</p>
 		{:else}
-			<p class="text-sm text-destructive">Sold out</p>
+			<p class="text-sm text-destructive">{m.shop_sold_out()}</p>
 			<!-- ─── Back-in-stock capture (v3.17 D4) ───────────────
 			     Only rendered for the sold-out variant. Keyed on the
 			     variant so switching variants resets the done state. -->
@@ -227,7 +236,7 @@
 	{#if product.variants.length > 1}
 		<section class="mb-8 space-y-2">
 			<h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-				Select variant
+				{m.shop_select_variant()}
 			</h2>
 			<div class="flex flex-wrap gap-2">
 				{#each product.variants as variant (variant.id)}
@@ -264,10 +273,12 @@
 				disabled={adding || !selectedVariant}
 				class="h-11 rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground disabled:opacity-50 sm:h-10"
 			>
-				{adding ? 'Adding…' : 'Add to cart'}
+				{adding ? m.shop_adding() : m.shop_add_to_cart()}
 			</button>
 			{#if added}
-				<a href={localePath(data.locale, '/cart')} class="text-sm underline">View cart →</a>
+				<a href={localePath(data.locale, '/cart')} class="text-sm underline">
+					{m.shop_view_cart()}
+				</a>
 			{/if}
 		</div>
 		{#if addError}

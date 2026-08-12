@@ -1,11 +1,12 @@
 <script lang="ts">
 	import '../../app.css';
 	import * as m from '$lib/paraglide/messages';
-	import { localePath, toLocale, getAlternateLocale } from '$lib/i18n';
+	import { localePath, toLocale, getAlternateLocale, SUPPORTED_LOCALES } from '$lib/i18n';
 	import { page } from '$app/state';
 	import Seo from '$lib/components/seo/Seo.svelte';
 	import CookieBanner from '$lib/components/consent/CookieBanner.svelte';
 	import HeaderSearch from '$lib/components/www/HeaderSearch.svelte';
+	import { ShoppingCart, User } from 'lucide-svelte';
 	import type { PageSeo } from '$lib/seo';
 	import type { Snippet } from 'svelte';
 	import type { LayoutData } from './$types';
@@ -35,6 +36,30 @@
 			? data.siteSettings.themePrimaryColor
 			: null,
 	);
+	// ─── Header cart badge ──────────────────────────────────────
+	// Count comes from the layout load (session cart), so it is correct
+	// on first paint and refreshes with the cart page's existing
+	// invalidate('/api/shop/cart').
+	const cartItemCount = $derived(
+		typeof data.cartItemCount === 'number' ? data.cartItemCount : 0,
+	);
+
+	// ─── Language switcher ──────────────────────────────────────
+	// Swapping the locale used to drop the visitor on '/', so a shopper
+	// deep in filtered results lost their place on every switch. Slugs
+	// are shared across locales, so the same path resolves in both —
+	// swap only the leading locale segment and keep the query string.
+	const alternateLocale = $derived(getAlternateLocale(toLocale(data.locale)));
+	const alternateHref = $derived.by(() => {
+		const segments = page.url.pathname.split('/').filter(Boolean);
+		if (SUPPORTED_LOCALES.includes(segments[0] as (typeof SUPPORTED_LOCALES)[number])) {
+			segments[0] = alternateLocale;
+		} else {
+			segments.unshift(alternateLocale);
+		}
+		return `/${segments.join('/')}${page.url.search}`;
+	});
+
 	const themeLogoMediaId = $derived(
 		typeof data.siteSettings?.themeLogoMediaId === 'string' &&
 			data.siteSettings.themeLogoMediaId
@@ -62,7 +87,7 @@
 				{/if}
 				{data.siteSettings?.siteName ?? m.site_name()}</a
 			>
-			<nav class="flex items-center gap-4 text-sm">
+			<nav class="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 text-sm">
 				{#each data.nav.primary as item (item.id)}
 					<a href={item.href} class="hover:text-primary">{item.label}</a>
 				{/each}
@@ -74,7 +99,38 @@
 				</a>
 				<HeaderSearch locale={toLocale(data.locale)} />
 				<a
-					href={localePath(getAlternateLocale(toLocale(data.locale)), '/')}
+					href={localePath(toLocale(data.locale), '/account')}
+					class="hover:text-primary"
+					aria-label={m.nav_account()}
+					title={m.nav_account()}
+				>
+					<User class="h-5 w-5" aria-hidden="true" />
+				</a>
+				<!-- Persistent cart entry point. Before this, the only route to
+				     the cart was a transient "View cart" link beside add-to-cart
+				     that vanished on the next navigation. -->
+				<a
+					href={localePath(toLocale(data.locale), '/cart')}
+					class="relative hover:text-primary"
+					aria-label={cartItemCount === 0
+						? m.nav_cart()
+						: cartItemCount === 1
+							? m.nav_cart_count_one()
+							: m.nav_cart_count({ count: cartItemCount })}
+					title={m.nav_cart()}
+				>
+					<ShoppingCart class="h-5 w-5" aria-hidden="true" />
+					{#if cartItemCount > 0}
+						<span
+							class="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium leading-none text-primary-foreground tabular-nums"
+							aria-hidden="true"
+						>
+							{cartItemCount > 99 ? '99+' : cartItemCount}
+						</span>
+					{/if}
+				</a>
+				<a
+					href={alternateHref}
 					data-sveltekit-reload
 					class="px-2 py-1 border border-border rounded text-xs hover:bg-muted"
 				>

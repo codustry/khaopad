@@ -35,6 +35,10 @@ export const load: PageServerLoad = async ({ params, url, platform }) => {
   const localization =
     product.localizations[locale] ?? product.localizations["en"];
   if (!localization) throw error(404, "Product not available");
+  // The fallback used to be silent: a Thai visitor got an English page
+  // with no hint that a translation was simply missing. Surfaced to the
+  // page as a flag so it can show an understated note.
+  const localizationFellBack = !product.localizations[locale];
 
   // Selected variant from ?variant=<sku> query param. Falls back to
   // the first active variant if the SKU is unknown or missing.
@@ -135,6 +139,7 @@ export const load: PageServerLoad = async ({ params, url, platform }) => {
       selectedVariantId: selectedVariant.id,
     },
     localization,
+    localizationFellBack,
     descriptionHtml,
     // "You may also like" strip (#160 A5). Titles resolved to the
     // request locale server-side (en fallback, matching the page's own

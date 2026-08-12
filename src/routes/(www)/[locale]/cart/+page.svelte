@@ -26,8 +26,10 @@
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({ cartItemId, quantity }),
 			});
+			// invalidate() re-runs the cart load (and the layout's badge,
+			// which depends on the same key). A location.reload() on top of
+			// it only threw away the visitor's scroll position.
 			await invalidate('/api/shop/cart');
-			location.reload();
 		} finally {
 			busy = false;
 		}
@@ -41,7 +43,7 @@
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({ cartItemId }),
 			});
-			location.reload();
+			await invalidate('/api/shop/cart');
 		} finally {
 			busy = false;
 		}
@@ -70,11 +72,13 @@
 			<p class="mb-4 text-sm text-muted-foreground">{m.shop_cart_empty()}</p>
 			<!--
 				The empty-state CTA used to hardcode a demo-catalog product
-				URL — a 404 on every real install (#142). The site home is
-				the only destination that exists everywhere.
+				URL — a 404 on every real install (#142) — and was then
+				pointed at the home page, which lists no products at all.
+				/products is the catalog index: it exists everywhere AND
+				actually shows something to buy.
 			-->
 			<a
-				href={localePath(locale, '/')}
+				href={localePath(locale, '/products')}
 				class="inline-flex items-center gap-2 text-sm text-primary hover:underline"
 			>
 				{m.shop_cart_browse_products()}

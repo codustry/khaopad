@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
 	import { Boxes } from 'lucide-svelte';
 	import { Button } from '$lib/components/ui';
@@ -16,12 +17,35 @@
 		{ key: 'title', header: m.shop_admin_col_title(), cell: titleCell },
 		{ key: 'slug', header: m.shop_admin_col_slug(), cell: slugCell },
 		{ key: 'status', header: m.cms_filter_status(), cell: statusCell },
-		{ key: 'productCount', header: m.shop_admin_col_products(), align: 'right', numeric: true }
+		{
+			key: 'productCount',
+			header: m.shop_admin_col_products(),
+			align: 'right',
+			numeric: true,
+			cell: productCountCell
+		}
 	];
 </script>
 
+<!-- Both the title and the count open the collection: before the [id]
+     route existed the index was a dead end, and a count is exactly the
+     thing you click to see what is behind it. -->
 {#snippet titleCell(c: Collection)}
-	<span class="font-medium">{c.title || m.shop_admin_untitled()}</span>
+	<a
+		href={resolve('/(admin)/admin/shop/collections/[id]', { id: c.id })}
+		class="rounded-sm font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+	>
+		{c.title || m.shop_admin_untitled()}
+	</a>
+{/snippet}
+
+{#snippet productCountCell(c: Collection)}
+	<a
+		href={resolve('/(admin)/admin/shop/collections/[id]', { id: c.id })}
+		class="rounded-sm tabular-nums hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+	>
+		{c.productCount}
+	</a>
 {/snippet}
 
 {#snippet slugCell(c: Collection)}
@@ -145,9 +169,19 @@
 
 		<DataTable {columns} rows={data.collections} getKey={(c) => c.id}>
 			{#snippet empty()}
-				<p class="text-sm text-muted-foreground">
-					{m.shop_admin_no_collections()}
-				</p>
+				<!-- The New button lives in the page header, far from where
+				     the eye lands on an empty table — so the empty state
+				     carries its own CTA. -->
+				<div class="space-y-3 py-2">
+					<p class="text-sm text-muted-foreground">
+						{m.shop_admin_no_collections()}
+					</p>
+					{#if !createOpen}
+						<Button size="sm" onclick={() => (createOpen = true)}>
+							{m.shop_admin_new_collection()}
+						</Button>
+					{/if}
+				</div>
 			{/snippet}
 		</DataTable>
 	</div>

@@ -3,14 +3,25 @@
 	import { page } from '$app/state';
 	import { invalidateAll } from '$app/navigation';
 	import { enhance } from '$app/forms';
-	import { Package, CheckCircle2, Clock, LoaderCircle, Truck, Undo2 } from 'lucide-svelte';
+	import {
+		Package,
+		CheckCircle2,
+		Clock,
+		LoaderCircle,
+		Truck,
+		Undo2,
+		ArrowRight,
+	} from 'lucide-svelte';
 	import { Button } from '$lib/components/ui';
 	import * as m from '$lib/paraglide/messages';
+	import { localePath, toLocale } from '$lib/i18n';
+	import { orderStatusLabel } from '$lib/shop/order-status';
 	import { formatSatang, type Satang } from '$plugins/shop/money';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	const order = $derived(data.order);
+	const locale = $derived(toLocale(page.params.locale ?? 'en'));
 	// C10 — return-state labels, localized.
 	const returnStateLabel = $derived(
 		data.activeReturn
@@ -24,16 +35,9 @@
 			: null,
 	);
 	let submittingReturn = $state(false);
-	const statusLabel = $derived(
-		{
-			pending: m.shop_status_pending(),
-			paid: m.shop_status_paid(),
-			fulfilled: m.shop_status_fulfilled(),
-			delivered: m.shop_status_delivered(),
-			refunded: m.shop_status_refunded(),
-			cancelled: m.shop_status_cancelled(),
-		}[order.status] ?? order.status,
-	);
+	// Shared with the account page's order history — see
+	// $lib/shop/order-status.
+	const statusLabel = $derived(orderStatusLabel(order.status));
 
 	// ── Payment recovery (#157) ─────────────────────────────────────
 	// The ?payment= query param is a UI HINT ONLY — it never carries
@@ -222,7 +226,21 @@
 			{#each order.items as item (item.id)}
 				<li class="flex gap-4 py-3 text-sm">
 					<div class="flex-1 min-w-0">
-						<div class="font-medium">{item.titleSnapshot}</div>
+						<!-- Text stays the historical snapshot (what was bought,
+						     at the title it was bought under); only the href points
+						     at the live product, and only when it still exists. -->
+						<div class="font-medium">
+							{#if item.productSlug}
+								<a
+									href={localePath(locale, `/products/${item.productSlug}`)}
+									class="hover:underline"
+								>
+									{item.titleSnapshot}
+								</a>
+							{:else}
+								{item.titleSnapshot}
+							{/if}
+						</div>
 						{#if item.skuSnapshot}
 							<div class="text-xs text-muted-foreground">
 								SKU: {item.skuSnapshot}
@@ -345,4 +363,16 @@
 			</div>
 		</section>
 	{/if}
+
+	<!-- Checkout dumps the customer here, and this used to be a dead end:
+	     no way onward except the browser's back button. -->
+	<div class="mt-8 border-t border-border pt-6">
+		<a
+			href={localePath(locale, '/products')}
+			class="inline-flex items-center gap-2 text-sm text-primary hover:underline"
+		>
+			{m.shop_continue_shopping()}
+			<ArrowRight class="h-4 w-4" />
+		</a>
+	</div>
 </div>

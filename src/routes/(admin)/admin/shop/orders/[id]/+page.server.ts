@@ -13,6 +13,13 @@
  */
 import { error, fail, redirect } from "@sveltejs/kit";
 import { nanoid } from "nanoid";
+import { drizzle } from "drizzle-orm/d1";
+import { inArray } from "drizzle-orm";
+import {
+  shopProductVariants,
+  shopProducts,
+  shopProductLocalizations,
+} from "$plugins/shop/schema";
 import { hasRole } from "$lib/server/auth/permissions";
 import { logAudit } from "$lib/server/audit";
 import { OrderService } from "$plugins/shop/order-service";
@@ -44,11 +51,26 @@ export const load: PageServerLoad = async ({ locals, platform, params }) => {
   const svc = new OrderService(env.DB);
   const order = await svc.getOrder(params.id);
   if (!order) throw error(404, "Order not found");
-  const [events, returns, fulfillment] = await Promise.all([
+  const [events, returns, fulfillment, refundableSatang] = await Promise.all([
     svc.listOrderEvents(params.id),
     svc.listReturns(params.id),
     svc.latestFulfillment(params.id),
+    // Ledger-derived remaining balance (#110). Surfacing it in the UI
+    // means staff see the same number the server enforces, instead of
+    // discovering the cap only when a refund is rejected.
+    svc.refundableSatang(params.id),
   ]);
+
+  // Line items carry historical SNAPSHOTS (title/sku/price), which is
+  // what must stay on screen. But variantId is a non-null RESTRICT FK,
+  // so every line always resolves back to a live product — resolve it
+  // here so the snapshot title can LINK to the product editor. Two
+  // extra queries, both keyed by primary key / indexed FK.
+  const productByItemId = await resolveProductsForItems(
+    env.DB,
+    order.items.map((i) => ({ id: i.id, variantId: i.variantId })),
+  );
+
   // Refund idempotency key (#110): minted per page render, echoed back
   // by the refund form. A double-click / double-submit replays the
   // same key → the service returns the original ledger row instead of
@@ -58,9 +80,72 @@ export const load: PageServerLoad = async ({ locals, platform, params }) => {
     events,
     returns,
     fulfillment,
+    refundableSatang,
+    refundedSatang: order.totalSatang - refundableSatang,
+    productByItemId,
     refundIdempotencyKey: nanoid(),
   };
 };
+
+/**
+ * item id → { productId, title } for the order's line items.
+ *
+ * Lives here rather than in the shop service because it is a
+ * presentation-layer join: the domain deliberately reads snapshots and
+ * never needs the live product for an order.
+ */
+async function resolveProductsForItems(
+  db: D1Database,
+  items: Array<{ id: string; variantId: string }>,
+): Promise<Record<string, { productId: string; title: string }>> {
+  if (items.length === 0) return {};
+  const orm = drizzle(db);
+  const variantIds = [...new Set(items.map((i) => i.variantId))];
+  const variants = await orm
+    .select({
+      id: shopProductVariants.id,
+      productId: shopProductVariants.productId,
+    })
+    .from(shopProductVariants)
+    .where(inArray(shopProductVariants.id, variantIds))
+    .all();
+  if (variants.length === 0) return {};
+
+  const productIds = [...new Set(variants.map((v) => v.productId))];
+  const [products, locs] = await Promise.all([
+    orm
+      .select({ id: shopProducts.id, slug: shopProducts.slug })
+      .from(shopProducts)
+      .where(inArray(shopProducts.id, productIds))
+      .all(),
+    orm
+      .select({
+        productId: shopProductLocalizations.productId,
+        locale: shopProductLocalizations.locale,
+        title: shopProductLocalizations.title,
+      })
+      .from(shopProductLocalizations)
+      .where(inArray(shopProductLocalizations.productId, productIds))
+      .all(),
+  ]);
+  const titleFor = (productId: string) => {
+    const forId = locs.filter((l) => l.productId === productId);
+    return (
+      forId.find((l) => l.locale === "en")?.title ??
+      forId[0]?.title ??
+      products.find((p) => p.id === productId)?.slug ??
+      ""
+    );
+  };
+  const productIdByVariant = new Map(variants.map((v) => [v.id, v.productId]));
+  const out: Record<string, { productId: string; title: string }> = {};
+  for (const item of items) {
+    const productId = productIdByVariant.get(item.variantId);
+    if (!productId) continue;
+    out[item.id] = { productId, title: titleFor(productId) };
+  }
+  return out;
+}
 
 export const actions: Actions = {
   fulfil: async ({ request, locals, platform, params }) => {

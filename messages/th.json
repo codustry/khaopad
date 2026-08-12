@@ -750,5 +750,22 @@
   "shop_report_by_day": "รายวัน",
   "shop_report_empty": "ไม่มีออเดอร์ในช่วงนี้",
   "shop_report_tax_id": "เลขประจำตัวผู้เสียภาษี",
-  "cms_connections": "การเชื่อมต่อ"
+  "cms_connections": "การเชื่อมต่อ",
+  "nav_cart": "ตะกร้าสินค้า",
+  "nav_cart_count": "ตะกร้าสินค้า ({count} ชิ้น)",
+  "nav_cart_count_one": "ตะกร้าสินค้า (1 ชิ้น)",
+  "nav_account": "บัญชีของฉัน",
+  "home_cta_shop": "เลือกซื้อสินค้า",
+  "shop_by_vendor": "โดย {vendor}",
+  "shop_in_stock": "มีสินค้าพร้อมส่ง",
+  "shop_only_n_left": "เหลืออีกเพียง {count} ชิ้น",
+  "shop_sold_out": "สินค้าหมด",
+  "shop_select_variant": "เลือกตัวเลือกสินค้า",
+  "shop_add_to_cart": "หยิบใส่ตะกร้า",
+  "shop_adding": "กำลังเพิ่ม…",
+  "shop_view_cart": "ดูตะกร้าสินค้า →",
+  "shop_err_add_to_cart": "ไม่สามารถเพิ่มสินค้าลงตะกร้าได้ กรุณาลองใหม่อีกครั้ง",
+  "shop_err_network_retry": "การเชื่อมต่อขัดข้อง กรุณาลองใหม่อีกครั้ง",
+  "shop_locale_fallback_note": "สินค้านี้ยังไม่มีรายละเอียดภาษาไทย จึงแสดงเป็นภาษาอังกฤษ",
+  "shop_continue_shopping": "เลือกซื้อสินค้าต่อ"
 }

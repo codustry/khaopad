@@ -750,5 +750,22 @@
   "shop_report_by_day": "By day",
   "shop_report_empty": "No orders in this range.",
   "shop_report_tax_id": "Tax ID",
-  "cms_connections": "Connections"
+  "cms_connections": "Connections",
+  "nav_cart": "Cart",
+  "nav_cart_count": "Cart ({count} items)",
+  "nav_cart_count_one": "Cart (1 item)",
+  "nav_account": "Account",
+  "home_cta_shop": "Shop now",
+  "shop_by_vendor": "by {vendor}",
+  "shop_in_stock": "In stock",
+  "shop_only_n_left": "Only {count} left",
+  "shop_sold_out": "Sold out",
+  "shop_select_variant": "Select variant",
+  "shop_add_to_cart": "Add to cart",
+  "shop_adding": "Adding…",
+  "shop_view_cart": "View cart →",
+  "shop_err_add_to_cart": "Could not add to cart. Please try again.",
+  "shop_err_network_retry": "Network error. Please try again.",
+  "shop_locale_fallback_note": "This product has no Thai description yet — showing English.",
+  "shop_continue_shopping": "Continue shopping"
 }
