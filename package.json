@@ -25,7 +25,10 @@
     "db:seed:specs": "tsx scripts/seed-specs-demo.ts",
     "db:seed:demo-user": "tsx scripts/seed-demo-user.ts",
     "db:seed:shop": "tsx scripts/seed-shop-demo.ts",
-    "db:seed:media": "tsx scripts/seed-shop-media.ts"
+    "db:seed:media": "tsx scripts/seed-shop-media.ts",
+    "guard:css": "node scripts/css-inventory.mjs",
+    "guard:css:update": "node scripts/css-inventory.mjs --update",
+    "guard:head": "node scripts/head-guard.mjs"
   },
   "dependencies": {
     "@inlang/paraglide-js": "^2.0.0",

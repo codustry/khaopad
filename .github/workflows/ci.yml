@@ -44,3 +44,11 @@ jobs:
 
       - name: Build
         run: pnpm run build
+
+      # Step 0 of the theme/engine split (#174). These catch the class of
+      # failure every check above is blind to: the build succeeds, the markup
+      # is correct, and the page still renders wrong. Both incidents that
+      # motivated #174 — dropped font <link>s and an invisible product page —
+      # passed the entire pipeline above.
+      - name: Guard — CSS inventory (silent Tailwind purge)
+        run: pnpm run guard:css

@@ -1,4 +1,10 @@
 @import "tailwindcss";
+
+/* The CSS inventory baseline (Step 0, #174) is a JSON list of every class the
+ * build emits. Tailwind's automatic source detection would happily scan it and
+ * re-emit every class it names — which would make the guard pass by feeding it
+ * its own output. Exclude it explicitly. */
+@source not "../css-inventory.baseline.json";
 @plugin "@tailwindcss/typography";
 
 /* ─── Design tokens ────────────────────────────────────
