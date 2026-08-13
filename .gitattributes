@@ -1,0 +1,100 @@
+# Merge behaviour for downstream forks — Step 1 of the theme/engine split (#174).
+#
+# Khao Pad is designed to be forked and customised per deployment, so every
+# upstream release gets merged into sites that have diverged. Analysis of a real
+# fork's v3.10.0 → v4.1.0 merge found 27 conflicted files, of which roughly a
+# sixth were pure noise: files that conflict every single release, carry no
+# decision, and are resolved the same way every time.
+#
+# This file removes that class. It is the cheapest possible step — no
+# architecture, no moved files, fully reversible — and it is worth doing before
+# anything structural so the remaining conflicts are the ones that actually
+# represent a design question.
+
+# ── Generated lockfile ────────────────────────────────────────
+# pnpm-lock.yaml conflicted on every release (573 lines in the last one) and is
+# 100% regenerable. A textual merge of a lockfile is never the right answer —
+# the correct resolution is always "take one side, then re-resolve":
+#
+#   git checkout --ours pnpm-lock.yaml && pnpm install
+#
+# `binary` stops git attempting a line-level merge and producing a lockfile that
+# is syntactically valid, semantically wrong, and installs a dependency graph
+# neither side ever tested.
+#
+# Deliberately NOT merge=ours. Verified in a scratch repo: with the driver
+# registered, merge=ours silently keeps the fork's lockfile and reports no
+# conflict at all — so an upstream dependency bump (including a security patch)
+# is dropped without anyone seeing it. That is the exact silent-drift failure
+# this whole effort exists to prevent.
+#
+# `binary` alone gives the right behaviour: git reports a conflict it cannot
+# auto-resolve, and the human runs the only correct resolution:
+#
+#   git checkout --theirs pnpm-lock.yaml && pnpm install
+#
+# One deliberate action per release, and the dependency graph is actually
+# re-resolved against both sides' package.json.
+pnpm-lock.yaml binary linguist-generated=true
+
+# ── Compiled output ───────────────────────────────────────────
+# Paraglide compiles messages/*.json into src/lib/paraglide/. It is gitignored
+# upstream, but forks have historically committed it by accident; marking it
+# generated keeps it out of diffs and review noise if that happens again.
+src/lib/paraglide/** linguist-generated=true
+
+# ── Line endings ──────────────────────────────────────────────
+# Normalise to LF in the repository regardless of contributor platform. A fork
+# edited on Windows can otherwise present an entire file as changed, turning a
+# one-line divergence into a whole-file conflict.
+* text=auto eol=lf
+
+# Genuinely binary assets — never touch these.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.avif binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.pdf binary
+*.mp4 binary
+*.webm binary
+
+# ── Deployment-owned files ────────────────────────────────────
+# These exist upstream as a working default, and every deployment is expected to
+# replace them wholesale. `merge=ours` keeps the deployment's version when
+# merging an upstream release, so a fork stops re-resolving the same file every
+# time.
+#
+# IMPORTANT — this only takes effect if the merge driver is registered locally:
+#
+#   git config merge.ours.driver true
+#
+# Git ships the *name* `ours` but not the driver, so without that command the
+# attribute is silently ignored and you get a normal conflict. That is a safe
+# failure (you notice and resolve by hand) but it is the reason this is
+# documented in the README rather than assumed to work.
+#
+# Deliberately NOT listed here:
+#
+#   - (www)/+layout.svelte and the homepage — the two files #173 identifies as
+#     the real pain. They need a proper override seam (Step 2), not a merge
+#     strategy that silently drops upstream improvements a deployment wants.
+#
+#   - wrangler.toml — it carries BOTH deployment-specific bindings (D1 ids,
+#     bucket names, site URLs) AND upstream additions. The v4.1.0 sync added a
+#     CAREERS_FEED_URL block to it; merge=ours would have silently discarded
+#     that and the feature would have looked broken for no visible reason. It
+#     genuinely needs a human, every time.
+#
+# Only README.md qualifies: upstream's is documentation for the platform,
+# a deployment's is documentation for that site, and no upstream sentence about
+# Khao Pad is ever something a fork's README should adopt. Fork content belongs
+# in README.md; anything a deployment wants to keep from upstream is already on
+# the upstream repo.
+README.md merge=ours

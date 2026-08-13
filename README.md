@@ -171,6 +171,23 @@ Beyond articles and pages: define **content types** in the admin (fields, per-lo
 
 Khao Pad is a **template**, not a hosted service. Fork or clone this repo, provision your own Cloudflare resources, and deploy to your own account. Every project gets its own isolated D1 database, R2 bucket, and KV namespace — nothing is shared between installations.
 
+### If you forked: one-time merge setup
+
+Run this once in your fork:
+
+```bash
+git config merge.ours.driver true
+```
+
+Your fork will diverge from upstream — that is the point — and every release you merge re-raises the same conflicts. `.gitattributes` resolves the ones that carry no decision (chiefly `README.md`, which is _your_ site's documentation and should never adopt upstream's prose). Git ships the name `ours` but **not** the driver, so without that command the rules are silently ignored and you get ordinary conflicts instead.
+
+Deliberately still conflicting, because each needs a human:
+
+| File             | Why                                                                                                                                                                                            |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `wrangler.toml`  | Holds your bindings _and_ receives upstream additions (v4.1.0 added `CAREERS_FEED_URL`). Auto-keeping your copy would drop new config and the feature would look broken for no visible reason. |
+| `pnpm-lock.yaml` | Marked `binary`, so git will not produce a lockfile neither side tested. Resolve with `git checkout --theirs pnpm-lock.yaml && pnpm install`.                                                  |
+
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) 22+ (for local tooling parity with CI)
