@@ -5,13 +5,48 @@
 	import { page } from '$app/state';
 	import Seo from '$lib/components/seo/Seo.svelte';
 	import CookieBanner from '$lib/components/consent/CookieBanner.svelte';
-	import HeaderSearch from '$lib/components/www/HeaderSearch.svelte';
-	import { ShoppingCart, User } from 'lucide-svelte';
+	import SiteHeader from '$lib/components/www/SiteHeader.svelte';
+	import SiteFooter from '$lib/components/www/SiteFooter.svelte';
+	import { getChrome } from '$lib/components/www/chrome';
+	import type { SiteHeaderProps, SiteFooterProps } from '$lib/components/www/chrome';
 	import type { PageSeo } from '$lib/seo';
 	import type { Snippet } from 'svelte';
 	import type { LayoutData } from './$types';
 
+	/**
+	 * ─── Storefront chrome seam (#174 Step 2) ───────────────────
+	 *
+	 * Header and footer come from a REGISTRY, so a deployment replaces them
+	 * with `setChrome()` instead of forking this file. Props were the obvious
+	 * design and do NOT work: SvelteKit constructs layouts itself and passes
+	 * only `data` and `children`. See `$lib/components/www/chrome.ts` — the
+	 * fallback branch was simply always taken, and the seam silently never
+	 * fired while every check stayed green.
+	 *
+	 * This file was the project's single worst merge conflict: 86 lines
+	 * upstream against 585 in a real fork, diverging in opposite directions
+	 * every release. Both versions were correct — upstream's as a demo, the
+	 * fork's as a storefront — so no merge resolution was ever right. Taking
+	 * upstream deleted the brand; taking the fork silently dropped upstream's
+	 * new work (that is how the cart icon and the fixed language switcher went
+	 * missing downstream for a release).
+	 *
+	 * Everything NOT overridable here is deliberate: SEO tags, the cookie
+	 * banner, the analytics beacon, and the theme-token style all keep working
+	 * whatever chrome a deployment supplies. A theme cannot accidentally drop
+	 * consent handling or break canonical URLs.
+	 *
+	 * Chrome is deployment-owned; commerce is not. Cart, checkout, product and
+	 * collection pages stay engine-owned so a pricing or inventory fix reaches
+	 * every deployment — see #174 for why that line is drawn where it is.
+	 */
 	let { children, data }: { children: Snippet; data: LayoutData } = $props();
+
+	// Read at render time so a deployment's startup registration is picked up
+	// regardless of module evaluation order.
+	const chrome = $derived(getChrome());
+	const HeaderComponent = $derived(chrome.header ?? SiteHeader);
+	const FooterComponent = $derived(chrome.footer ?? SiteFooter);
 
 	// Each public +page.server.ts may return `seo: PageSeo`; the layout
 	// reads it via $app/state and renders all SEO tags via <Seo />.
@@ -66,6 +101,23 @@
 			? data.siteSettings.themeLogoMediaId
 			: null,
 	);
+
+	// Resolved once, passed to whichever chrome renders. A registered override
+	// gets exactly what the default gets — no privileged access, so the built-in
+	// header is not a special case a theme has to reverse-engineer.
+	const headerProps = $derived<SiteHeaderProps>({
+		locale: data.locale,
+		siteName: data.siteSettings?.siteName ?? m.site_name(),
+		logoMediaId: themeLogoMediaId,
+		primaryNav: data.nav.primary,
+		hasCareers: data.hasCareers,
+		cartItemCount,
+		alternateHref,
+	});
+	const footerProps = $derived<SiteFooterProps>({
+		locale: data.locale,
+		footerNav: data.nav.footer,
+	});
 </script>
 
 <Seo seo={pageSeo} defaults={seoDefaults} locale={toLocale(data.locale)} />
@@ -74,93 +126,13 @@
 	class="min-h-screen flex flex-col"
 	style={themePrimaryColor ? `--color-primary: ${themePrimaryColor}` : undefined}
 >
-	<header class="border-b border-border">
-		<div class="container mx-auto px-4 py-4 flex items-center justify-between">
-			<a href="/" class="flex items-center gap-2 text-xl font-bold">
-				{#if themeLogoMediaId}
-					<img
-						src={`/api/media/${themeLogoMediaId}`}
-						alt=""
-						class="h-8 w-auto"
-						height="32"
-					/>
-				{/if}
-				{data.siteSettings?.siteName ?? m.site_name()}</a
-			>
-			<nav class="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 text-sm">
-				{#each data.nav.primary as item (item.id)}
-					<a href={item.href} class="hover:text-primary">{item.label}</a>
-				{/each}
-				<a href={localePath(toLocale(data.locale), '/blog')} class="hover:text-primary">
-					{m.nav_blog()}
-				</a>
-				<a href={localePath(toLocale(data.locale), '/products')} class="hover:text-primary">
-					{m.nav_shop()}
-				</a>
-				{#if data.hasCareers}
-					<a href={localePath(toLocale(data.locale), '/careers')} class="hover:text-primary">
-						{m.careers_nav()}
-					</a>
-				{/if}
-				<HeaderSearch locale={toLocale(data.locale)} />
-				<a
-					href={localePath(toLocale(data.locale), '/account')}
-					class="hover:text-primary"
-					aria-label={m.nav_account()}
-					title={m.nav_account()}
-				>
-					<User class="h-5 w-5" aria-hidden="true" />
-				</a>
-				<!-- Persistent cart entry point. Before this, the only route to
-				     the cart was a transient "View cart" link beside add-to-cart
-				     that vanished on the next navigation. -->
-				<a
-					href={localePath(toLocale(data.locale), '/cart')}
-					class="relative hover:text-primary"
-					aria-label={cartItemCount === 0
-						? m.nav_cart()
-						: cartItemCount === 1
-							? m.nav_cart_count_one()
-							: m.nav_cart_count({ count: cartItemCount })}
-					title={m.nav_cart()}
-				>
-					<ShoppingCart class="h-5 w-5" aria-hidden="true" />
-					{#if cartItemCount > 0}
-						<span
-							class="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium leading-none text-primary-foreground tabular-nums"
-							aria-hidden="true"
-						>
-							{cartItemCount > 99 ? '99+' : cartItemCount}
-						</span>
-					{/if}
-				</a>
-				<a
-					href={alternateHref}
-					data-sveltekit-reload
-					class="px-2 py-1 border border-border rounded text-xs hover:bg-muted"
-				>
-					{m.lang_switch()}
-				</a>
-			</nav>
-		</div>
-	</header>
+	<HeaderComponent {...headerProps} />
 
 	<main class="flex-1">
 		{@render children()}
 	</main>
 
-	<footer class="border-t border-border py-8 text-sm text-muted-foreground">
-		<div class="container mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-			<p>{m.footer_copyright({ year: new Date().getFullYear().toString() })}</p>
-			{#if data.nav.footer.length > 0}
-				<nav class="flex flex-wrap gap-4">
-					{#each data.nav.footer as item (item.id)}
-						<a href={item.href} class="hover:text-foreground">{item.label}</a>
-					{/each}
-				</nav>
-			{/if}
-		</div>
-	</footer>
+	<FooterComponent {...footerProps} />
 </div>
 
 <!--

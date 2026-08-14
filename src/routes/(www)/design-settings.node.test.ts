@@ -35,8 +35,19 @@ describe("(www) layout theme wiring", () => {
   });
 
   it("renders the configured logo in the header", () => {
+    // The layout resolves the media id and hands it to whichever chrome
+    // renders; the <img> itself moved to SiteHeader.svelte with the rest of
+    // the header when the chrome seam landed (#174 Step 2). Assert both
+    // halves, so neither the resolution nor the rendering can be dropped
+    // without a test noticing.
     expect(layout).toContain("themeLogoMediaId");
-    expect(layout).toMatch(/\/api\/media\/\$\{themeLogoMediaId\}/);
+    expect(layout).toMatch(/logoMediaId:\s*themeLogoMediaId/);
+
+    const header = readFileSync(
+      here("../../lib/components/www/SiteHeader.svelte"),
+      "utf8",
+    );
+    expect(header).toMatch(/\/api\/media\/\$\{logoMediaId\}/);
   });
 });
 
