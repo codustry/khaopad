@@ -5,6 +5,10 @@
 	import * as m from '$lib/paraglide/messages';
 	import { localePath, toLocale } from '$lib/i18n';
 	import { formatSatang, type Satang } from '$plugins/shop/money';
+	import {
+		getCheckoutSlots,
+		type CheckoutContribution,
+	} from '$plugins/shop/checkout-extensions';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -14,6 +18,16 @@
 	let email = $state(data.cart.email ?? data.userEmail ?? '');
 	let submitting = $state(false);
 	let errorMessage = $state<string | null>(null);
+
+	// ─── Checkout extension slots (#174 Step 3, #171) ───────────
+	// A deployment contributes market-specific fields (a Thai tax invoice,
+	// an EU VAT number) without forking this file. Measured against the real
+	// fork, that requirement was 75 additive lines in 4 places — so slots
+	// cover it, and checkout stays engine-owned. See checkout-extensions.ts.
+	// slotProps is declared further down, after the state it reads.
+	const slots = $derived(getCheckoutSlots());
+	let slotContribution = $state<CheckoutContribution>({});
+	let slotError = $state<string | null>(null);
 
 	// Method choice (#156): PromptPay is the default for Thai visitors —
 	// it's the dominant local rail — card/hosted for everyone else. The
@@ -81,6 +95,23 @@
 		data.totalSatang + (shipToAddress && chosenQuote ? chosenQuote.amountSatang : 0),
 	);
 
+	// Everything a slot component receives. Declared here rather than beside
+	// the other slot state because it reads shipToAddress and the total,
+	// which are defined above — a $derived referencing a later `let` is a
+	// TDZ error at module init.
+	const slotProps = $derived({
+		locale,
+		email,
+		shipToAddress,
+		totalSatang: displayTotalSatang,
+		contribute: (c: CheckoutContribution) => {
+			slotContribution = c;
+		},
+		setValidity: (err: string | null) => {
+			slotError = err;
+		},
+	});
+
 	// In-page QR state (#156). Set only when /checkout/pay returns a
 	// `qr` payload; while shown we poll the status-only endpoint until
 	// the webhook flips the order, then land on the order page.
@@ -133,6 +164,13 @@
 				return;
 			}
 		}
+		// A slot may block submission on its OWN fields only — it runs after
+		// the engine's checks, so it can never suppress email/address/stock
+		// validation. The server re-validates everything regardless.
+		if (slotError) {
+			errorMessage = slotError;
+			return;
+		}
 		submitting = true;
 		errorMessage = null;
 		// v3.4 federation: read the article slug the visitor came from
@@ -183,6 +221,12 @@
 								},
 								...(shippingMethod ? { shippingMethod } : {}),
 							}
+						: {}),
+					// Slot contributions (#171). The server validates these the
+					// same as any other client input — a slot is a UI
+					// contribution, never a trusted source.
+					...(slotContribution.billingAddress
+						? { billingAddress: slotContribution.billingAddress }
 						: {}),
 				}),
 			});
@@ -254,6 +298,11 @@
 
 	<div class="grid gap-6 md:grid-cols-3">
 		<form onsubmit={pay} class="md:col-span-2 space-y-4">
+			{#if slots.beforeContact}
+				{@const BeforeContact = slots.beforeContact}
+				<BeforeContact {...slotProps} />
+			{/if}
+
 			<section class="space-y-4 rounded-lg border border-border p-4">
 				<h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
 					{m.shop_contact()}
@@ -359,6 +408,11 @@
 				{/if}
 			</section>
 
+			{#if slots.afterAddress}
+				{@const AfterAddress = slots.afterAddress}
+				<AfterAddress {...slotProps} />
+			{/if}
+
 			<section class="space-y-4 rounded-lg border border-border p-4">
 				<h2 class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
 					{m.shop_payment()}
@@ -415,6 +469,11 @@
 					{/if}
 				{/if}
 			</section>
+
+			{#if slots.beforePayment}
+				{@const BeforePayment = slots.beforePayment}
+				<BeforePayment {...slotProps} />
+			{/if}
 
 			{#if errorMessage}
 				<div class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
