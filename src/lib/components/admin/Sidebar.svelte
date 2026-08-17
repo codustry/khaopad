@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { ChevronLeft, LogOut } from 'lucide-svelte';
 	import { Avatar, Separator } from '$lib/components/ui';
+	import * as m from '$lib/paraglide/messages';
 	import { cn } from '$lib/utils';
 	import { listNavGroups, type NavItem } from './sidebar-nav';
 
@@ -141,7 +142,14 @@
 	<div class="border-t border-sidebar-border p-2">
 		{#if collapsed}
 			<div class="flex flex-col items-center gap-1.5">
-				<Avatar name={user.name} size="sm" />
+				<a
+					href={resolve('/(admin)/admin/profile')}
+					title={m.cms_profile()}
+					aria-label={m.cms_profile()}
+					class="rounded-full ring-offset-sidebar-background hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+				>
+					<Avatar name={user.name} size="sm" />
+				</a>
 				<button
 					type="button"
 					onclick={toggleCollapsed}
@@ -163,13 +171,25 @@
 			</div>
 		{:else}
 			<div class="flex items-center gap-2.5 rounded-md p-2">
-				<Avatar name={user.name} size="md" />
-				<div class="min-w-0 flex-1">
-					<div class="truncate text-sm font-medium text-sidebar-foreground">{user.name}</div>
-					<div class="truncate text-xs capitalize text-sidebar-foreground/60">
-						{user.role.replace('_', ' ')}
+				<!--
+					The chip is the natural place to look for "my account", so it
+					links to the self-service profile page. It used to be inert
+					text, which left the password-change page undiscoverable even
+					once it existed.
+				-->
+				<a
+					href={resolve('/(admin)/admin/profile')}
+					title={m.cms_profile()}
+					class="flex min-w-0 flex-1 items-center gap-2.5 rounded-md hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+				>
+					<Avatar name={user.name} size="md" />
+					<div class="min-w-0 flex-1">
+						<div class="truncate text-sm font-medium text-sidebar-foreground">{user.name}</div>
+						<div class="truncate text-xs capitalize text-sidebar-foreground/60">
+							{user.role.replace('_', ' ')}
+						</div>
 					</div>
-				</div>
+				</a>
 				{#if onLogout}
 					<button
 						type="button"

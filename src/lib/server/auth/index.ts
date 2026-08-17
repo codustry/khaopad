@@ -75,6 +75,23 @@ export function createAuth(
     baseURL: env.BETTER_AUTH_URL,
     basePath: "/api/auth",
     emailAndPassword: { enabled: true },
+    /**
+     * Rate limiting — OFF by default in Better Auth, and nothing else in
+     * this codebase limits auth attempts.
+     *
+     * That was survivable while the only credential surface was the login
+     * form, but the self-service profile page adds a `currentPassword`
+     * field behind an authenticated session. Without a limiter that field
+     * is an online password-guessing oracle: an attacker with a stolen
+     * session cookie (or a shared/unlocked machine) can brute-force the
+     * account password at request speed and then use `revokeOtherSessions`
+     * to lock the real owner out.
+     *
+     * Deliberately minimal: enable Better Auth's built-in limiter and take
+     * its defaults rather than hand-tuning windows here. Tightening
+     * specific paths is a separate, evidence-driven change.
+     */
+    rateLimit: { enabled: true },
     session: {
       expiresIn: 60 * 60 * 24 * 7, // 7 days
       updateAge: 60 * 60 * 24, // refresh daily

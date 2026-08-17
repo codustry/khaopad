@@ -20,6 +20,7 @@ import {
   KeyRound,
   Ruler,
   Plug,
+  UserCircle,
 } from "lucide-svelte";
 import * as m from "$lib/paraglide/messages";
 
@@ -237,6 +238,17 @@ registerNavGroup({
   id: "admin",
   title: m.cms_admin,
   items: [
+    {
+      // Self-service profile + password change. Deliberately has NO
+      // `roles` restriction: every staff role must be able to change
+      // its own password, and an author — the weakest staff role —
+      // cannot reach /admin/users at all. Restricting this entry would
+      // recreate the bug it fixes. The route is still session-gated by
+      // the admin layout, which 403s `customer` accounts.
+      href: "/admin/profile",
+      label: m.cms_profile,
+      icon: UserCircle,
+    },
     {
       href: "/admin/users",
       label: m.cms_users,
