@@ -50,7 +50,14 @@
 	Padding steps up with the viewport rather than staying fixed: 16px on
 	a phone, where every pixel of content width counts, to 32px on a
 	desktop, where edge-to-edge text is uncomfortable to read.
+
+	No `mx-auto`: the max-width container hugs the left content edge,
+	right after the sidebar. Centering it in the leftover viewport put a
+	~500px dead gap between the sidebar and a `form`-width page on a
+	2000px screen — the eye had to travel from the nav, across nothing,
+	to the content. Left-aligned, the reading edge stays anchored next
+	to the sidebar at every viewport and every ShellWidth.
 -->
-<div class={cn('mx-auto w-full px-4 py-6 sm:px-6 sm:py-8', WIDTHS[width], className)}>
+<div class={cn('w-full px-4 py-6 sm:px-6 sm:py-8 lg:px-8', WIDTHS[width], className)}>
 	{@render children()}
 </div>
