@@ -88,6 +88,7 @@ export const actions: Actions = {
     const auth = createAuth(platform.env.DB, {
       BETTER_AUTH_SECRET: platform.env.BETTER_AUTH_SECRET,
       BETTER_AUTH_URL: platform.env.BETTER_AUTH_URL,
+      CONTENT_CACHE: platform.env.CONTENT_CACHE,
     });
 
     let result: { user?: { id?: string } } | undefined;

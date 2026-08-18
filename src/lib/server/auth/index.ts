@@ -3,6 +3,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { emailOTP } from "better-auth/plugins";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "../content/schema";
+import { createKvRateLimitStorage } from "./kv-rate-limit";
 import { sendSignInOtpEmail } from "./otp-email";
 
 /**
@@ -46,6 +47,17 @@ function wrapD1ForDates(d1: D1Database): D1Database {
   });
 }
 
+/**
+ * Once-per-isolate latch for the "no KV binding" warning — createAuth runs
+ * per request, and a missing binding should log once, not per request.
+ */
+let missingKvWarned = false;
+
+/** Test hook: reset the once-only latch between cases. */
+export function resetMissingKvWarning(): void {
+  missingKvWarned = false;
+}
+
 export function createAuth(
   d1: D1Database,
   env: {
@@ -54,9 +66,23 @@ export function createAuth(
     /** Optional Resend credentials — enable customer OTP sign-in mail. */
     RESEND_API_KEY?: string;
     RESEND_FROM?: string;
+    /**
+     * KV namespace for rate-limit counters (#182). Optional so a missing
+     * binding (bare `vite dev`, tests, a misconfigured fork) degrades to
+     * Better Auth's in-memory default instead of crashing — auth must
+     * never 500 because rate-limit storage is absent.
+     */
+    CONTENT_CACHE?: KVNamespace;
   },
 ) {
   const db = drizzle(wrapD1ForDates(d1), { schema });
+
+  if (!env.CONTENT_CACHE && !missingKvWarned) {
+    missingKvWarned = true;
+    console.warn(
+      "[auth] CONTENT_CACHE KV binding absent — rate limiting falls back to per-isolate memory (fine for dev/tests, near-inert in production)",
+    );
+  }
 
   return betterAuth({
     database: drizzleAdapter(db, {
@@ -88,10 +114,32 @@ export function createAuth(
      * to lock the real owner out.
      *
      * Deliberately minimal: enable Better Auth's built-in limiter and take
-     * its defaults rather than hand-tuning windows here. Tightening
-     * specific paths is a separate, evidence-driven change.
+     * its default rules (sign-in / sign-up / change-password /
+     * change-email: 3 per 10s; OTP send / password reset: 3 per 60s;
+     * everything else: 100 per 60s), keyed `${ip}|${path}` from
+     * `x-forwarded-for` (Cloudflare sets it from the real client, and
+     * IPv6 is grouped by /64 subnet so one phone can't dodge the limiter
+     * by rotating within its allocation). Tightening specific paths is a
+     * separate, evidence-driven change.
+     *
+     * ## Storage (#182)
+     *
+     * Counters live in KV (`CONTENT_CACHE`, `auth:rl:` prefix) via
+     * `customStorage` — see ./kv-rate-limit.ts for why that hook and not
+     * `secondaryStorage`. What this actually guarantees: the limiter is
+     * APPROXIMATE across regions (KV is eventually consistent between
+     * edge locations) but AUTHORITATIVE within one (every isolate reads
+     * the same counter), and entries are TTL-bound (120s). Without KV the
+     * default in-memory Map is per-isolate on Workers — near-inert
+     * against a distributed attacker — so the binding-absent fallback
+     * below is a dev/test convenience, not a production posture.
      */
-    rateLimit: { enabled: true },
+    rateLimit: {
+      enabled: true,
+      ...(env.CONTENT_CACHE
+        ? { customStorage: createKvRateLimitStorage(env.CONTENT_CACHE) }
+        : {}),
+    },
     session: {
       expiresIn: 60 * 60 * 24 * 7, // 7 days
       updateAge: 60 * 60 * 24, // refresh daily

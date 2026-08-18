@@ -42,6 +42,7 @@ export const actions: Actions = {
     const auth = createAuth(platform.env.DB, {
       BETTER_AUTH_SECRET: platform.env.BETTER_AUTH_SECRET,
       BETTER_AUTH_URL: platform.env.BETTER_AUTH_URL,
+      CONTENT_CACHE: platform.env.CONTENT_CACHE,
     });
 
     // Better Auth creates the user + credential row in one batched call.

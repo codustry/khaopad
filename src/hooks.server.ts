@@ -269,6 +269,7 @@ const authHook: Handle = async ({ event, resolve }) => {
     BETTER_AUTH_URL: env.BETTER_AUTH_URL,
     RESEND_API_KEY: env.RESEND_API_KEY,
     RESEND_FROM: env.RESEND_FROM,
+    CONTENT_CACHE: env.CONTENT_CACHE,
   });
 
   // Resolve session from request cookies. Wrap defensively: getSession
