@@ -56,8 +56,21 @@ const MARKER_LINE = new RegExp(
  * when the marker is absent, and the marker appears once, in <head>.
  */
 export function injectAppHead(html: string): string {
+  // In dev, an empty fragment is replaced by an empty COMMENT rather than
+  // nothing: SvelteKit's dev server compares the "<!--" count before and
+  // after transformPageChunk and prints a red "removing comments can break
+  // hydration" warning on every page load when it drops. The warning is a
+  // false positive here (the marker lives in <head>, not among hydration
+  // markers), but a warning the team learns to ignore is worse than none —
+  // that is WooCommerce's outdated-template notice in miniature. Production
+  // keeps the byte-identical empty replacement; the dev/prod asymmetry is
+  // confined to a comment invisible in both.
+  // import.meta.env.DEV rather than $app/environment: the latter does not
+  // resolve under this repo's plain-node vitest config, and Vite defines
+  // DEV in dev, build and test alike.
+  const empty = import.meta.env.DEV ? "    <!---->\n" : "";
   return html.replace(
     MARKER_LINE,
-    APP_HEAD_FRAGMENT ? `    ${APP_HEAD_FRAGMENT}\n` : "",
+    APP_HEAD_FRAGMENT ? `    ${APP_HEAD_FRAGMENT}\n` : empty,
   );
 }

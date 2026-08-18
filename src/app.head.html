@@ -27,11 +27,21 @@
     - the theme bootstrap script - it must run before first paint and stay in
       sync with THEME_INIT_SCRIPT in $lib/components/admin/theme.svelte.ts
 
-  CSP NOTE
-  csp.mode is "auto" (nonce-based). An inline <script> here MUST carry
-  nonce="%sveltekit.nonce%" or the browser silently refuses to run it - exactly
-  how #133 broke a downstream fork. An external <script src> needs its origin
-  added to the CSP config in svelte.config.js instead.
+  CSP NOTE - INLINE SCRIPTS ARE NOT SUPPORTED IN THIS FRAGMENT.
+  csp.mode is "auto" (nonce-based), and SvelteKit substitutes
+  %sveltekit.nonce% when it renders the page template - BEFORE this fragment
+  is spliced in by transformPageChunk. A fragment containing
+  %sveltekit.nonce% therefore ships the LITERAL token as its nonce, and the
+  browser silently refuses to run the script: exactly the #133 failure, with
+  no error anywhere. (Adversarial review caught this doc prescribing the
+  broken pattern before any fork followed it.)
+
+  Scripts belong here as external files instead:
+    <script src="/your-snippet.js" defer></script>
+  with the script served from static/ (same-origin passes the CSP), or from
+  an origin added to the CSP config in svelte.config.js. Analytics that
+  depends on visitor consent should go through the consent banner path, not
+  this fragment.
 
   This file is intentionally empty upstream. Khao Pad self-hosts its fonts via
   @fontsource and needs nothing extra; the emptiness is the default, not an

@@ -55,13 +55,23 @@ describe("head fragment injection", () => {
     expect(injectAppHead(html)).toBe(html);
   });
 
-  it("emits nothing for an unmodified upstream install", () => {
+  it("emits nothing real for an unmodified upstream install", () => {
     // app.head.html ships as pure explanatory comments; shipping them to
     // every visitor would be noise and would dirty SSR diffs.
     expect(APP_HEAD_FRAGMENT).toBe("");
-    expect(injectAppHead(`<head>${HEAD_PLACEHOLDER}</head>`)).toBe(
-      "<head></head>",
-    );
+    const out = injectAppHead(`<head>${HEAD_PLACEHOLDER}</head>`);
+    if (import.meta.env.DEV) {
+      // Dev (which is what vitest runs as): the marker becomes an EMPTY
+      // comment, not nothing — SvelteKit's dev server counts "<!--"
+      // before/after transformPageChunk and warns in red on every page
+      // load if the count drops. A warning the team learns to ignore is
+      // worse than none. Production stays byte-identical (else branch).
+      expect(out).toBe("<head>    <!---->\n</head>");
+    } else {
+      expect(out).toBe("<head></head>");
+    }
+    // Either way the marker itself must be gone.
+    expect(out).not.toContain("khaopad:head");
   });
 
   it("is wired into EVERY transformPageChunk site", () => {
