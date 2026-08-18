@@ -52,3 +52,5 @@ jobs:
       # passed the entire pipeline above.
       - name: Guard — CSS inventory (silent Tailwind purge)
         run: pnpm run guard:css
+      - name: Theme-contract guard (docs/THEME-CONTRACT.md)
+        run: pnpm run guard:contract

@@ -28,7 +28,9 @@
     "db:seed:media": "tsx scripts/seed-shop-media.ts",
     "guard:css": "node scripts/css-inventory.mjs",
     "guard:css:update": "node scripts/css-inventory.mjs --update",
-    "guard:head": "node scripts/head-guard.mjs"
+    "guard:head": "node scripts/head-guard.mjs",
+    "guard:contract": "node scripts/contract-guard.mjs",
+    "guard:contract:update": "node scripts/contract-guard.mjs --update"
   },
   "dependencies": {
     "@inlang/paraglide-js": "^2.0.0",
