@@ -193,7 +193,6 @@
   "cms_profile_email_help": "หากต้องการเปลี่ยนอีเมล กรุณาติดต่อผู้ดูแลระบบ",
   "cms_profile_role": "บทบาท",
   "cms_profile_saved": "อัปเดตโปรไฟล์แล้ว",
-  "cms_password": "รหัสผ่าน",
   "cms_password_help": "การเปลี่ยนรหัสผ่านจะออกจากระบบในอุปกรณ์อื่นทั้งหมด",
   "cms_password_current": "รหัสผ่านปัจจุบัน",
   "cms_password_new": "รหัสผ่านใหม่",

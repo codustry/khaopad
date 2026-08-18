@@ -61,12 +61,39 @@ describe("profile page — password change", () => {
     expect(page).toMatch(/action="\?\/changePassword"/);
   });
 
-  it("delegates verification to Better Auth's changePassword", () => {
-    // Better Auth checks `currentPassword` against the stored hash. A
-    // hand-rolled comparison here would be the place a bypass creeps in.
-    expect(changePasswordAction).toMatch(/auth\.api\.changePassword\(/);
+  it("delegates verification to Better Auth VIA ITS HANDLER, not auth.api", () => {
+    // Two properties in one assertion, both load-bearing:
+    // 1. Better Auth checks `currentPassword` against the stored hash — a
+    //    hand-rolled comparison here is where a bypass would creep in.
+    // 2. The call goes through auth.handler, NOT auth.api.changePassword.
+    //    Better Auth's rate limiter runs only in the router's onRequest
+    //    hook, so the direct api call skips it — making this action an
+    //    unthrottled current-password oracle for anyone with a session
+    //    cookie, while the "rate-limited" /api/auth endpoint sits idle
+    //    beside it. Found by adversarial review of the combined v4.2 PRs.
+    expect(changePasswordAction).toMatch(/auth\.handler\(/);
+    expect(changePasswordAction).toMatch(/\/api\/auth\/change-password/);
+    expect(changePasswordAction).not.toMatch(/auth\.api\.changePassword\(/);
     expect(changePasswordAction).toMatch(/currentPassword/);
     expect(changePasswordAction).toMatch(/newPassword/);
+  });
+
+  it("surfaces a 429 from the limiter as a friendly retry message", () => {
+    expect(changePasswordAction).toMatch(/status === 429/);
+  });
+
+  it("guards both actions by role — layout load does not run for actions", () => {
+    // A customer session must not be able to POST to these actions even
+    // though the layout 403s it on page load: SvelteKit runs no load
+    // functions for form actions, so each action carries its own guard.
+    const guards = server.match(/hasRole\(locals\.user, "author"\)/g) ?? [];
+    expect(guards.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("validates the avatar URL server-side", () => {
+    // Rendered in <img src> on /admin/users for every admin: an
+    // unvalidated https URL is a tracking pixel that leaks admin IPs.
+    expect(server).toMatch(/startsWith\("https:\/\/"\)/);
   });
 
   it("passes revokeOtherSessions: true", () => {

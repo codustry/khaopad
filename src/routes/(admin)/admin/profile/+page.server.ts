@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { eq } from "drizzle-orm";
 import * as schema from "$lib/server/content/schema";
 import { createAuth } from "$lib/server/auth";
+import { hasRole } from "$lib/server/auth/permissions";
 import { logAudit } from "$lib/server/audit";
 import type { Actions, PageServerLoad } from "./$types";
 
@@ -53,8 +54,13 @@ export const actions: Actions = {
    * your credentials, so leaving their sessions alive would make the
    * change cosmetic.
    */
-  changePassword: async ({ request, locals, platform }) => {
+  changePassword: async ({ request, locals, platform, cookies }) => {
     if (!locals.user) throw error(401, "Not authenticated");
+    // The admin layout's 403-below-author guard runs in its `load` — and
+    // SvelteKit runs NO load functions for form actions, so a customer
+    // session could POST here directly if this check lived only in the
+    // layout. Every admin action must carry its own guard.
+    if (!hasRole(locals.user, "author")) throw error(403, "Forbidden");
     if (!platform?.env?.DB) throw error(503, "Platform not configured");
 
     const form = await request.formData();
@@ -91,20 +97,76 @@ export const actions: Actions = {
       BETTER_AUTH_URL: platform.env.BETTER_AUTH_URL,
     });
 
-    try {
-      await auth.api.changePassword({
-        body: {
+    // Routed through auth.handler — NOT auth.api.changePassword — on
+    // purpose. Better Auth's rate limiter lives in its router's onRequest
+    // hook, so a direct server-side api call skips it entirely, and this
+    // form action would be an unthrottled current-password oracle: an
+    // attacker holding a session cookie could brute-force the current
+    // password at request speed while the "rate-limited" /api/auth
+    // endpoint sat idle beside it. Going through the handler puts this
+    // call under the same limiter as every other credential attempt.
+    // Forward the ORIGINAL request's headers wholesale (then fix the
+    // content type): Better Auth's CSRF check requires the Origin header,
+    // and its rate limiter keys on the client IP headers. Hand-picking
+    // `cookie` alone fails every request with "Missing or null Origin" —
+    // including legitimate ones. Found live, not in tests: source
+    // assertions cannot see what a constructed Request omits.
+    const fwdHeaders = new Headers(request.headers);
+    fwdHeaders.set("content-type", "application/json");
+    fwdHeaders.delete("content-length"); // body changed; let fetch recompute
+    const authRes = await auth.handler(
+      new Request(new URL("/api/auth/change-password", request.url), {
+        method: "POST",
+        headers: fwdHeaders,
+        body: JSON.stringify({
           currentPassword,
           newPassword,
           // Sign every OTHER device out. This session keeps its cookie.
           revokeOtherSessions: true,
-        },
-        headers: request.headers,
-      });
-    } catch (err) {
+        }),
+      }),
+    );
+    if (authRes.status === 429) {
+      return {
+        ok: false,
+        error: "Too many attempts. Wait a moment and try again.",
+      };
+    }
+    // Better Auth ROTATES the session token on a password change and sends
+    // the fresh cookie on its response. Dropping it signs the user out of
+    // the very session they used to make the change — found live when the
+    // follow-up request after a successful change came back 401. Forward
+    // every Set-Cookie from the internal response onto ours.
+    for (const raw of authRes.headers.getSetCookie?.() ?? []) {
+      const [pair, ...attrs] = raw.split(";");
+      const eq = pair.indexOf("=");
+      if (eq < 1) continue;
+      const name = pair.slice(0, eq).trim();
+      const value = pair.slice(eq + 1).trim();
+      const opts: Record<string, unknown> = { path: "/" };
+      for (const a of attrs) {
+        const [k, v] = a.split("=").map((x) => x.trim());
+        const key = k.toLowerCase();
+        if (key === "path") opts.path = v;
+        else if (key === "max-age") opts.maxAge = Number(v);
+        else if (key === "expires") opts.expires = new Date(v);
+        else if (key === "httponly") opts.httpOnly = true;
+        else if (key === "secure") opts.secure = true;
+        else if (key === "samesite") opts.sameSite = (v ?? "lax").toLowerCase();
+      }
+      cookies.set(name, value, opts as Parameters<typeof cookies.set>[2]);
+    }
+
+    if (!authRes.ok) {
       // Better Auth returns a generic failure for a wrong current
       // password; surface it without leaking which half was wrong.
-      const msg = err instanceof Error ? err.message : "Password change failed";
+      let msg = "Password change failed";
+      try {
+        const body = (await authRes.json()) as { message?: string };
+        if (body?.message) msg = body.message;
+      } catch {
+        /* non-JSON error body — keep the generic message */
+      }
       return { ok: false, error: msg };
     }
 
@@ -138,11 +200,27 @@ export const actions: Actions = {
    */
   updateProfile: async ({ request, locals, platform }) => {
     if (!locals.user) throw error(401, "Not authenticated");
+    // The admin layout's 403-below-author guard runs in its `load` — and
+    // SvelteKit runs NO load functions for form actions, so a customer
+    // session could POST here directly if this check lived only in the
+    // layout. Every admin action must carry its own guard.
+    if (!hasRole(locals.user, "author")) throw error(403, "Forbidden");
     if (!platform?.env?.DB) throw error(503, "Platform not configured");
 
     const form = await request.formData();
     const name = String(form.get("name") ?? "").trim();
     const image = String(form.get("image") ?? "").trim();
+    // The avatar URL is rendered in <img src> on /admin/users for every
+    // admin who opens that page. The CSP already blocks non-https schemes,
+    // but any https origin passes it — so an unvalidated value lets any
+    // account plant a tracking pixel that leaks admins' IPs when the users
+    // list renders. Require https and a sane length; empty clears.
+    if (image && (!image.startsWith("https://") || image.length > 2048)) {
+      return {
+        ok: false,
+        error: "Avatar must be an https:// URL (or blank to clear it).",
+      };
+    }
 
     if (!name) return { ok: false, error: "Name is required." };
     if (name.length > 120) {

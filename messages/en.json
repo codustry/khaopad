@@ -193,7 +193,6 @@
   "cms_profile_email_help": "Ask an admin if your email address needs to change.",
   "cms_profile_role": "Role",
   "cms_profile_saved": "Profile updated.",
-  "cms_password": "Password",
   "cms_password_help": "Changing your password signs you out everywhere else.",
   "cms_password_current": "Current password",
   "cms_password_new": "New password",
