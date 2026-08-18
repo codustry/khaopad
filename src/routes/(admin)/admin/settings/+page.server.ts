@@ -83,6 +83,23 @@ export const actions: Actions = {
     const themeLogoMediaId = String(
       form.get("theme_logo_media_id") ?? "",
     ).trim();
+    // #174 Step 5 — theme tokens promoted from CSS into config. Same
+    // contract as themePrimaryColor: each value is interpolated into an
+    // inline style attribute on the public layout root, so validation
+    // below is strict by necessity, not taste.
+    const themeBackgroundColor = String(
+      form.get("theme_background_color") ?? "",
+    ).trim();
+    const themeForegroundColor = String(
+      form.get("theme_foreground_color") ?? "",
+    ).trim();
+    const themeAccentColor = String(
+      form.get("theme_accent_color") ?? "",
+    ).trim();
+    const themeRadius = String(form.get("theme_radius") ?? "").trim();
+    const themeFontDisplay = String(
+      form.get("theme_font_display") ?? "",
+    ).trim();
     const heroTitleEn = String(form.get("hero_title_en") ?? "").trim();
     const heroTitleTh = String(form.get("hero_title_th") ?? "").trim();
     const heroSubtitleEn = String(form.get("hero_subtitle_en") ?? "").trim();
@@ -98,6 +115,45 @@ export const actions: Actions = {
     ) {
       return fail(400, {
         error: "Primary color must be a hex value like #1a73e8.",
+      });
+    }
+    // #174 Step 5 — same strict hex gate for every theme color token.
+    for (const [label, value] of [
+      ["Background color", themeBackgroundColor],
+      ["Foreground color", themeForegroundColor],
+      ["Accent color", themeAccentColor],
+    ] as const) {
+      if (value && !/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value)) {
+        return fail(400, {
+          error: `${label} must be a hex value like #1a73e8.`,
+        });
+      }
+    }
+    // Radius: strict CSS length — number + px/rem/em, nothing else — and
+    // capped so a typo can't produce a comically broken storefront
+    // (100px / 10rem / 10em is already far past any sane corner).
+    if (themeRadius) {
+      const radiusMatch = /^(\d+(?:\.\d+)?)(px|rem|em)$/.exec(themeRadius);
+      const radiusCap = radiusMatch ? (radiusMatch[2] === "px" ? 100 : 10) : 0;
+      if (!radiusMatch || Number(radiusMatch[1]) > radiusCap) {
+        return fail(400, {
+          error:
+            "Corner radius must be a CSS length like 12px, 0.75rem or 1em (max 100px / 10rem / 10em).",
+        });
+      }
+    }
+    // Font family: this lands verbatim inside a style attribute, so the
+    // whitelist is deliberately narrow — letters, digits, spaces, commas
+    // and hyphens, max 120 chars. No quotes (multi-word families are
+    // valid unquoted in CSS), no semicolons/braces/parens, so neither a
+    // declaration break nor url(...) can ever be smuggled in.
+    if (
+      themeFontDisplay &&
+      !/^[A-Za-z0-9][A-Za-z0-9 ,-]{0,119}$/.test(themeFontDisplay)
+    ) {
+      return fail(400, {
+        error:
+          "Display font must be a plain font-family list (letters, digits, spaces, commas, hyphens — no quotes), e.g. Playfair Display, serif.",
       });
     }
     const supported = parseLocales(supportedLocalesRaw);
@@ -137,6 +193,13 @@ export const actions: Actions = {
         // rather than storing husks.
         themePrimaryColor: themePrimaryColor || undefined,
         themeLogoMediaId: themeLogoMediaId || undefined,
+        // Theme tokens (#174 Step 5) — empty clears back to app.css
+        // defaults, same as the D6 fields above.
+        themeBackgroundColor: themeBackgroundColor || undefined,
+        themeForegroundColor: themeForegroundColor || undefined,
+        themeAccentColor: themeAccentColor || undefined,
+        themeRadius: themeRadius || undefined,
+        themeFontDisplay: themeFontDisplay || undefined,
         homepageHeroTitle:
           heroTitleEn || heroTitleTh
             ? {

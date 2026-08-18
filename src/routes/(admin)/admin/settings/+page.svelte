@@ -73,6 +73,25 @@
 	let themeLogoMediaId = $state(
 		(data.settings.themeLogoMediaId as string | undefined) ?? '',
 	);
+	// #174 Step 5 — theme tokens promoted from CSS into config.
+	// svelte-ignore state_referenced_locally
+	let themeBackgroundColor = $state(
+		(data.settings.themeBackgroundColor as string | undefined) ?? '',
+	);
+	// svelte-ignore state_referenced_locally
+	let themeForegroundColor = $state(
+		(data.settings.themeForegroundColor as string | undefined) ?? '',
+	);
+	// svelte-ignore state_referenced_locally
+	let themeAccentColor = $state(
+		(data.settings.themeAccentColor as string | undefined) ?? '',
+	);
+	// svelte-ignore state_referenced_locally
+	let themeRadius = $state((data.settings.themeRadius as string | undefined) ?? '');
+	// svelte-ignore state_referenced_locally
+	let themeFontDisplay = $state(
+		(data.settings.themeFontDisplay as string | undefined) ?? '',
+	);
 	const heroTitle = (data.settings.homepageHeroTitle ?? {}) as Record<string, string>;
 	const heroSubtitle = (data.settings.homepageHeroSubtitle ?? {}) as Record<string, string>;
 	let heroTitleEn = $state(heroTitle.en ?? '');
@@ -376,6 +395,108 @@
 						Hex only (#rrggbb). Applied to buttons, links and accents on the
 						public site via the --color-primary token.
 					</p>
+				</div>
+				<!-- #174 Step 5 — theme tokens. Same idiom as the primary color
+				     above: picker + hex input for colors, plain inputs for the
+				     radius and font. These use Paraglide keys (the Step 5 fields
+				     were added after the plain-English D6 card; new fields follow
+				     the i18n layer). -->
+				<div class="grid gap-4 sm:grid-cols-3">
+					<div class="space-y-1.5">
+						<Label for="theme_background_color">{m.cms_settings_theme_background()}</Label>
+						<div class="flex items-center gap-2">
+							<input
+								type="color"
+								aria-label="Background color picker"
+								value={/^#[0-9a-fA-F]{6}$/.test(themeBackgroundColor)
+									? themeBackgroundColor
+									: '#ffffff'}
+								oninput={(e) => (themeBackgroundColor = e.currentTarget.value)}
+								class="h-9 w-12 cursor-pointer rounded-md border border-input bg-transparent p-1"
+							/>
+							<Input
+								id="theme_background_color"
+								name="theme_background_color"
+								bind:value={themeBackgroundColor}
+								placeholder="#ffffff"
+								class="font-mono"
+							/>
+						</div>
+					</div>
+					<div class="space-y-1.5">
+						<Label for="theme_foreground_color">{m.cms_settings_theme_foreground()}</Label>
+						<div class="flex items-center gap-2">
+							<input
+								type="color"
+								aria-label="Text color picker"
+								value={/^#[0-9a-fA-F]{6}$/.test(themeForegroundColor)
+									? themeForegroundColor
+									: '#252525'}
+								oninput={(e) => (themeForegroundColor = e.currentTarget.value)}
+								class="h-9 w-12 cursor-pointer rounded-md border border-input bg-transparent p-1"
+							/>
+							<Input
+								id="theme_foreground_color"
+								name="theme_foreground_color"
+								bind:value={themeForegroundColor}
+								placeholder="#252525"
+								class="font-mono"
+							/>
+						</div>
+					</div>
+					<div class="space-y-1.5">
+						<Label for="theme_accent_color">{m.cms_settings_theme_accent()}</Label>
+						<div class="flex items-center gap-2">
+							<input
+								type="color"
+								aria-label="Accent color picker"
+								value={/^#[0-9a-fA-F]{6}$/.test(themeAccentColor)
+									? themeAccentColor
+									: '#f7f7f7'}
+								oninput={(e) => (themeAccentColor = e.currentTarget.value)}
+								class="h-9 w-12 cursor-pointer rounded-md border border-input bg-transparent p-1"
+							/>
+							<Input
+								id="theme_accent_color"
+								name="theme_accent_color"
+								bind:value={themeAccentColor}
+								placeholder="#f7f7f7"
+								class="font-mono"
+							/>
+						</div>
+					</div>
+				</div>
+				<p class="text-xs text-muted-foreground">
+					{m.cms_settings_theme_background_help()}
+					{m.cms_settings_theme_foreground_help()}
+					{m.cms_settings_theme_accent_help()}
+				</p>
+				<div class="grid gap-4 sm:grid-cols-2">
+					<div class="space-y-1.5">
+						<Label for="theme_radius">{m.cms_settings_theme_radius()}</Label>
+						<Input
+							id="theme_radius"
+							name="theme_radius"
+							bind:value={themeRadius}
+							placeholder="0.625rem"
+							class="font-mono"
+						/>
+						<p class="text-xs text-muted-foreground">
+							{m.cms_settings_theme_radius_help()}
+						</p>
+					</div>
+					<div class="space-y-1.5">
+						<Label for="theme_font_display">{m.cms_settings_theme_font_display()}</Label>
+						<Input
+							id="theme_font_display"
+							name="theme_font_display"
+							bind:value={themeFontDisplay}
+							placeholder="Playfair Display, serif"
+						/>
+						<p class="text-xs text-muted-foreground">
+							{m.cms_settings_theme_font_display_help()}
+						</p>
+					</div>
 				</div>
 				<div class="space-y-1.5">
 					<Label for="theme_logo_media_id">Logo media ID</Label>

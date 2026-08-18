@@ -187,6 +187,44 @@ export interface SiteSettings {
   /** v3.17 (D6): media id rendered as the public header logo when set. */
   themeLogoMediaId?: string;
   /**
+   * #174 Step 5: theme tokens promoted from CSS into operator config.
+   * The measured fork divergence (app.css 99 → 321 lines, zero conflicts
+   * purely because upstream didn't touch the file that release) was brand
+   * colors, a display font and component classes. TOKENS become settings
+   * here; component classes stay theme-owned CSS on purpose — this is a
+   * token seam, not a CSS editor.
+   *
+   * Every field maps 1:1 onto a CSS custom property the storefront
+   * already consumes, applied by the (www) layout through the same
+   * inline-style mechanism as `themePrimaryColor` (SSR-first, no flash
+   * of the default look). Empty/undefined keeps the app.css default.
+   *
+   * All values are validated server-side by the settings action before
+   * they can be stored, because they land inside a style attribute:
+   * colors are strict #hex, the radius is a strict CSS length, and the
+   * font-family is a conservative character whitelist.
+   */
+  /** Maps onto `--color-background` (strict #hex). */
+  themeBackgroundColor?: string;
+  /** Maps onto `--color-foreground` (strict #hex). */
+  themeForegroundColor?: string;
+  /** Maps onto `--color-accent` (strict #hex). */
+  themeAccentColor?: string;
+  /**
+   * Maps onto `--radius`, the base corner radius the `--radius-sm/md/
+   * lg/xl` scale in app.css is derived from. Strict CSS length
+   * (`12px`, `0.75rem`, `1em`), capped at 100px / 10rem / 10em.
+   */
+  themeRadius?: string;
+  /**
+   * Maps onto `--font-display`, the heading font stack (falls back to
+   * `--font-sans` in app.css when unset). Letters, digits, spaces,
+   * commas and hyphens only — no quotes, so multi-word family names
+   * are fine (`Playfair Display, serif`) but nothing that could break
+   * out of a style attribute ever passes.
+   */
+  themeFontDisplay?: string;
+  /**
    * v3.17 (D6): homepage hero copy per locale. A missing locale falls
    * back to en, then to the Paraglide site_name/site_description
    * defaults.

@@ -80,6 +80,51 @@
 			? data.siteSettings.themePrimaryColor
 			: null,
 	);
+
+	// ─── Theme tokens (#174 Step 5) ─────────────────────────────
+	// The same seam as themePrimaryColor, widened: each operator-set token
+	// maps onto the CSS custom property app.css already consumes, emitted
+	// through the same SSR-first inline style so a re-branded store never
+	// flashes the default look. Unset tokens emit NOTHING — the app.css
+	// defaults rule. Every value is re-validated here (defense in depth,
+	// like themePrimaryColor above): the settings action is the gate, but
+	// the layout must not trust historical or hand-edited rows, because
+	// these strings land inside a style attribute.
+	const hexColor = (v: unknown): string | null =>
+		typeof v === 'string' && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v) ? v : null;
+	const themeBackgroundColor = $derived(hexColor(data.siteSettings?.themeBackgroundColor));
+	const themeForegroundColor = $derived(hexColor(data.siteSettings?.themeForegroundColor));
+	const themeAccentColor = $derived(hexColor(data.siteSettings?.themeAccentColor));
+	// Strict CSS length only — the number+unit shape the settings action
+	// enforces, nothing else.
+	const themeRadius = $derived(
+		typeof data.siteSettings?.themeRadius === 'string' &&
+			/^\d+(?:\.\d+)?(?:px|rem|em)$/.test(data.siteSettings.themeRadius)
+			? data.siteSettings.themeRadius
+			: null,
+	);
+	// Conservative whitelist — letters, digits, spaces, commas, hyphens —
+	// so no quote, semicolon, brace or url() can ever reach the style
+	// attribute. Multi-word families work unquoted ("Playfair Display").
+	const themeFontDisplay = $derived(
+		typeof data.siteSettings?.themeFontDisplay === 'string' &&
+			/^[A-Za-z0-9][A-Za-z0-9 ,-]{0,119}$/.test(data.siteSettings.themeFontDisplay.trim())
+			? data.siteSettings.themeFontDisplay.trim()
+			: null,
+	);
+	// One declaration per set token; undefined (no style attribute at all)
+	// when nothing is set, so the SSR output for an unthemed store is
+	// byte-identical to before this seam existed.
+	const themeStyle = $derived.by(() => {
+		const decls: string[] = [];
+		if (themePrimaryColor) decls.push(`--color-primary: ${themePrimaryColor}`);
+		if (themeBackgroundColor) decls.push(`--color-background: ${themeBackgroundColor}`);
+		if (themeForegroundColor) decls.push(`--color-foreground: ${themeForegroundColor}`);
+		if (themeAccentColor) decls.push(`--color-accent: ${themeAccentColor}`);
+		if (themeRadius) decls.push(`--radius: ${themeRadius}`);
+		if (themeFontDisplay) decls.push(`--font-display: ${themeFontDisplay}`);
+		return decls.length > 0 ? decls.join('; ') : undefined;
+	});
 	// ─── Header cart badge ──────────────────────────────────────
 	// Count comes from the layout load (session cart), so it is correct
 	// on first paint and refreshes with the cart page's existing
@@ -131,9 +176,15 @@
 
 <Seo seo={pageSeo} defaults={seoDefaults} locale={toLocale(data.locale)} />
 
+<!-- bg-background + text-foreground on the token root (not just body):
+     custom-property overrides only reach descendants, so the background/
+     foreground tokens must be CONSUMED at or below the element that sets
+     them. With no tokens set these resolve to the same values body already
+     paints — a visual no-op. Both classes are already in the emitted CSS
+     (buttons, admin shell), so the inventory guard is unaffected. -->
 <div
-	class="min-h-screen flex flex-col"
-	style={themePrimaryColor ? `--color-primary: ${themePrimaryColor}` : undefined}
+	class="min-h-screen flex flex-col bg-background text-foreground"
+	style={themeStyle}
 >
 	<HeaderComponent {...headerProps} />
 
