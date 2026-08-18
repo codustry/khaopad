@@ -143,18 +143,19 @@ export const actions: Actions = {
       if (eq < 1) continue;
       const name = pair.slice(0, eq).trim();
       const value = pair.slice(eq + 1).trim();
-      const opts: Record<string, unknown> = { path: "/" };
+      const opts: Parameters<typeof cookies.set>[2] = { path: "/" };
       for (const a of attrs) {
         const [k, v] = a.split("=").map((x) => x.trim());
         const key = k.toLowerCase();
-        if (key === "path") opts.path = v;
+        if (key === "path" && v) opts.path = v;
         else if (key === "max-age") opts.maxAge = Number(v);
-        else if (key === "expires") opts.expires = new Date(v);
+        else if (key === "expires" && v) opts.expires = new Date(v);
         else if (key === "httponly") opts.httpOnly = true;
         else if (key === "secure") opts.secure = true;
-        else if (key === "samesite") opts.sameSite = (v ?? "lax").toLowerCase();
+        else if (key === "samesite" && v)
+          opts.sameSite = v.toLowerCase() as "lax" | "strict" | "none";
       }
-      cookies.set(name, value, opts as Parameters<typeof cookies.set>[2]);
+      cookies.set(name, value, opts);
     }
 
     if (!authRes.ok) {
