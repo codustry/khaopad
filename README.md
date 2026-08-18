@@ -1,10 +1,10 @@
 # Khao Pad (ข้าวผัด)
 
-**The open-source website platform for Cloudflare.** Drives a content site end-to-end — content, SEO, analytics, navigation, engagement — plus an optional shop, on Cloudflare Workers + D1 + R2 + KV.
+**The open-source website platform for Cloudflare — built to be forked.** A complete content + commerce engine on Workers + D1 + R2 + KV, with a versioned theme contract that lets every deployment own its look **and** keep taking engine upgrades, conflict-free.
 
 > ข้าวผัด = Fried rice. Everyone wants something slightly different, but in the end it's the same core dish — just with different sauces and ingredients.
 
-🌐 **Live demo**: [khaopad-example.codustry.workers.dev](https://khaopad-example.codustry.workers.dev) ([source](https://github.com/codustry/khaopad-example)) · 🌍 **Marketing site**: [khaopad-website.codustry.workers.dev](https://khaopad-website.codustry.workers.dev)
+🌐 **Live demo**: [khaopad-example.codustry.workers.dev](https://khaopad-example.codustry.workers.dev) ([source](https://github.com/codustry/khaopad-example) — a real themed fork) · 🌍 **Marketing site**: [khaopad-website.codustry.workers.dev](https://khaopad-website.codustry.workers.dev)
 
 ### Try the CMS
 
@@ -18,160 +18,89 @@ The demo's admin panel is open with an editor account — sign in and click arou
 
 Every plugin is enabled, so the sidebar shows the full surface: articles, pages, media, navigation, forms, newsletter, comments, webhooks, API keys — and the shop's products, collections, orders, and discounts. Try **⌘K** for the command palette and the header toggle for dark mode; the whole admin works in English and Thai.
 
-The database resets nightly, so nothing you do there can break anything. Payments run against BeamCheckout's sandbox — no real charge is ever made. Full walkthrough in the [demo's README](https://github.com/codustry/khaopad-example#sign-in-and-play).
+The database resets nightly, so nothing you do there can break anything. Payments run against BeamCheckout's sandbox — no real charge is ever made.
 
-## What it is
+## The two-layer model
 
-Khao Pad started as "another CMS for Cloudflare." Through v1.5 it became a complete content layer — write, schedule, search, version, audit. v1.6 → v2.0 turned it into the surrounding machinery a real website needs: SEO, analytics, IA, performance, engagement.
+Every Khao Pad install is two layers with a contract between them:
 
-So: not a CMS. A **website platform** that happens to ship with a strong CMS at the core.
+- **The engine** (this repo) — routes, loads, CMS, commerce, auth, SEO, i18n plumbing. You upgrade it by merging upstream, and fixes — a checkout race, a payment bug, an SEO improvement — reach your site automatically.
+- **The theme** (your fork) — header, footer, homepage, checkout field additions, fonts, colors, head tags. It lives in code upstream never touches, registered through seams the engine promises to keep.
 
-## Why?
+The promise is written down and machine-enforced: **[docs/THEME-CONTRACT.md](docs/THEME-CONTRACT.md)**, versioned as `THEME_CONTRACT_VERSION` (currently **1.0.0**), guarded by `pnpm run guard:contract` in CI. If an engine change would delete anything a theme can depend on — a chrome slot, a props field, a Paraglide message key, a building-block component — the build fails with the item named until the contract's MAJOR version is bumped explicitly. A breaking change can never ship as a quiet refactor.
 
-The Cloudflare-native stack (Workers + D1 + R2 + KV) is the cheapest, fastest way to host a content-heavy site in 2026. But there was no off-the-shelf platform that made the most of it:
+### Theming in five minutes
 
-| Solution           | Problem                                                                                  |
-| ------------------ | ---------------------------------------------------------------------------------------- |
-| Supabase           | Great ecosystem, but $25/mo+ is heavy for small sites; needs a separate compute layer    |
-| Self-hosted Strapi | Big footprint, separate deployment, not Cloudflare-native                                |
-| Pages CMS          | Lovely UI, but git-backed storage doesn't scale to D1/R2 once you need real DB semantics |
-| Ghost / Wagtail    | Mature but heavy, opinionated about hosting, not edge-deployable                         |
+Your visual identity goes in `src/lib/deployment/` (yours by contract) and registers itself:
 
-Khao Pad fills the gap: **start lightweight, scale when needed, stay on Cloudflare's free / near-free tier as long as you can.**
+```ts
+// src/lib/deployment/chrome.ts
+import { setChrome } from "$lib/components/www/chrome";
+import MyHeader from "./MyHeader.svelte";
+import MyHome from "./MyHome.svelte";
 
-## What ships
+setChrome({ header: MyHeader, home: MyHome }); // partial is fine — keep the stock footer
+```
 
-Shipped through **v3.10**. v1.0 → v2.0 built the content + growth platform; v3.0 → v3.5 added the plugin runtime and the shop plugin; v3.6 → v3.10 added typed content collections, the in-admin secrets portal, the admin design system (dark mode, ⌘K, sticky save), and full funnel localization. Five "platform pillars" shaped the v1.6+ work:
+```ts
+// src/lib/plugins/registrations.ts  (loaded by server AND client — required)
+import "$lib/deployment/chrome";
+```
 
-### Content (v1.0–v1.5)
+| What you customize                                 | How                                                                                         |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Header / footer / homepage body                    | `setChrome({ header, footer, home })`                                                       |
+| Checkout additions (e.g. Thai tax invoice fields)  | `registerCheckoutSlots()` — contributions flow into the order's `billingAddress` end-to-end |
+| Fonts, meta, verification tags                     | `src/app.head.html` — injected into `<head>` on every page                                  |
+| Brand colors, radius, display font, logo           | `/admin/settings` theme tokens — operator config, zero code                                 |
+| Building blocks (`ProductCard`, `HeaderSearch`, …) | import from `$lib/components/shop` / `$lib/components/www` — contract-stable                |
 
-- **Articles + Pages** — markdown-first, per-locale (EN + TH out of the box, more locales easy to add), shared English-ASCII slug, cover image
-- **Categories + Tags** — full taxonomy with public blog filtering (`/blog?category=…`, `?tag=…`)
-- **Media library** — R2-backed, drag-upload, alt text, **folders** (v1.7), responsive `srcset` via Cloudflare Images (v1.9)
-- **Markdown editor** — toolbar, split preview, autosave to localStorage, ⌘B / ⌘I / ⌘K shortcuts, image picker
-- **Scheduled publishing** — set a future `publishedAt`, the public site doesn't reveal it until that time
-- **Full-text search** — SQLite FTS5 over per-locale localizations, public `/blog?q=`, in-CMS list filter
-- **Per-article revision history** — line-diff view, one-click restore, attribution
-- **Audit log** — every CMS action recorded; admin viewer at `/admin/audit`
-- **Token-based invitations** — admins create one-shot invite links; recipients claim and join
+The engine keeps SEO tags, the cookie banner, and consent handling out of theme reach — a theme cannot accidentally break compliance. Commerce pages (cart, checkout, product) stay engine-owned so pricing and inventory fixes reach every deployment; [Shopify learned this one the expensive way](https://www.shopify.com/partners/blog/checkout-liquid-deprecation).
 
-### Discoverability (v1.6 — SEO foundations)
+The reference fork migrated its custom homepage onto these seams in [one commit](https://github.com/codustry/khaopad-example/commit/cc1e16b) — and its next upstream sync was the first zero-conflict merge in the project's history.
 
-- Per-page `<title>` + `<meta description>` + canonical + Open Graph + Twitter Card + hreflang
-- `Article` JSON-LD on each post; `WebSite` + `SearchAction` on the home
-- `/sitemap.xml` index → per-locale sitemaps (articles, pages, and active shop products with hreflang alternates)
-- Per-environment `/robots.txt` — **fail-closed**: only `WORKERS_ENV=production` serves `Allow: /`; anything else (including an unset var on a forgotten preview worker) serves `Disallow: /` _and_ an `X-Robots-Tag: noindex, nofollow` header, because Cloudflare's Content-Signals block can neutralize a robots.txt `Disallow` on its own
-- `/feed-{locale}.xml` RSS 2.0 with full HTML body (`content:encoded`)
-- **Slug redirects** — rename a slug, the old URL 301s to the new one automatically
-- SEO scoring hint on the article form (advisory: title 30–60 chars, description 70–160)
+## What ships (v4.3.0)
 
-### Information architecture (v1.7)
+The short version — [docs/MILESTONES.md](docs/MILESTONES.md) has the complete history from v1.0.
 
-- **Static Pages** — separate from articles (About, Contact, Privacy), `(www)/[locale]/[...slug]` catch-all routing, three soft templates (`default` / `landing` / `legal`)
-- **Navigation manager** — `/admin/navigation` builds the primary header + footer menus; items target articles, categories, tags, pages, or custom URLs; per-locale labels
-- **Reusable content blocks** — `{{block:my-key}}` shortcodes, expanded server-side from the per-locale block library
-- **Cookie consent banner** with three categories (functional / analytics / marketing); first-party cookie, GDPR-friendly defaults
-- **Legal templates seeder** — one click creates draft Privacy + Cookie policy pages from embedded templates
+**Content platform** — markdown-first articles + static pages, per-locale (EN + TH out of the box), shared English-ASCII slugs, R2 media library with folders and responsive `srcset`, scheduled publishing, FTS5 full-text search, revision history with diff + restore, audit log, token invitations, typed content collections with a `find()`/`populate` query layer.
 
-### Insight (v1.8 — Analytics)
+**Growth machinery** — full SEO surface (meta, canonical, hreflang, JSON-LD, sitemaps, RSS, fail-closed robots.txt, slug 301s), privacy-friendly D1 analytics with search insights, forms, newsletter (single/double opt-in), moderated comments, HMAC-signed webhooks, public REST API with scoped keys.
 
-- **Privacy-friendly D1 page-view counter** — aggregated by `(date, path)`, no IP / UA / fingerprint stored, gated on cookie consent
-- **Search insights** — every `/blog?q=` query logged anonymized; dashboard shows top terms + searches with no results (the content-gap signal)
-- **Top articles + per-article sparkline** — last 30 days, on the dashboard and on each article edit page
-- Optional **Cloudflare Web Analytics** beacon — set a token in `/admin/settings`, beacon loads only when visitor consented
+**Shop plugin** — Thailand-first ecommerce on the plugin runtime: catalog with variants and collections, atomic inventory ledger, session carts, localized checkout, BeamCheckout payments (PromptPay QR, cards, LINE Pay, TrueMoney), discount codes, abandoned-cart recovery, article↔product federation, funnel analytics. Money is integer satang throughout — no floats in the price path.
 
-### Performance & trust (v1.9)
+**Admin experience** — shared design system across 40+ pages, dark mode, ⌘K command palette, sticky save bar with unsaved-changes guard, in-admin secrets portal (AES-GCM envelope encryption), self-service profile + password change, full EN/TH admin i18n.
 
-- **Responsive images** via `/cdn-cgi/image/` URL transforms — `<picture>` `srcset` with 3 widths; falls back to raw R2 when Cloudflare Images isn't enabled
-- **Edge cache hook** — sets sensible `Cache-Control` per route (`no-store` for `/admin/*`, SWR for blog pages)
-- **Branded 404 + 500 pages** with search box (404 only)
-- `/api/health` endpoint with per-binding reachability + latency
+**Theme/engine split (v4.2–v4.3)** — everything in [The two-layer model](#the-two-layer-model): chrome registry, checkout slots, deployment head fragment, theme tokens, and the versioned, CI-guarded contract. Plus render-regression guards (`guard:css`, `guard:head`) that catch the class of bug where every check stays green while the page renders wrong.
 
-### Engagement & growth (v2.0)
-
-- **Forms** — build a contact / lead-capture / RSVP form in the CMS; `POST /api/forms/[key]` with honeypot + per-IP-hash rate limit; submissions inbox with status + delete
-- **Newsletter** — opt-in subscriber list; works as single-opt-in by default, becomes double-opt-in when a Resend key is set; weekly digest sender; one-click unsubscribe
-- **Comments** — per-article visitor comments with editor moderation; dual-toggle (site-wide + per-article); honeypot + rate limit; status queue at `/admin/comments`
-- **Webhooks** — register HTTPS URLs for `article.publish` / `article.unpublish` / `comment.approve` / `form.submit` / `subscriber.confirm`; HMAC-SHA256 signed; auto-retry; delivery log
-- **Public REST API** — `/api/public/articles` / `/categories` / `/tags` / `/pages` for headless consumers; bearer-token auth via `/admin/api-keys`; per-key scopes; SHA-256 hashed at rest
-
-### Plugin runtime (v3.0)
-
-Khao Pad core stays focused on the content + growth surface every non-ecommerce site needs. Anything beyond that ships as an **optional plugin** — self-contained, zero-core-surgery, opt-in per install.
-
-The runtime is live: plugins mount their own routes, concatenate their D1 schema, merge into the admin sidebar, and register their own audit actions, webhook events, settings, and i18n keys. See [docs/plugin-authoring.md](docs/plugin-authoring.md).
-
-### Shop plugin (v3.1 → v3.5)
-
-**`@khaopad/plugin-shop`** — small ecommerce for Thailand-first sites, built on the v3.0 runtime.
-
-- **Catalog** — products, variants, collections, per-locale titles/descriptions, R2 media
-- **Inventory** — atomic reserve / release / commit against variant stock, with a reservation ledger and a 15-minute TTL swept by cron
-- **Cart + checkout** — session-cookie cart (guest or signed-in), price snapshots at add-to-cart, address + shipping zones + tax
-- **Payments** — **BeamCheckout** (PromptPay QR, credit card, LINE Pay, TrueMoney); HMAC-SHA256 verified webhooks; orders, refunds, receipt emails via Resend. The `PaymentProvider` interface is the seam for Stripe / Omise
-- **Discount codes** (v3.5) — percent or fixed-baht, redemption caps (total and per-customer), minimum-order thresholds, validity windows; redemptions recorded on payment success, idempotent under webhook retry
-- **Abandoned-cart recovery** (v3.5) — carts idle 24h with an email on file get one recovery message with a resume link
-- **Article ↔ product federation** (v3.4) — embed products in articles, attribute purchases back to the article that drove them
-- **Analytics** (v3.3) — typed event catalog, D1-backed funnel from `page_view` through `purchase`, per-article and per-product dashboards; Merchant Center feed
-
-Money is stored as integer satang throughout — no floats anywhere in the price path.
-
-- **Localized funnel** (v3.10) — cart, checkout, order lookup, and order status live under `/{locale}/` and render fully in EN or TH; the old unprefixed URLs 303 to the visitor's cookie locale (receipt emails and payment-return links keep working). Funnel pages are `noindex` and **never edge-cached** — cart and order HTML is per-visitor state
-
-### Typed content collections (v3.6)
-
-Beyond articles and pages: define **content types** in the admin (fields, per-locale entry localizations, typed spec attributes with ranges and qualifiers, entry-to-entry relations with edge attributes), and query them through a `find()`/`populate` layer. The registry is plugin-extensible — the shop's catalog uses the same machinery.
-
-### Operations & admin experience (v3.7 → v3.10)
-
-- **Secrets portal** (v3.7) — manage integration credentials (Beam, Resend) at `/admin/settings/secrets` instead of `wrangler secret put`; AES-GCM-256 envelope encryption keyed off `BETTER_AUTH_SECRET` via HKDF, masked display, env-always-wins precedence. `BETTER_AUTH_SECRET` itself stays a Cloudflare secret — it is the root of trust
-- **Admin design system** (v3.10) — shared `PageShell` / `PageHeader` / `DataTable` / `StatusBadge` primitives across all 40+ admin pages; **dark mode** (light / dark / system, applied pre-paint); **⌘K command palette** over the same nav registry the sidebar uses, role-filtered; **sticky save bar** with dirty-state tracking and an unsaved-changes guard covering both tab-close and in-app navigation; URL-state search + filters on the list pages; keyboard-navigable media folder tree
-
-### Platform fundamentals
-
-- **One repo, one host, two surfaces** — public site at `/`, admin at `/admin/*`, single Worker deployment
-- **Multilingual first** — shared slug and media, separate content per locale; English required (slug source), additional locales optional
-- **Better Auth** — email/password, D1-backed sessions, four roles (super_admin > admin > editor > author)
-- **Pluggable storage** — `ContentProvider` interface in `$lib/server/content/types.ts`; D1 implementation ships, swap for tests
-- **Real staging + production** — push to `main` → staging deploy; tag `v*.*.*` → production deploy; per-environment D1 / R2 / KV bindings
-- **Live D1 sub-10ms reads** anywhere on the planet; R2 + KV similarly distributed
+**Platform fundamentals** — one Worker, two surfaces (`/` public, `/admin`); Better Auth with four roles (super_admin > admin > editor > author); rate-limited credential endpoints; real staging + production pipeline; sub-10ms D1 reads worldwide.
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────┐
-│            Single SvelteKit App           │
-│                                           │
-│  hooks.server.ts (path-based surface)     │
-│                                           │
-│  /*           → (www)/  public site       │
-│  /admin/*       → (admin)/  admin panel       │
-│  /api/auth/*  → Better Auth handler       │
-│                                           │
-│  ContentProvider → D1ContentProvider      │
-│                                           │
-│  Cloudflare: D1 · R2 · KV · Workers      │
-└──────────────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│              Single SvelteKit App             │
+│                                               │
+│  hooks.server.ts (path-based surface)         │
+│    /*        → (www)/   public site           │
+│    /admin/*  → (admin)/ admin panel           │
+│    /api/*    → auth, shop, public REST        │
+│                                               │
+│  Engine routes ──resolve──▶ theme registry    │
+│    (chrome.home ?? DefaultHome, …)            │
+│                                               │
+│  ContentProvider → D1ContentProvider          │
+│  Cloudflare: Workers · D1 · R2 · KV           │
+└──────────────────────────────────────────────┘
 ```
 
-## Tech Stack
-
-- [SvelteKit](https://svelte.dev) — Full-stack framework
-- [Tailwind CSS](https://tailwindcss.com) — Utility-first styling
-- [shadcn/ui (svelte)](https://shadcn-svelte.com) — Component library
-- [Drizzle ORM](https://orm.drizzle.team) — Type-safe SQL for D1
-- [Better Auth](https://better-auth.com) — Authentication
-- [Paraglide JS](https://inlang.com/m/gerre34r/library-inlang-paraglideJs) — Compile-time i18n (inlang)
-- [Cloudflare Workers](https://workers.cloudflare.com) — Edge deployment
-- [Cloudflare D1](https://developers.cloudflare.com/d1/) — SQLite database
-- [Cloudflare R2](https://developers.cloudflare.com/r2/) — Object storage
-- [Cloudflare KV](https://developers.cloudflare.com/kv/) — Key-value cache
+**Stack**: [SvelteKit](https://svelte.dev) · [Tailwind CSS](https://tailwindcss.com) · [shadcn/ui (svelte)](https://shadcn-svelte.com) · [Drizzle ORM](https://orm.drizzle.team) · [Better Auth](https://better-auth.com) · [Paraglide JS](https://inlang.com/m/gerre34r/library-inlang-paraglideJs) · [Cloudflare Workers](https://workers.cloudflare.com) / [D1](https://developers.cloudflare.com/d1/) / [R2](https://developers.cloudflare.com/r2/) / [KV](https://developers.cloudflare.com/kv/)
 
 ## Using Khao Pad in your project
 
-Khao Pad is a **template**, not a hosted service. Fork or clone this repo, provision your own Cloudflare resources, and deploy to your own account. Every project gets its own isolated D1 database, R2 bucket, and KV namespace — nothing is shared between installations.
+Khao Pad is a **template you fork**, not a hosted service. Every project provisions its own isolated D1 database, R2 bucket, and KV namespace in its own Cloudflare account — nothing is shared between installations.
 
-### If you forked: one-time merge setup
+### One-time merge setup for forks
 
 Run this once in your fork:
 
@@ -179,23 +108,20 @@ Run this once in your fork:
 git config merge.ours.driver true
 ```
 
-Your fork will diverge from upstream — that is the point — and every release you merge re-raises the same conflicts. `.gitattributes` resolves the ones that carry no decision (chiefly `README.md`, which is _your_ site's documentation and should never adopt upstream's prose). Git ships the name `ours` but **not** the driver, so without that command the rules are silently ignored and you get ordinary conflicts instead.
+`.gitattributes` auto-resolves the conflicts that carry no decision (chiefly `README.md` — your fork's README documents _your_ site and should never adopt upstream's prose). Git ships the name `ours` but **not** the driver, so without that command the rules are silently ignored.
 
 Deliberately still conflicting, because each needs a human:
 
-| File             | Why                                                                                                                                                                                            |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `wrangler.toml`  | Holds your bindings _and_ receives upstream additions (v4.1.0 added `CAREERS_FEED_URL`). Auto-keeping your copy would drop new config and the feature would look broken for no visible reason. |
-| `pnpm-lock.yaml` | Marked `binary`, so git will not produce a lockfile neither side tested. Resolve with `git checkout --theirs pnpm-lock.yaml && pnpm install`.                                                  |
+| File             | Why                                                                                                                                                         |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `wrangler.toml`  | Holds your bindings _and_ receives upstream additions. Auto-keeping your copy would silently drop new config and a feature would look broken for no reason. |
+| `pnpm-lock.yaml` | Marked `binary`, so git won't produce a lockfile neither side tested. Resolve with `git checkout --theirs pnpm-lock.yaml && pnpm install`.                  |
 
-### Prerequisites
-
-- [Node.js](https://nodejs.org/) 22+ (for local tooling parity with CI)
-- [pnpm](https://pnpm.io/) 9+
-- Cloudflare account
-- Wrangler CLI (`pnpm add -g wrangler`) and `wrangler login`
+Everything visual belongs in `src/lib/deployment/` and the seams above — an upgraded fork should see **no** conflicts in engine files. If you still carry forked engine files for looks, the [v4.3.0 release notes](https://github.com/codustry/khaopad/releases/tag/v4.3.0) walk through migrating them onto the contract.
 
 ### Setup
+
+Prerequisites: [Node.js](https://nodejs.org/) 22+, [pnpm](https://pnpm.io/) 9+, a Cloudflare account, `wrangler` CLI (`pnpm add -g wrangler` + `wrangler login`).
 
 ```bash
 # 1. Fork on GitHub (or clone directly)
@@ -207,8 +133,7 @@ pnpm install
 
 # 3. Provision Cloudflare resources (D1 + R2 + KV) in one command
 pnpm setup
-# Prints the database_id and KV id you need. Paste them into wrangler.toml
-# (replace LOCAL_DB_ID and LOCAL_KV_ID).
+# Prints the database_id and KV id — paste them into wrangler.toml.
 
 # 4. Set your Better Auth secret (any long random string)
 wrangler secret put BETTER_AUTH_SECRET
@@ -219,38 +144,40 @@ pnpm db:seed
 
 # 6. Start the dev server (Wrangler, uses local D1/R2/KV simulators)
 pnpm wrangler:dev
-# or plain Vite without bindings (shows a friendly 503 "Configuration required")
-pnpm dev
 ```
 
-### How D1, R2, and KV connect to Khao Pad
+- Public site: `http://localhost:5173` · Admin: `http://localhost:5173/admin`
+- First admin signup (one-shot, before any user exists): `/admin/signup`
+- For plain Vite without bindings, `pnpm dev` renders a friendly 503 "Configuration required" screen, and local-only secrets go in `.dev.vars` (gitignored): `BETTER_AUTH_SECRET=dev-local-only-not-a-real-secret`
 
-Cloudflare bindings are **not auto-generated** — they must be provisioned once per project, then bound to your Worker by ID in `wrangler.toml`:
+### Bindings
 
-| Binding         | Resource     | Created by                         | Referenced in `wrangler.toml` |
-| --------------- | ------------ | ---------------------------------- | ----------------------------- |
-| `DB`            | D1 database  | `wrangler d1 create <name>`        | `database_id`                 |
-| `MEDIA_BUCKET`  | R2 bucket    | `wrangler r2 bucket create <name>` | `bucket_name`                 |
-| `CONTENT_CACHE` | KV namespace | `wrangler kv namespace create`     | `id`                          |
+Cloudflare bindings are provisioned once (`pnpm setup` runs all three), then referenced by ID in `wrangler.toml`. Code never hardcodes account IDs — Cloudflare injects bindings into `platform.env` at runtime.
 
-`pnpm setup` runs all three for you and prints the IDs to paste in. Your code never hardcodes account IDs or credentials — Cloudflare injects the bindings into `platform.env` at runtime.
+| Binding         | Resource     | Created by                         | Referenced as |
+| --------------- | ------------ | ---------------------------------- | ------------- |
+| `DB`            | D1 database  | `wrangler d1 create <name>`        | `database_id` |
+| `MEDIA_BUCKET`  | R2 bucket    | `wrangler r2 bucket create <name>` | `bucket_name` |
+| `CONTENT_CACHE` | KV namespace | `wrangler kv namespace create`     | `id`          |
 
-For **local dev** with `pnpm wrangler:dev`, Wrangler spins up local simulators for D1/R2/KV automatically — the production IDs only matter when you deploy with `pnpm deploy`.
+### Config layers
 
-### Local Development
+| Layer                  | Where it lives                          | Example                                                                     |
+| ---------------------- | --------------------------------------- | --------------------------------------------------------------------------- |
+| Bindings               | `wrangler.toml` `[[d1_databases]]` etc. | `DB`, `MEDIA_BUCKET`                                                        |
+| Plain vars             | `wrangler.toml` `[vars]`                | `SUPPORTED_LOCALES`, `DEFAULT_LOCALE`, `PUBLIC_SITE_URL`, `BETTER_AUTH_URL` |
+| Cloudflare secrets     | `wrangler secret put`                   | `BETTER_AUTH_SECRET` (`openssl rand -base64 32`)                            |
+| GitHub Actions secrets | repo/org → Settings → Secrets           | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`                             |
 
-```bash
-pnpm dev
-```
+Secrets are **never** committed to `wrangler.toml` — they leak to the dashboard and CI logs. Integration credentials (payments, email) can instead be managed at `/admin/settings/secrets` (AES-GCM encrypted at rest; env always wins). `BETTER_AUTH_SECRET` itself stays a Cloudflare secret — it is the root of trust.
 
-- Public site: `http://localhost:5173`
-- Admin: `http://localhost:5173/admin`
-- First admin signup: `http://localhost:5173/admin/signup` (one-shot, before any user exists)
-- Login: `http://localhost:5173/admin/login`
+### Deployment
 
-No `/etc/hosts` editing needed — both surfaces share one host. Locale switches via `/en/blog` ↔ `/th/blog` on the public side; the CMS reads locale from a cookie so admin URLs stay clean.
+Push to `main` → GitHub Actions builds, applies pending D1 migrations, and deploys the Worker (`.github/workflows/deploy.yml`). For a custom domain, uncomment the `routes` block in `wrangler.toml` and point one proxied DNS record at the Worker — `hooks.server.ts` splits public and admin surfaces by path.
 
-## Content Model
+Checklist: real `database_id` + KV `id` in `wrangler.toml` · `BETTER_AUTH_SECRET` set · `PUBLIC_SITE_URL` / `BETTER_AUTH_URL` on the real domain · routes + DNS · `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` in GitHub · `pnpm build` green.
+
+## Content model
 
 ```
 Article (shared)
@@ -261,17 +188,11 @@ Article (shared)
     └── title, excerpt, body (markdown), SEO fields
 ```
 
-Articles share the same slug and media across languages. Only the text content differs per locale.
+Articles share slug and media across languages; only text differs per locale. **Slugs are always English ASCII** (`^[a-z0-9]+(?:-[a-z0-9]+)*$`), auto-generated from the English title — there is no per-language slug.
 
-**Slugs are always English ASCII** (`^[a-z0-9]+(?:-[a-z0-9]+)*$`) and auto-generated from the English title via `slugify()`. The same slug serves every locale — there is no per-language slug.
+There are two i18n layers, kept deliberately separate: **Paraglide** message keys for the app shell (compile-time, type-safe, contract-stable for themes) and **content localizations** in D1 for user-generated text.
 
-## Storage
-
-Articles, categories, tags, and user/session data live in **Cloudflare D1** (SQLite at the edge — sub-10ms reads worldwide). Media files (uploads, cover images) live in **Cloudflare R2**. Cached read-throughs sit in **KV**.
-
-Database access is mediated by a `ContentProvider` interface (`src/lib/server/content/types.ts`). The default and only shipped implementation is D1-backed; the interface is kept so test fixtures or alternate backends can slot in without rewriting call sites.
-
-## User Roles
+## User roles
 
 | Role        | Create | Edit Own | Edit Any | Publish | Delete Any | Manage Users/Settings |
 | ----------- | :----: | :------: | :------: | :-----: | :--------: | :-------------------: |
@@ -280,149 +201,35 @@ Database access is mediated by a `ContentProvider` interface (`src/lib/server/co
 | Admin       |  yes   |   yes    |   yes    |   yes   |    yes     |          yes          |
 | Super Admin |  yes   |   yes    |   yes    |   yes   |    yes     |          yes          |
 
-## Deployment
-
-Deploys automatically to Cloudflare Workers on push to `main` via GitHub Actions (`.github/workflows/deploy.yml`). The workflow runs `pnpm install --frozen-lockfile`, `pnpm build`, applies pending D1 migrations to the remote database, then deploys the Worker.
-
-### Config reference
-
-Khao Pad reads everything through Cloudflare's binding/env model. There are four layers — know which goes where:
-
-| Layer                  | Where it lives                          | Scope       | Example                       |
-| ---------------------- | --------------------------------------- | ----------- | ----------------------------- |
-| Bindings               | `wrangler.toml` `[[d1_databases]]` etc. | Per project | `DB`, `MEDIA_BUCKET`          |
-| Plain vars             | `wrangler.toml` `[vars]`                | Per project | `CONTENT_MODE`, locales, URLs |
-| Cloudflare secrets     | `wrangler secret put`                   | Per project | `BETTER_AUTH_SECRET`          |
-| GitHub Actions secrets | GitHub repo/org → Settings → Secrets    | CI only     | `CLOUDFLARE_API_TOKEN`        |
-
-Secrets are **never** committed to `wrangler.toml`. Plain vars can be, and are safe to read in both server and client code (treat them like public config).
-
-### 1. GitHub Actions secrets (for CI deploy)
-
-Configured at the GitHub **org or repo** level. At Codustry they're already set on the organization and inherited by every repo:
-
-| Secret                  | Purpose                                                  |
-| ----------------------- | -------------------------------------------------------- |
-| `CLOUDFLARE_API_TOKEN`  | Lets the CI runner call the Cloudflare API (deploy, D1). |
-| `CLOUDFLARE_ACCOUNT_ID` | Tells `wrangler` which account to deploy into.           |
-
-Token permissions required: **Workers Scripts — Edit**, **Account D1 — Edit**, **Account Workers KV Storage — Edit**, **Workers R2 Storage — Edit**, **Zone DNS — Read** (for routes). Create at `dash.cloudflare.com/profile/api-tokens` → "Edit Cloudflare Workers" template, then narrow to your account.
-
-### 2. Cloudflare secrets (Worker runtime, encrypted)
-
-Set once per environment via `wrangler secret put <NAME>`:
-
-| Secret               | Purpose                                                            | How to generate           |
-| -------------------- | ------------------------------------------------------------------ | ------------------------- |
-| `BETTER_AUTH_SECRET` | Signs/encrypts Better Auth session cookies. Must be long + random. | `openssl rand -base64 32` |
-
-> **Never** put these in `[vars]` — they leak to the dashboard and CI logs.
-
-### 3. Cloudflare bindings (wrangler.toml)
-
-Provisioned once per project via `pnpm setup`, then referenced by ID:
-
-```toml
-[[d1_databases]]
-binding = "DB"                 # exposed as platform.env.DB
-database_name = "khaopad-db"
-database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"  # from `wrangler d1 create`
-migrations_dir = "drizzle"
-
-[[r2_buckets]]
-binding = "MEDIA_BUCKET"       # exposed as platform.env.MEDIA_BUCKET
-bucket_name = "khaopad-media"
-
-[[kv_namespaces]]
-binding = "CONTENT_CACHE"      # exposed as platform.env.CONTENT_CACHE
-id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"               # from `wrangler kv namespace create`
-```
-
-### 4. Plain environment variables (wrangler.toml `[vars]`)
-
-Non-secret config that ships with the Worker:
-
-| Var                 | Required | Default               | Purpose                                                                         |
-| ------------------- | :------: | --------------------- | ------------------------------------------------------------------------------- |
-| `SUPPORTED_LOCALES` |   yes    | `en,th`               | Comma-separated. Must match `project.inlang/settings.json`.                     |
-| `DEFAULT_LOCALE`    |   yes    | `en`                  | Fallback locale. Must be in `SUPPORTED_LOCALES`.                                |
-| `PUBLIC_SITE_URL`   |   yes    | `https://example.com` | Canonical origin for both surfaces (one host).                                  |
-| `CMS_SITE_URL`      |   yes    | = `PUBLIC_SITE_URL`   | Deprecated alias kept for media URL generation; same host as public since v1.1. |
-| `BETTER_AUTH_URL`   |   yes    | = `PUBLIC_SITE_URL`   | Base URL Better Auth uses in callbacks/cookies.                                 |
-
-### 5. Routes & DNS (production only)
-
-Uncomment the `routes` block in `wrangler.toml` after your domain is on Cloudflare:
-
-```toml
-routes = [
-  { pattern = "example.com/*", zone_name = "example.com" },
-]
-```
-
-A single proxied (orange-cloud) DNS record pointing at the Worker is enough — Cloudflare terminates TLS and the `surfaceHook` in `hooks.server.ts` decides whether each request is the public site (`/`) or the admin CMS (`/admin/*`).
-
-### 6. Local dev
-
-- `pnpm wrangler:dev` (recommended) — Wrangler spins up local simulators for D1/R2/KV. Reads `wrangler.toml` `[vars]`; secrets come from `.dev.vars` (gitignored). The production `database_id`/KV `id` are ignored locally — a local SQLite file is used instead.
-- `pnpm dev` — plain Vite, no Cloudflare runtime. Renders the 503 "Configuration required" screen so missing bindings are obvious.
-
-Create `.dev.vars` (gitignored) for local-only secrets:
-
-```
-BETTER_AUTH_SECRET=dev-local-only-not-a-real-secret
-```
-
-### Deployment checklist
-
-- [ ] `pnpm setup` ran and `wrangler.toml` has real `database_id` + KV `id`
-- [ ] `BETTER_AUTH_SECRET` set in Cloudflare (`wrangler secret put BETTER_AUTH_SECRET`)
-- [ ] `PUBLIC_SITE_URL`, `CMS_SITE_URL`, `BETTER_AUTH_URL` updated to real domain in `[vars]`
-- [ ] `routes` block uncommented with real domain + zone
-- [ ] DNS record points to the Worker in Cloudflare
-- [ ] GitHub org/repo has `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`
-- [ ] `pnpm build` passes locally
-- [ ] Migrations applied remote (`pnpm db:migrate:remote`) or CI will do it on first push
-
 ## Scripts
 
-| Command                  | Description                            |
-| ------------------------ | -------------------------------------- |
-| `pnpm dev`               | Start local dev server                 |
-| `pnpm build`             | Build for production                   |
-| `pnpm db:generate`       | Generate migration from schema changes |
-| `pnpm db:migrate`        | Apply migrations locally               |
-| `pnpm db:migrate:remote` | Apply migrations to production D1      |
-| `pnpm deploy`            | Build and deploy to Cloudflare Workers |
+| Command                   | Description                                           |
+| ------------------------- | ----------------------------------------------------- |
+| `pnpm dev`                | Local dev server (plain Vite)                         |
+| `pnpm wrangler:dev`       | Local dev with D1/R2/KV simulators                    |
+| `pnpm build`              | Production build                                      |
+| `pnpm test`               | Full test suite                                       |
+| `pnpm run guard:css`      | CSS-inventory render-regression guard                 |
+| `pnpm run guard:contract` | Theme-contract guard ([docs](docs/THEME-CONTRACT.md)) |
+| `pnpm db:generate`        | Generate migration from schema changes                |
+| `pnpm db:migrate`         | Apply migrations locally                              |
+| `pnpm db:migrate:remote`  | Apply migrations to production D1                     |
+| `pnpm deploy`             | Build + deploy to Cloudflare Workers                  |
 
-## Roadmap
+## Version history
 
-Khao Pad started as a CMS. Through v1.5 it became a complete content layer (write, schedule, search, version, audit). v1.6 onward turns it into the **driver of a non-ecommerce website** — meaning a site owner installs Khao Pad and gets the content layer **plus** the surrounding machinery a real website needs (SEO, analytics, IA, performance, engagement).
+| Era           | Theme                                                                                                |
+| ------------- | ---------------------------------------------------------------------------------------------------- |
+| v1.0–v1.5     | The CMS core: auth, media, taxonomy, search, revisions, scheduling, audit                            |
+| v1.6–v2.0     | The website machinery: SEO, IA, analytics, performance, forms/newsletter/comments/webhooks/API       |
+| v3.0–v3.5     | Plugin runtime + the shop plugin (catalog → payments → discounts → recovery)                         |
+| v3.6–v3.10    | Typed collections, secrets portal, admin design system, funnel localization                          |
+| v4.0–v4.1     | Admin UX phase 2, product bundles, careers page                                                      |
+| **v4.2–v4.3** | **The theme/engine split (#174): chrome + checkout seams, theme tokens, and the versioned contract** |
 
-| Version       | Theme                  | Status     | Highlights                                                                                              |
-| ------------- | ---------------------- | ---------- | ------------------------------------------------------------------------------------------------------- |
-| **v1.0**      | MVP                    | ✅ Shipped | M1–M7: scaffold, D1 migrations, Better Auth, media library, taxonomy, deploy pipeline, MD editor        |
-| **v1.1**      | Path-prefix routing    | ✅ Shipped | `/admin/*` instead of `cms.` subdomain, shadcn admin reskin, D1+Date binding fix, scope tightening      |
-| **v1.2**      | Users & settings UIs   | ✅ Shipped | `/admin/users` (roles, last-super-admin guard), `/admin/settings`, `canManageUser` permission helper    |
-| **v1.3**      | Workflow trio          | ✅ Shipped | Token invitations, audit-log viewer, scheduled publishing                                               |
-| **v1.4**      | Full-text search       | ✅ Shipped | SQLite FTS5 over per-locale localizations, public `/blog?q=`, CMS list filter                           |
-| **v1.5**      | Content versioning     | ✅ Shipped | Per-article revision history, line diff, one-click restore, attribution                                 |
-| **v1.6**      | SEO foundations        | ✅ Shipped | Per-page meta, sitemap, robots, JSON-LD, RSS/Atom, slug redirects, SEO scoring hint                     |
-| **v1.7**      | Pages, navigation, IA  | ✅ Shipped | Media folders, reusable blocks, cookie consent, static pages, navigation manager, seed:legal            |
-| **v1.8**      | Analytics & insight    | ✅ Shipped | Privacy-friendly D1 page-views, top articles, search-term insights, per-article sparkline, optional CWA |
-| **v1.9**      | Performance & trust    | ✅ Shipped | Responsive `srcset` via /cdn-cgi/image, edge cache-control hook, branded 404/500, /api/health endpoint  |
-| **v2.0**      | Engagement & growth    | ✅ Shipped | a Forms · b Newsletter (optional) · c Comments · d Webhooks + Public REST API                           |
-| **v3.0**      | Plugin runtime         | ✅ Shipped | Plugins mount routes, schema, sidebar entries, audit actions, webhook events, settings, i18n            |
-| **v3.1–v3.5** | Shop plugin            | ✅ Shipped | Catalog, inventory ledger, cart/checkout, BeamCheckout payments, discounts, abandoned-cart, federation  |
-| **v3.6**      | Typed collections      | ✅ Shipped | Content-type registry, `find()`/`populate` query layer, spec attributes + ranges, entry relations       |
-| **v3.7–v3.9** | Ops & hardening        | ✅ Shipped | In-admin secrets portal (AES-GCM), CSP via `kit.csp`, origin-guard + checkout hardening, admin i18n     |
-| **v3.10**     | Admin DS + funnel i18n | ✅ Shipped | Design system, dark mode, ⌘K, sticky save · localized shop funnel, cart-cache fix, SEO/robots hardening |
-
-**Next up**: v4.0 admin UX phase 2 (saved views, bulk actions everywhere, ⌘S) — see the [v4.0 milestone](https://github.com/codustry/khaopad/milestones).
+Full detail: [docs/MILESTONES.md](docs/MILESTONES.md) · [releases](https://github.com/codustry/khaopad/releases) · [open issues](https://github.com/codustry/khaopad/issues).
 
 **Backlog** (not committed): OAuth providers, block-based editor, AI-assisted authoring, multi-site / workspaces, A/B testing, member-only / paid content.
-
-See [docs/MILESTONES.md](docs/MILESTONES.md) for the detail block on every shipped and pending milestone, and [open issues](https://github.com/codustry/khaopad/issues) for the per-milestone tracking.
 
 ## License
 
