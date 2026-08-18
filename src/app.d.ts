@@ -50,6 +50,13 @@ declare global {
         DB: D1Database;
         MEDIA_BUCKET: R2Bucket;
         CONTENT_CACHE: KVNamespace;
+        /**
+         * Cloudflare Workers rate-limiting binding guarding credential
+         * endpoints (#182). Optional: absent in plain vite dev and in forks
+         * that have not added it — the guard fails open and Better Auth's
+         * KV-backed limiter remains underneath.
+         */
+        AUTH_RATE_LIMITER?: import("$lib/server/auth/rate-limit-guard").RateLimitBinding;
         SUPPORTED_LOCALES: string;
         DEFAULT_LOCALE: string;
         PUBLIC_SITE_URL: string;

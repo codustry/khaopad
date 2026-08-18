@@ -71,7 +71,10 @@ describe("profile page — password change", () => {
     //    unthrottled current-password oracle for anyone with a session
     //    cookie, while the "rate-limited" /api/auth endpoint sits idle
     //    beside it. Found by adversarial review of the combined v4.2 PRs.
-    expect(changePasswordAction).toMatch(/auth\.handler\(/);
+    // Via the rate-limit GUARD since #182's second attempt: the guard
+    // wraps auth.handler and applies the Cloudflare ratelimit binding,
+    // covering this internal call that a route-level guard would miss.
+    expect(changePasswordAction).toMatch(/guardedAuthHandler\(/);
     expect(changePasswordAction).toMatch(/\/api\/auth\/change-password/);
     expect(changePasswordAction).not.toMatch(/auth\.api\.changePassword\(/);
     expect(changePasswordAction).toMatch(/currentPassword/);

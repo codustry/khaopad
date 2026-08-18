@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import * as schema from "$lib/server/content/schema";
 import { createAuth } from "$lib/server/auth";
 import { hasRole } from "$lib/server/auth/permissions";
+import { guardedAuthHandler } from "$lib/server/auth/rate-limit-guard";
 import { logAudit } from "$lib/server/audit";
 import type { Actions, PageServerLoad } from "./$types";
 
@@ -115,7 +116,8 @@ export const actions: Actions = {
     const fwdHeaders = new Headers(request.headers);
     fwdHeaders.set("content-type", "application/json");
     fwdHeaders.delete("content-length"); // body changed; let fetch recompute
-    const authRes = await auth.handler(
+    const authRes = await guardedAuthHandler(
+      auth,
       new Request(new URL("/api/auth/change-password", request.url), {
         method: "POST",
         headers: fwdHeaders,
@@ -126,6 +128,7 @@ export const actions: Actions = {
           revokeOtherSessions: true,
         }),
       }),
+      platform.env.AUTH_RATE_LIMITER,
     );
     if (authRes.status === 429) {
       return {

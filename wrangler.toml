@@ -40,6 +40,21 @@ bucket_name = "khaopad-media"
 # ──────────────────────────────────────
 # KV Content Cache
 # ──────────────────────────────────────
+# ─── Auth rate limiting (#182) ────────────────────────────────
+# Cloudflare's purpose-built per-colo rate limiter guarding credential
+# endpoints (sign-in, change-password, OTP send). KV cannot do this job:
+# production KV caches reads for >= 60s, so short-window counters never
+# accumulate — verified live before this binding replaced that design.
+# `simple.limit` is attempts per `period` seconds per key (ip|path).
+# Period must be 10 or 60. Slightly looser than Better Auth's own 3/10s
+# so its friendlier per-endpoint message usually fires first; this is
+# the backstop that actually holds on Workers.
+[[unsafe.bindings]]
+name = "AUTH_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1821"
+simple = { limit = 5, period = 10 }
+
 [[kv_namespaces]]
 binding = "CONTENT_CACHE"
 id = "PRODUCTION_KV_ID"

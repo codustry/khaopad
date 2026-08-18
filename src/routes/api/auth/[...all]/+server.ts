@@ -1,6 +1,7 @@
 import type { RequestHandler } from "./$types";
 import { validatePlatformEnv } from "$lib/server/config/platform-status";
 import { createAuth } from "$lib/server/auth";
+import { guardedAuthHandler } from "$lib/server/auth/rate-limit-guard";
 
 const handleAuth: RequestHandler = async ({ request, platform }) => {
   const env = platform?.env;
@@ -40,7 +41,7 @@ const handleAuth: RequestHandler = async ({ request, platform }) => {
     CONTENT_CACHE: env.CONTENT_CACHE,
   });
 
-  return auth.handler(request);
+  return guardedAuthHandler(auth, request, platform?.env?.AUTH_RATE_LIMITER);
 };
 
 export const GET = handleAuth;
