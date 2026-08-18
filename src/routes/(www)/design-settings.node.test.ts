@@ -58,6 +58,13 @@ describe("(www) layout theme wiring", () => {
 describe("homepage hero wiring", () => {
   const server = readFileSync(here("./[locale]/+page.server.ts"), "utf8");
   const page = readFileSync(here("./[locale]/+page.svelte"), "utf8");
+  // The hero markup moved to DefaultHome.svelte when the homepage became a
+  // resolver shell (#174 Step 6) — assertions follow the markup, same as the
+  // logo test followed SiteHeader in Step 2.
+  const home = readFileSync(
+    here("../../lib/components/www/DefaultHome.svelte"),
+    "utf8",
+  );
 
   it("resolves hero copy per locale with en fallback", () => {
     expect(server).toContain("homepageHeroTitle");
@@ -66,8 +73,19 @@ describe("homepage hero wiring", () => {
   });
 
   it("falls back to the Paraglide defaults when unset", () => {
-    expect(page).toMatch(/data\.hero\?\.title \?\? m\.site_name\(\)/);
-    expect(page).toMatch(/data\.hero\?\.subtitle \?\? m\.site_description\(\)/);
+    expect(home).toMatch(/data\.hero\?\.title \?\? m\.site_name\(\)/);
+    expect(home).toMatch(/data\.hero\?\.subtitle \?\? m\.site_description\(\)/);
+  });
+
+  it("route resolves the home component from the registry with a default", () => {
+    // The ?? fallback keeps an unconfigured install rendering normally; a
+    // registered deployment home replaces the whole body while the route,
+    // load and SEO stay engine-owned.
+    expect(page).toMatch(/chrome\.home \?\? DefaultHome/);
+    expect(page).toContain("<HomeComponent");
+    // The markup must NOT creep back into the route file — that recreates
+    // the same-file conflict this seam exists to end.
+    expect(page).not.toContain("m.home_cta_shop");
   });
 });
 

@@ -65,9 +65,35 @@ export type SiteFooterProps = {
   footerNav: readonly ChromeNavItem[];
 };
 
+/**
+ * Props the homepage component receives — the engine load's return, passed
+ * through whole. The load (hero copy per locale with en fallback, SEO) stays
+ * ENGINE-owned and mergeable; only the markup is replaceable. Measured basis
+ * (#174 Step 6): a real fork's homepage .svelte grew 23 -> 592 lines against
+ * upstream's 23 -> 34 — the single second-worst merge conflict — while its
+ * +page.server.ts diverged just 60 lines and merged fine. The pain is the
+ * markup file, so the seam is the markup component.
+ */
+export type HomePageProps = {
+  data: {
+    locale: string;
+    hero: { title: string | null; subtitle: string | null };
+    /** The load may return more (seo etc.); a home component ignores extras. */
+    [key: string]: unknown;
+  };
+};
+
 export type ChromeOverrides = {
   header?: Component<SiteHeaderProps>;
   footer?: Component<SiteFooterProps>;
+  /**
+   * Replaces the HOMEPAGE content (everything between chrome). Unlike header
+   * and footer this swaps a whole page body — a deployment's home is usually
+   * a bespoke marketing page, and forcing it through slots would be Woo-style
+   * template fighting. The engine still owns the route, the load, and SEO,
+   * so upstream improvements to those keep arriving.
+   */
+  home?: Component<HomePageProps>;
 };
 
 /**

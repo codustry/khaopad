@@ -46,6 +46,15 @@ describe("chrome registry", () => {
     expect(getChrome().footer).toBeUndefined();
   });
 
+  it("accepts a home override alongside header and footer", () => {
+    // Step 6: the homepage body is chrome too. A deployment's home is a
+    // bespoke marketing page; the engine keeps the route, load and SEO.
+    const Home = (() => {}) as never;
+    setChrome({ home: Home });
+    expect(getChrome().home).toBe(Home);
+    expect(getChrome().header).toBeUndefined();
+  });
+
   it("merges successive calls instead of replacing", () => {
     // A deployment may register chrome from more than one place; the second
     // call must not silently discard the first.
