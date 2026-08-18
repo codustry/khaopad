@@ -1,5 +1,14 @@
 <script lang="ts">
 	import '../../app.css';
+	// Side-effect import: runs every plugin's + deployment's module-load
+	// registrations (setChrome, checkout slots) in the STOREFRONT CLIENT
+	// bundle. Without it, registrations run only server-side: SSR renders a
+	// deployment's custom chrome, hydration finds an empty registry, and the
+	// header snaps back to the default — the exact "registrations that only
+	// ran server-side" failure sidebar-nav.ts documents for the admin, now
+	// on the public surface. Found by adversarial review before any
+	// deployment hit it.
+	import '$lib/plugins/registrations';
 	import * as m from '$lib/paraglide/messages';
 	import { localePath, toLocale, getAlternateLocale, SUPPORTED_LOCALES } from '$lib/i18n';
 	import { page } from '$app/state';

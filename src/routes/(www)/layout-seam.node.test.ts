@@ -114,4 +114,13 @@ describe("(www) layout — chrome seam", () => {
   it("still renders page content between the chrome", () => {
     expect(LAYOUT).toContain("{@render children()}");
   });
+
+  it("imports plugin registrations into the STOREFRONT CLIENT bundle", () => {
+    // Without this side-effect import, setChrome()/slot registrations run
+    // only server-side: SSR paints the custom chrome, hydration finds an
+    // empty registry, and the header snaps back to the default. The admin
+    // surface learned this lesson once already (sidebar-nav.ts documents
+    // it); this pin stops the public surface relearning it.
+    expect(LAYOUT).toMatch(/import ['"]\$lib\/plugins\/registrations['"]/);
+  });
 });

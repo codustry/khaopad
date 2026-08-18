@@ -82,9 +82,13 @@ export type ChromeOverrides = {
 var _chrome: ChromeOverrides | undefined;
 
 /**
- * Register replacement chrome. Call once during app startup — the natural
- * place is a deployment's `src/lib/plugins/registrations.ts`, alongside the
- * existing plugin registrations.
+ * Register replacement chrome. Call once at module-load time from
+ * `src/lib/plugins/registrations.ts` (or a module it imports) — that file is
+ * imported by BOTH the server (via runtime.ts) and the storefront client
+ * bundle (via (www)/+layout.svelte), which is what makes an override
+ * consistent across SSR and hydration. Registering anywhere only the server
+ * loads produces the worst failure available: SSR paints the custom chrome,
+ * hydration finds an empty registry, and the page snaps to the default.
  *
  * Passing a partial object is fine and expected: override the header, keep
  * Khao Pad's footer, or vice versa.
