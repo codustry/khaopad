@@ -178,6 +178,16 @@
 		{/if}
 	</header>
 
+	{#if product.featuredMediaId}
+		<img
+			src={`/api/media/${product.featuredMediaId}`}
+			alt={localization.title}
+			width="640"
+			height="640"
+			class="mb-8 aspect-square w-full max-w-md rounded-lg border border-border object-cover"
+		/>
+	{/if}
+
 	<section class="mb-8 space-y-4">
 		<div class="flex items-baseline gap-3">
 			<span class="text-2xl font-semibold tabular-nums">

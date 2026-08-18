@@ -89,7 +89,11 @@ export const load: PageServerLoad = async ({ params, url, platform }) => {
     title: localization.title,
     description: localization.descriptionMarkdown,
     brand: product.vendor,
-    featuredImageUrl: null, // media resolution ships when the media picker lands for shop
+    // Absolute URL — schema.org consumers resolve `image` outside any
+    // page context. Same /api/media path the storefront <img> uses.
+    featuredImageUrl: product.featuredMediaId
+      ? `${origin}/api/media/${product.featuredMediaId}`
+      : null,
     variants: activeVariants.map((v) => ({
       sku: v.sku,
       priceSatang: v.priceSatang,
