@@ -9,6 +9,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { validateOrderAddress } from "$lib/shop/address-validation";
 import {
   registerCheckoutSlots,
   getCheckoutSlots,
@@ -64,15 +65,30 @@ describe("checkout page — slot wiring", () => {
     );
   });
 
-  it("does NOT send fields the server would silently drop", () => {
-    // validateOrderAddress builds a fresh object from a known field list and
-    // discards unknown keys WITHOUT error, and there is no order-metadata
-    // channel in this codebase at all. A slot appearing to save a tax id that
-    // never lands is worse than one that cannot save it — nobody would notice
-    // until an accountant asked for the invoices. See #171.
+  it("tax-entity fields survive the validator round trip (#171)", () => {
+    // History: the contribution type once declared these fields while the
+    // validator silently dropped them — tax data vanished between browser
+    // and order row with no error anywhere. They are back only because the
+    // whole path now exists. This test IS that path: if a field is in the
+    // slot contract, the validator must forward it.
+    const address = validateOrderAddress({
+      name: "Somchai Trading Co., Ltd.",
+      line1: "88 Sukhumvit Rd",
+      city: "Bangkok",
+      postalCode: "10110",
+      countryCode: "TH",
+      entityName: "Somchai Trading Co., Ltd.",
+      taxId: "0105536112233",
+      branchCode: "00001",
+    });
+    expect(address.ok).toBe(true);
+    if (address.ok) {
+      expect(address.address.entityName).toBe("Somchai Trading Co., Ltd.");
+      expect(address.address.taxId).toBe("0105536112233");
+      expect(address.address.branchCode).toBe("00001");
+    }
+    // The metadata channel remains deliberately absent — nothing stores it.
     expect(CHECKOUT).not.toContain("slotContribution.metadata");
-    expect(CHECKOUT).not.toContain("entityName");
-    expect(CHECKOUT).not.toContain("taxId");
   });
 
   it("keeps money and payment out of slot reach", () => {

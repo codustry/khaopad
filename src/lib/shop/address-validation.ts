@@ -34,7 +34,20 @@ const REQUIRED_FIELDS = [
 ] as const;
 
 /** Optional fields — string or null when present. */
-const OPTIONAL_FIELDS = ["line2", "region", "phone"] as const;
+const OPTIONAL_FIELDS = [
+  "line2",
+  "region",
+  "phone",
+  // Tax-entity fields (#171). These existed in the checkout-slot
+  // contribution type before they existed HERE — and this validator
+  // builds a fresh object from these lists and silently drops anything
+  // else, so the slot's tax data vanished between browser and order row
+  // with no error anywhere. If you add a field to the slot contract,
+  // it must be added here and to OrderAddress in the same change.
+  "entityName",
+  "taxId",
+  "branchCode",
+] as const;
 
 /**
  * Default permissive validator. Accepts any object carrying the

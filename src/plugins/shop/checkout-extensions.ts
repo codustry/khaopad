@@ -55,22 +55,16 @@ export type CheckoutSlotName =
  * That is the exact silent-data-loss failure this seam exists to prevent, so
  * the type deliberately mirrors the validator rather than wishing for fields.
  *
- * ── KNOWN LIMITATION, stated rather than hidden ──
- *
- * There is NO order-metadata channel in this codebase today: no `metadata`
- * column, no order-service field, nothing in checkout/start. So a slot can
- * currently contribute only what a billing address can carry.
- *
- * That means a Thai ใบกำกับภาษี (entity name, tax id, branch code) can be
- * COLLECTED and VALIDATED by a slot, and the buyer's billing address stored,
- * but the tax identifiers themselves have nowhere to persist. Closing that
- * needs a coordinated engine change — add the fields to REQUIRED/OPTIONAL_FIELDS
- * in the validator, to OrderAddress, and to the order schema (a migration).
- *
- * It is deliberately NOT faked with a pass-through that the validator would
- * silently drop: a slot appearing to save tax data that never lands is worse
- * than a slot that cannot save it, because nobody would notice until an
- * accountant asked for the invoices. Tracked in #171.
+ * The tax-entity fields (#171) are real, end to end: they are declared on
+ * OrderAddress, accepted by validateOrderAddress's OPTIONAL_FIELDS, and land
+ * in the order's billing_address_json (already a JSON column — no migration).
+ * An earlier revision of this file deliberately OMITTED them because the
+ * validator of the day built a fresh object from a known field list and
+ * silently dropped everything else — a slot that appears to save tax data
+ * which never lands is worse than one that cannot. If you extend this type
+ * again, extend the validator and OrderAddress in the same change, and add a
+ * round-trip test; the type being wider than the validator is the silent
+ * failure mode this comment exists to prevent.
  */
 export type CheckoutContribution = {
   billingAddress?: {
@@ -82,6 +76,12 @@ export type CheckoutContribution = {
     postalCode?: string;
     countryCode?: string;
     phone?: string | null;
+    /** Registered entity name for a tax invoice (ใบกำกับภาษี etc.). */
+    entityName?: string | null;
+    /** Tax registration number — TIN, VAT id, CNPJ. */
+    taxId?: string | null;
+    /** Branch/establishment code, where the tax regime requires one. */
+    branchCode?: string | null;
   };
 };
 

@@ -120,6 +120,20 @@ export type OrderAddress = {
   postalCode: string;
   countryCode: string; // ISO-3166 alpha-2
   phone?: string | null;
+  // ── Tax-entity fields (#171) ──────────────────────────────
+  // Optional because most orders are plain consumer sales. Present when
+  // the buyer requests a tax invoice: Thailand's ใบกำกับภาษี needs the
+  // registered entity name, the 13-digit tax ID and (for VAT-registered
+  // branches) a branch code; an EU VAT number or Brazilian CNPJ fits the
+  // same three slots. Stored with the order's billing_address_json — the
+  // column is already JSON text, so no migration was needed, just this
+  // type and the validator's field lists.
+  /** Registered entity name, when it differs from the buyer's name. */
+  entityName?: string | null;
+  /** Tax registration number — TIN, VAT id, CNPJ, etc. */
+  taxId?: string | null;
+  /** Branch/establishment code, where the tax regime requires one. */
+  branchCode?: string | null;
 };
 
 export type CreateOrderFromCartInput = {
