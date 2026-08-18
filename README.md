@@ -127,6 +127,14 @@ Beyond articles and pages: define **content types** in the admin (fields, per-lo
 - **Secrets portal** (v3.7) — manage integration credentials (Beam, Resend) at `/admin/settings/secrets` instead of `wrangler secret put`; AES-GCM-256 envelope encryption keyed off `BETTER_AUTH_SECRET` via HKDF, masked display, env-always-wins precedence. `BETTER_AUTH_SECRET` itself stays a Cloudflare secret — it is the root of trust
 - **Admin design system** (v3.10) — shared `PageShell` / `PageHeader` / `DataTable` / `StatusBadge` primitives across all 40+ admin pages; **dark mode** (light / dark / system, applied pre-paint); **⌘K command palette** over the same nav registry the sidebar uses, role-filtered; **sticky save bar** with dirty-state tracking and an unsaved-changes guard covering both tab-close and in-app navigation; URL-state search + filters on the list pages; keyboard-navigable media folder tree
 
+### Plugins (proposed for post-v2.0)
+
+Khao Pad core stays focused on the content + growth surface every non-ecommerce site needs. Anything beyond that ships as an **optional plugin** — self-contained, zero-core-surgery, opt-in per install.
+
+- **`@khaopad/plugin-shop`** — small ecommerce for Thailand-first sites. **BeamCheckout** integration (PromptPay QR + credit card + LINE Pay + TrueMoney), cart / checkout / order flow, discount codes, affiliate referrals, receipt emails via Resend. Products are static TypeScript (`src/lib/products.ts`) — no CMS catalog UI in v0.1, escape hatch to D1-backed catalog via `ProductProvider`. Reference implementation runs today at [bactrack.in.th](https://bactrack.in.th). Full design: [docs/adr/0001-shop-as-optional-plugin.md](docs/adr/0001-shop-as-optional-plugin.md).
+
+The plugin mechanism itself is not yet implemented — the ADR above proposes the contract (route mount + schema concatenation + sidebar merge + audit + webhook + settings + i18n). If you'd use it, open an issue or +1 [the ADR discussion](https://github.com/codustry/khaopad/issues) so we can size the work.
+
 ### Platform fundamentals
 
 - **One repo, one host, two surfaces** — public site at `/`, admin at `/admin/*`, single Worker deployment
