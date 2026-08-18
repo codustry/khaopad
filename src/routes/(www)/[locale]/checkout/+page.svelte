@@ -1,5 +1,13 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	// Side-effect import: runs slot registrations in the STOREFRONT CLIENT
+	// bundle, not just on the server. Without it a registered slot renders
+	// during SSR, then hydration finds an empty registry and the fields
+	// vanish — and contribute/setValidity are client interactions, so a
+	// server-only slot can never actually work. Mirrors the same import in
+	// (www)/+layout.svelte; duplicated here so this branch is correct even
+	// standalone (modules evaluate once, so the duplication costs nothing).
+	import '$lib/plugins/registrations';
 	import { CreditCard, ArrowLeft } from 'lucide-svelte';
 	import { Button, Input, Label } from '$lib/components/ui';
 	import * as m from '$lib/paraglide/messages';

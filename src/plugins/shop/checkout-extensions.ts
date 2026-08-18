@@ -127,9 +127,14 @@ export type CheckoutSlots = Partial<
 var _slots: CheckoutSlots | undefined;
 
 /**
- * Register checkout slot components. Call once at startup, from a
- * deployment's plugin registrations. Successive calls merge, so different
- * plugins can each contribute a slot.
+ * Register checkout slot components. Call at module-load time from
+ * `src/lib/plugins/registrations.ts` (or a module it imports) — that file is
+ * loaded by BOTH the server and the storefront client bundle, which is what
+ * keeps a slot consistent across SSR and hydration. A slot registered
+ * anywhere only the server loads renders during SSR, disappears at
+ * hydration, and its contribute/setValidity callbacks never run at all.
+ *
+ * Successive calls merge, so different plugins can each contribute a slot.
  */
 export function registerCheckoutSlots(slots: CheckoutSlots): void {
   _slots = { ..._slots, ...slots };
