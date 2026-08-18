@@ -1,0 +1,39 @@
+<!--
+  Deployment-owned <head> fragment - Step 4 of the theme/engine split (#174).
+
+  WHY THIS FILE EXISTS
+
+  app.html must be customised by every deployment (fonts, analytics, verification
+  meta tags) AND is edited upstream, and it had no test coverage at all. That
+  combination produced the incident that motivated #174: a merge took upstream's
+  app.html and silently dropped a fork's Google Fonts <link> tags. app.css still
+  declared the font stack, the CSP still allowed the origin, nothing threw - so
+  typecheck, lint, tests and an SSR curl all stayed green while the site rendered
+  in a fallback typeface. A human noticed the wrong font.
+
+  Splitting the file means upstream owns the shell (charset, viewport, the theme
+  bootstrap script, %sveltekit.head%) and a deployment owns this fragment. Merging
+  an upstream release no longer touches it, so there is nothing to silently lose.
+
+  WHAT GOES HERE
+    - font <link> tags (self-hosted fonts need nothing here; CDN fonts do)
+    - analytics snippets NOT already handled by the consent banner
+    - search-console / domain verification meta tags
+    - a custom favicon overriding the default
+
+  WHAT DOES NOT GO HERE
+    - anything SvelteKit already emits via %sveltekit.head% (title, meta
+      description, canonical, Open Graph) - those come from the <Seo> component
+    - the theme bootstrap script - it must run before first paint and stay in
+      sync with THEME_INIT_SCRIPT in $lib/components/admin/theme.svelte.ts
+
+  CSP NOTE
+  csp.mode is "auto" (nonce-based). An inline <script> here MUST carry
+  nonce="%sveltekit.nonce%" or the browser silently refuses to run it - exactly
+  how #133 broke a downstream fork. An external <script src> needs its origin
+  added to the CSP config in svelte.config.js instead.
+
+  This file is intentionally empty upstream. Khao Pad self-hosts its fonts via
+  @fontsource and needs nothing extra; the emptiness is the default, not an
+  oversight.
+-->
