@@ -133,6 +133,76 @@ import { dispatchEvent } from "$lib/server/webhooks";
 await dispatchEvent(env, { event: "hello.pinged", payload: { id, message } });
 ```
 
+## Optional (opt-in) plugins
+
+A plugin whose manifest declares `optional: true` is **installed but not
+active** until an operator switches it on in **Settings → Features**.
+Default is OFF (#193).
+
+```ts
+export default defineKhaopadPlugin({
+  slug: "shop",
+  name: "Shop",
+  version: "0.3.0",
+  optional: true, // off until an operator enables it
+});
+```
+
+Use it for anything a site might not want at all. The motivating case:
+a deployment that sells nothing still saw **Shop → Products**, found it
+empty, and read it as broken data — and creating a product there writes
+to `shop_products`, which that site's storefront never reads. An unused
+module must be absent, not empty.
+
+Three things follow automatically once the flag is set:
+
+1. **Nav.** `registerNavGroup({ id: "<slug>", ... })` is gated because
+   `plugin` defaults to the group id. An item a plugin appends into a
+   **core** group (`registerNavItem("main", ...)`) is not covered by
+   that — tag it explicitly:
+
+   ```ts
+   registerNavItem("main", { href: "/admin/reports", ..., plugin: "shop" });
+   ```
+
+2. **Dashboard panels + anything else server-side.** Ask the gate:
+
+   ```ts
+   import { isPluginEnabled } from "$lib/plugins/optional";
+   import { getEnabledPlugins } from "$lib/server/plugins/enabled";
+
+   const on = isPluginEnabled("shop", await getEnabledPlugins(locals.content));
+   ```
+
+3. **Routes.** Hiding nav is not a guard — a bookmark still reaches the
+   page. Add a `+layout.server.ts` at the top of your route subtree:
+
+   ```ts
+   import { requirePluginEnabled } from "$lib/server/plugins/enabled";
+   export const load = async ({ locals }) => {
+     await requirePluginEnabled(locals.content, "shop"); // 404s while off
+     return {};
+   };
+   ```
+
+   `+server.ts` endpoints do **not** run layout loads — repeat the call
+   inline there.
+
+Registration itself still happens at **module load**, unchanged: it
+cannot await a D1 read, and the sidebar must not render before plugin
+groups exist. The enabled set is applied when the nav snapshot is taken
+(`listNavGroups(enabledPlugins)`), fed by the admin layout's load — so
+SSR and hydration filter the same static registry with the same array.
+
+Also add the slug to `OPTIONAL_PLUGIN_SLUGS` in
+`src/lib/plugins/optional.ts`. That list is a hand-maintained mirror of
+the manifests (it must stay free of `lucide-svelte` so the client bundle
+and unit tests can import it); `optional-plugins.node.test.ts` pins the
+two in sync.
+
+Registered slugs live in site settings under `enabledPlugins`, so
+switching a plugin on takes effect on the next request — no redeploy.
+
 ## Enabling a plugin
 
 Add its default export to `enabledPlugins` in `src/lib/plugins/runtime.ts`:
@@ -163,7 +233,7 @@ To manually verify: `pnpm run dev`, login as super_admin, visit `/admin/hello`, 
 - **`pnpm khaopad plugin list|install|remove` CLI** — v3.5
 - **`khaopadCompat` peer-dep check** at install time — v3.5
 - **npm package discovery** via `package.json`'s `khaopad.plugins` field — v3.5
-- **Plugin settings cards** in `/admin/settings` — deferred until real plugin needs it
+- **Per-plugin settings cards** in `/admin/settings` — deferred until a real plugin needs it. The generic on/off switch (Settings → Features) shipped in #193.
 - **i18n key merging** so plugins can ship their own paraglide messages — deferred
 
 See [docs/PLUGINS.md](./PLUGINS.md) for the curated list of shipped plugins.

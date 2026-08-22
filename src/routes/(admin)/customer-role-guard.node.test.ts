@@ -35,9 +35,14 @@ function makeUser(role: AuthUser["role"]): AuthUser {
 }
 
 type LoadArgs = Parameters<typeof load>[0];
-function callLayoutLoad(user: AuthUser | null, pathname = "/admin/dashboard") {
+function callLayoutLoad(
+  user: AuthUser | null,
+  pathname = "/admin/dashboard",
+  /** #193: the layout resolves the opt-in plugin set from settings. */
+  settings: Record<string, unknown> = {},
+) {
   return load({
-    locals: { user },
+    locals: { user, content: { getSettings: async () => settings } },
     url: new URL(`https://example.com${pathname}`),
   } as unknown as LoadArgs);
 }
@@ -81,7 +86,17 @@ describe("(admin) layout guard", () => {
 
   it("lets staff through", async () => {
     const result = await callLayoutLoad(makeUser("author"));
-    expect(result).toEqual({ user: makeUser("author") });
+    // #193 added the opt-in plugin set to the payload; empty by
+    // default, which is what a fresh install must see.
+    expect(result).toEqual({ user: makeUser("author"), enabledPlugins: [] });
+  });
+
+  it("passes the operator's enabled plugin set down to the nav (#193)", () => {
+    return expect(
+      callLayoutLoad(makeUser("admin"), "/admin/dashboard", {
+        enabledPlugins: ["shop"],
+      }),
+    ).resolves.toMatchObject({ enabledPlugins: ["shop"] });
   });
 });
 

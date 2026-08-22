@@ -158,6 +158,21 @@ export interface SiteSettings {
    */
   commentsEnabled?: boolean;
   /**
+   * #193: opt-in plugin set. Slugs of OPTIONAL plugins (those whose
+   * manifest declares `optional: true`) the operator switched on in
+   * Settings → Features.
+   *
+   * Absent/empty = nothing optional is enabled, which is the intended
+   * default for a fresh install: no Shop nav group, no /admin/reports
+   * item, no Shop dashboard panel, and /admin/shop/* 404s. Enabling is
+   * a plain settings write, so it takes effect on the next request
+   * without a redeploy.
+   *
+   * Non-optional plugins are never listed here — they are active by
+   * virtue of being installed.
+   */
+  enabledPlugins?: string[];
+  /**
    * v3.16 (C4): operator address for new-paid-order notifications.
    * Empty/undefined disables the email channel; the LINE channel is
    * configured independently via the managed-secrets portal

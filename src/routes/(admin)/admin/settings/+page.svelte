@@ -49,6 +49,31 @@
 	let commentsEnabled = $state(
 		(data.settings.commentsEnabled as boolean | undefined) ?? false,
 	);
+	/**
+	 * #193 — opt-in plugin switches, one per installed OPTIONAL plugin.
+	 *
+	 * Keyed by slug rather than a per-plugin `let`, because the catalogue
+	 * comes from the manifests: a downstream that ships its own optional
+	 * plugin gets a working switch without touching this file.
+	 */
+	// svelte-ignore state_referenced_locally
+	let featureEnabled = $state<Record<string, boolean>>(
+		Object.fromEntries(
+			data.optionalPlugins.map((p) => [
+				p.slug,
+				// Widened to string[]: the settings load types the enabled set
+				// as the OptionalPluginSlug union, while the catalogue's slugs
+				// are plain strings off the manifests.
+				(data.enabledPlugins as readonly string[]).includes(p.slug),
+			]),
+		),
+	);
+
+	/** Per-plugin explanation. Falls back to the manifest description
+	 *  for a plugin core has no localized copy for. */
+	function featureHelp(slug: string, description: string): string {
+		return slug === 'shop' ? m.cms_settings_features_shop_help() : description;
+	}
 	// v3.16 (C4) — operator email for new-paid-order notifications.
 	// svelte-ignore state_referenced_locally
 	let shopNotifyEmail = $state(
@@ -270,6 +295,42 @@
 						</span>
 					</span>
 				</label>
+			</CardContent>
+		</Card>
+
+		<!--
+			#193 — Features. Sits inside the same form as every other
+			setting so it shares the SaveBar and dirty-tracking; a
+			separate named action would have forced the page's single
+			`default` action to be renamed, breaking every other field.
+		-->
+		<Card class="mt-6">
+			<CardHeader>
+				<CardTitle>{m.cms_settings_features()}</CardTitle>
+			</CardHeader>
+			<CardContent class="space-y-4">
+				<p class="text-xs text-muted-foreground">{m.cms_settings_features_help()}</p>
+				{#if data.optionalPlugins.length === 0}
+					<p class="text-sm text-muted-foreground">{m.cms_settings_features_empty()}</p>
+				{:else}
+					{#each data.optionalPlugins as plugin (plugin.slug)}
+						<label class="flex items-start gap-2 text-sm cursor-pointer">
+							<input
+								type="checkbox"
+								id={`feature_${plugin.slug}`}
+								name={`feature_${plugin.slug}`}
+								bind:checked={featureEnabled[plugin.slug]}
+								class="mt-0.5 h-4 w-4"
+							/>
+							<span>
+								{plugin.name}
+								<span class="block text-xs text-muted-foreground mt-0.5">
+									{featureHelp(plugin.slug, plugin.description)}
+								</span>
+							</span>
+						</label>
+					{/each}
+				{/if}
 			</CardContent>
 		</Card>
 

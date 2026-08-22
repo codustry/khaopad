@@ -4,6 +4,14 @@
  * Ships as an optional plugin so sites that don't sell anything stay
  * lean. Uses the v3.0 plugin runtime.
  *
+ * "Optional" is now enforced rather than aspirational (#193): the
+ * manifest below sets `optional: true`, so the nav group, the
+ * /admin/reports entry, the dashboard panel and the /admin/shop/*
+ * routes stay dark until an operator switches Shop on in
+ * Settings → Features. Registration still happens at module load
+ * (unchanged, and load-order-safe); the ENABLED set is applied at
+ * render/request time from site settings.
+ *
  * v3.1 scope (#56, in progress):
  *   - Product catalog + variants (this milestone, incremental sub-PRs)
  *
@@ -51,6 +59,10 @@ registerWebhookEvent("order.refunded");
 // Module-load registration — runs before the first render in both
 // client and server bundles. See docs/plugin-authoring.md.
 registerNavGroup({
+  // `plugin` defaults to the group id, which is already the slug — the
+  // gate in listNavGroups() therefore hides this whole group, and with
+  // it the /admin/reviews item the reviews plugin appends here. That is
+  // correct: reviews are reviews OF shop products.
   id: "shop",
   title: () => "Shop",
   items: [
@@ -90,14 +102,20 @@ registerNavItem("main", {
   label: m.shop_report_title,
   icon: BarChart3,
   roles: ["super_admin", "admin"],
+  // #193: this item lives in a CORE group, so hiding the "shop" group
+  // would not hide it. Tagging the owner is what gates it.
+  plugin: "shop",
 });
 
 export default defineKhaopadPlugin({
   slug: "shop",
   name: "Shop",
-  version: "0.2.0",
+  version: "0.3.0",
   description:
     "Small ecommerce: products, variants, cart, checkout (BeamCheckout for Thailand)",
+  // #193 — opt-in, off by default. A site that sells nothing must not
+  // be shown an empty Products list it can accidentally write into.
+  optional: true,
   async onInit(ctx) {
     // Register BeamCheckout provider at first-request time (needs env).
     // Skip silently when Beam credentials aren't set — the shop still

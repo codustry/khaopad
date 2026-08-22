@@ -6,6 +6,7 @@
  */
 import { error, redirect } from "@sveltejs/kit";
 import { hasRole } from "$lib/server/auth/permissions";
+import { requirePluginEnabled } from "$lib/server/plugins/enabled";
 import {
   buildFinanceReport,
   financeReportToCsv,
@@ -18,6 +19,9 @@ export const GET: RequestHandler = async ({ locals, platform, url }) => {
   if (!hasRole(locals.user, "admin")) {
     throw error(403, "Only admins and super admins can access this area.");
   }
+  // #193: endpoints don't run layout loads, so the shop gate that the
+  // sibling page inherits from ../+layout.server.ts is repeated here.
+  await requirePluginEnabled(locals.content, "shop");
   const env = platform?.env;
   if (!env) throw error(503, "Platform not ready");
 

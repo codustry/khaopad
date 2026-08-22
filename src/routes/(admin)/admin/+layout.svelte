@@ -91,7 +91,7 @@
 			height.
 		-->
 		<div class="hidden shrink-0 lg:block lg:sticky lg:top-0 lg:h-screen">
-			<Sidebar user={data.user} onLogout={logout} />
+			<Sidebar user={data.user} onLogout={logout} enabledPlugins={data.enabledPlugins} />
 		</div>
 
 		<!-- Mobile drawer -->
@@ -107,7 +107,7 @@
 				aria-modal="true"
 				aria-label="Navigation"
 			>
-				<Sidebar user={data.user} onLogout={logout} />
+				<Sidebar user={data.user} onLogout={logout} enabledPlugins={data.enabledPlugins} />
 			</div>
 		{/if}
 
@@ -146,7 +146,7 @@
 			</main>
 
 			<!-- ⌘K. Reads the same nav registry the sidebar does. -->
-			<CommandPalette role={data.user.role} />
+			<CommandPalette role={data.user.role} enabledPlugins={data.enabledPlugins} />
 
 		</div>
 	</div>

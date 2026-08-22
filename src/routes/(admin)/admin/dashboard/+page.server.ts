@@ -4,7 +4,8 @@ import { and, desc, eq, gte, ne, sql } from "drizzle-orm";
 import * as schema from "$lib/server/content/schema";
 import { canManageUsers, hasRole } from "$lib/server/auth/permissions";
 import { AnalyticsService } from "$lib/server/analytics";
-import { listEnabledPlugins } from "$lib/plugins/runtime";
+import { isPluginEnabled } from "$lib/plugins/optional";
+import { getEnabledPlugins } from "$lib/server/plugins/enabled";
 import { shopOrders } from "$plugins/shop/schema-cart";
 import {
   shopInventoryItems,
@@ -297,11 +298,19 @@ export const load: PageServerLoad = async ({ locals, platform }) => {
     };
   });
 
-  // #160 C9: shop section — plugin-gated (same enabled-set the runtime
-  // loads from) and admin+ (mirrors the orders route). Best-effort
-  // like the analytics tiles: a fresh install without the shop
-  // migrations must not take the dashboard down.
-  const shopEnabled = listEnabledPlugins().some((p) => p.slug === "shop");
+  // #160 C9: shop section — plugin-gated and admin+ (mirrors the orders
+  // route). Best-effort like the analytics tiles: a fresh install
+  // without the shop migrations must not take the dashboard down.
+  //
+  // #193 changed WHICH set this reads. It used to consult
+  // the INSTALLED plugin list, which always contains
+  // shop, so the gate never fired and every site got a permanent
+  // "THB 0.00" revenue panel. It now reads the operator's opt-in set
+  // from site settings, the same one that gates the nav and routes.
+  const shopEnabled = isPluginEnabled(
+    "shop",
+    await getEnabledPlugins(locals.content),
+  );
   const shop =
     shopEnabled && hasRole(locals.user, "admin")
       ? await loadShopSection(platform.env.DB, now).catch(() => null)

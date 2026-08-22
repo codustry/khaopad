@@ -9,7 +9,21 @@
 
 	type User = { name: string; role: string };
 
-	let { user, onLogout }: { user: User; onLogout?: () => void } = $props();
+	let {
+		user,
+		onLogout,
+		enabledPlugins = [],
+	}: {
+		user: User;
+		onLogout?: () => void;
+		/**
+		 * Opt-in plugin slugs from site settings (#193), supplied by the
+		 * admin layout's load. Filtering here rather than at registration
+		 * keeps SSR and hydration in step: both render from the same
+		 * static registry narrowed by the same array.
+		 */
+		enabledPlugins?: ReadonlyArray<string>;
+	} = $props();
 
 	// Sidebar collapse state — persist across reloads via localStorage,
 	// hydrated on mount to avoid SSR/CSR mismatch.
@@ -38,7 +52,7 @@
 	// Snapshot the registry once per render — plugin boot must complete
 	// before the sidebar mounts, which it does since plugins register
 	// server-side at module load. Re-reading each render is cheap.
-	const groups = $derived(listNavGroups());
+	const groups = $derived(listNavGroups(enabledPlugins));
 
 	function isActive(href: string) {
 		// Exact match wins; otherwise treat as section root (e.g. /admin/articles

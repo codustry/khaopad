@@ -1,7 +1,31 @@
 import { error, fail, redirect } from "@sveltejs/kit";
 import { canManageSettings } from "$lib/server/auth/permissions";
 import { logAudit } from "$lib/server/audit";
+import { listEnabledPlugins } from "$lib/plugins/runtime";
+import {
+  OPTIONAL_PLUGIN_SLUGS,
+  normalizeEnabledPlugins,
+} from "$lib/plugins/optional";
 import type { Actions, PageServerLoad } from "./$types";
+
+/**
+ * #193 — the Features card's catalogue: every INSTALLED plugin whose
+ * manifest declares `optional: true`.
+ *
+ * Derived from the manifests rather than hard-coded, so a downstream
+ * that adds its own optional plugin gets a switch for free — the whole
+ * point of putting the flag in the manifest instead of in each site's
+ * sidebar edits.
+ */
+function listOptionalPlugins() {
+  return listEnabledPlugins()
+    .filter((p) => p.optional)
+    .map((p) => ({
+      slug: p.slug,
+      name: p.name,
+      description: p.description ?? "",
+    }));
+}
 
 export const load: PageServerLoad = async ({ locals }) => {
   if (!locals.user) throw redirect(302, "/admin/login");
@@ -9,7 +33,11 @@ export const load: PageServerLoad = async ({ locals }) => {
     throw error(403, "Only admins and super admins can manage site settings.");
   }
   const settings = await locals.content.getSettings();
-  return { settings };
+  return {
+    settings,
+    optionalPlugins: listOptionalPlugins(),
+    enabledPlugins: normalizeEnabledPlugins(settings.enabledPlugins),
+  };
 };
 
 function requireSettingsManager(locals: App.Locals) {
@@ -105,6 +133,14 @@ export const actions: Actions = {
     const heroSubtitleEn = String(form.get("hero_subtitle_en") ?? "").trim();
     const heroSubtitleTh = String(form.get("hero_subtitle_th") ?? "").trim();
 
+    // #193 — Features card. One checkbox per installed optional plugin,
+    // named `feature_<slug>`. Reading them by iterating the KNOWN slug
+    // list (rather than scanning form keys for a prefix) means a forged
+    // field cannot enable something that isn't installed.
+    const enabledPlugins = OPTIONAL_PLUGIN_SLUGS.filter(
+      (slug) => form.get(`feature_${slug}`) === "on",
+    );
+
     if (!siteName) return fail(400, { error: "Site name is required." });
     // Strict hex gate: this value lands inside an inline style
     // attribute on the public layout's root element, so nothing but
@@ -183,6 +219,11 @@ export const actions: Actions = {
         "newsletter.allowSingleOptIn": newsletterAllowSingleOptIn,
         // Comments (v2.0c) — site-wide kill switch.
         commentsEnabled,
+        // Optional plugins (#193). Always written as an array — an
+        // empty one is meaningful ("everything switched off") and must
+        // persist, so this is deliberately NOT collapsed to undefined
+        // the way the optional string fields above are.
+        enabledPlugins,
         // Shop notifications (v3.16 C4).
         shopNotifyEmail: shopNotifyEmail || undefined,
         // Merchant tax identity (v3.17 D5) — finance report header.
@@ -227,7 +268,14 @@ export const actions: Actions = {
         locals.user.id,
         "settings.update",
         "site",
-        { siteName, defaultLocale, supportedLocales: supported },
+        {
+          siteName,
+          defaultLocale,
+          supportedLocales: supported,
+          // Enabling/disabling a plugin changes what the CMS exposes —
+          // worth being able to answer "who turned the shop on?".
+          enabledPlugins,
+        },
       );
     }
     return { ok: true };

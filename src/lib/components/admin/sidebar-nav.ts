@@ -23,6 +23,7 @@ import {
   UserCircle,
 } from "lucide-svelte";
 import * as m from "$lib/paraglide/messages";
+import { isPluginEnabled } from "$lib/plugins/optional";
 
 export type NavItem = {
   href: Pathname;
@@ -31,6 +32,14 @@ export type NavItem = {
   icon: ComponentType;
   /** Roles that can see this item. Empty = visible to everyone signed in. */
   roles?: ReadonlyArray<"super_admin" | "admin" | "editor" | "author">;
+  /**
+   * Owning plugin slug (#193). When the slug names an OPTIONAL plugin,
+   * the entry is hidden unless the site enabled it. Set this on items a
+   * plugin appends to a group it does not own — e.g. shop's
+   * `/admin/reports` in the core "main" group, which otherwise survives
+   * hiding the Shop group.
+   */
+  plugin?: string;
 };
 
 export type NavGroup = {
@@ -39,6 +48,13 @@ export type NavGroup = {
   /** Localized group title (shown above items, hidden in collapsed mode) */
   title: () => string;
   items: ReadonlyArray<NavItem>;
+  /**
+   * Owning plugin slug (#193). Hides the whole group (title + items)
+   * while an optional plugin is switched off. Defaults to the group id
+   * on registration, which is the plugin slug by convention — so a
+   * plugin group needs no extra wiring to be gateable.
+   */
+  plugin?: string;
 };
 
 /**
@@ -55,7 +71,12 @@ export type NavGroup = {
  * on each call — do NOT hold onto the reference across plugin
  * registrations, or you'll miss late-registering plugins.
  */
-type RegistryEntry = { title: () => string; items: NavItem[] };
+type RegistryEntry = {
+  title: () => string;
+  items: NavItem[];
+  /** Owning plugin slug — see NavGroup.plugin (#193). */
+  plugin?: string;
+};
 
 /**
  * Lazily-initialized so registration cannot depend on module evaluation
@@ -125,6 +146,12 @@ export function registerNavGroup(group: NavGroup): void {
   registry().set(group.id, {
     title: group.title,
     items: [...group.items],
+    // Default the owner to the group id: plugin groups are named after
+    // their slug by convention (`src/plugins/<slug>` → group id
+    // `<slug>`), so an optional plugin is gated without opting in to
+    // extra wiring. Core group ids ("main", "taxonomy", "admin") are
+    // not optional slugs, so this is inert for them.
+    plugin: group.plugin ?? group.id,
   });
 }
 
@@ -148,13 +175,47 @@ export function registerNavItem(groupId: string, item: NavItem): void {
  * Snapshot of current nav groups. Called by Sidebar.svelte on each
  * render (Svelte re-runs the derived that reads it whenever
  * dependencies change). Returns groups in registration order.
+ *
+ * `enabledPlugins` (#193) is the operator's opt-in set, read from site
+ * settings and threaded down through the admin layout's data. Groups
+ * and items owned by an OPTIONAL plugin that is not in the set are
+ * dropped from the snapshot.
+ *
+ * ## Why filter here rather than skip registration
+ *
+ * Registration happens at MODULE LOAD, in both bundles, before any
+ * request — it cannot await a D1 read, and making it async would mean
+ * the sidebar renders before plugin groups exist (the bug the
+ * side-effect import at the bottom of this file exists to prevent).
+ * Filtering a fully-populated registry at render time keeps
+ * registration synchronous and order-independent, and — crucially —
+ * makes SSR and hydration agree: both sides filter the same static
+ * registry with the same set, delivered as page data.
+ *
+ * Omitting the argument returns everything, so callers that genuinely
+ * want the installed set (structural tests, the future Plugins page)
+ * are unaffected.
  */
-export function listNavGroups(): ReadonlyArray<NavGroup> {
-  return Array.from(registry().entries()).map(([id, { title, items }]) => ({
-    id,
-    title,
-    items: [...items] as ReadonlyArray<NavItem>,
-  }));
+export function listNavGroups(
+  enabledPlugins?: ReadonlyArray<string> | null,
+): ReadonlyArray<NavGroup> {
+  const gate = (owner: string | undefined): boolean =>
+    // No argument at all = "don't gate", distinct from an empty array,
+    // which means "nothing optional is enabled".
+    enabledPlugins === undefined ||
+    isPluginEnabled(owner ?? "", enabledPlugins);
+
+  return Array.from(registry().entries())
+    .filter(([, entry]) => gate(entry.plugin))
+    .map(([id, { title, items, plugin }]) => ({
+      id,
+      title,
+      plugin,
+      // Items carry their own owner so a plugin that appends into a
+      // CORE group (shop's /admin/reports in "main") is gated too —
+      // hiding the Shop group alone would leave that entry behind.
+      items: items.filter((it) => gate(it.plugin)) as ReadonlyArray<NavItem>,
+    }));
 }
 
 // ─── Core registration ─────────────────────────────────────────

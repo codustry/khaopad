@@ -39,9 +39,17 @@
 	import type { ComponentType } from 'svelte';
 
 	let {
-		role
+		role,
+		enabledPlugins = []
 	}: {
 		role?: string | null;
+		/**
+		 * Opt-in plugin slugs (#193). The palette reads the same registry
+		 * as the sidebar, so it must apply the same gate — otherwise ⌘K
+		 * would still offer "Products" on a site where Shop is off, and
+		 * navigating there would 404.
+		 */
+		enabledPlugins?: ReadonlyArray<string>;
 	} = $props();
 
 	let open = $state(false);
@@ -57,7 +65,7 @@
 	}
 
 	const entries = $derived.by<Entry[]>(() =>
-		listNavGroups().flatMap((group) =>
+		listNavGroups(enabledPlugins).flatMap((group) =>
 			group.items
 				.filter((item) => roleAllows(item.roles))
 				.map((item) => ({ item, group: group.title() }))

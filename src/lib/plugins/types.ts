@@ -48,6 +48,27 @@ export type KhaopadPlugin = {
   description?: string;
 
   /**
+   * Opt-in plugin (#193). When true the plugin is INSTALLED but not
+   * ACTIVE until an operator switches it on in Settings → Features;
+   * the enabled set lives in site settings under `enabledPlugins`.
+   *
+   * The distinction matters because "installed" is a build-time fact
+   * (the import is in registrations.ts) while "this site actually uses
+   * it" is a per-deployment fact. Conflating them is what produced the
+   * reported bug: a site that sells nothing still saw Shop → Products,
+   * found it empty, and read it as broken data. Worse, it is a data
+   * trap — creating a product there writes to `shop_products`, which
+   * a non-shop deployment's storefront never reads.
+   *
+   * Declaring it here rather than in each downstream's sidebar edits
+   * keeps the decision in the plugin manifest (the ownership seam
+   * argued in #173).
+   *
+   * Omitted/false = core-adjacent plugin, always active once installed.
+   */
+  optional?: boolean;
+
+  /**
    * Called once per Worker cold start, after core auth + bindings are
    * ready. Register into sidebar nav, webhook events, audit actions
    * here. Do NOT do slow work — this runs on every cold start.
