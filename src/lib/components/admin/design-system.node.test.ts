@@ -48,6 +48,27 @@ describe("admin design system", () => {
     expect(shelled.length).toBeGreaterThan(30);
   });
 
+  it("keeps `form` a fixed reading measure, and lets layout widths scale (#195)", () => {
+    // A downstream measured 384px (23%) dead space at 1920px on `wide`
+    // pages and 640px (38%) on `default`; 19 data-table pages scrolled
+    // horizontally inside a container short of the window. The two
+    // LAYOUT widths must therefore not be fixed pixel caps.
+    const shell = readFileSync(
+      join(process.cwd(), "src/lib/components/admin/PageShell.svelte"),
+      "utf8",
+    );
+    expect(shell).toMatch(/form:\s*"max-w-2xl"|form:\s*'max-w-2xl'/);
+    expect(shell).not.toMatch(/wide:\s*['"]max-w-7xl['"]/);
+    expect(shell).not.toMatch(/default:\s*['"]max-w-5xl['"]/);
+    // …and the left-anchor decision this fix must NOT undo: centering
+    // put a ~500px gap between sidebar and content (see the file's own
+    // comment). The container's class list must stay un-centered — the
+    // prose above legitimately mentions mx-auto, so assert on the cn()
+    // call rather than the whole file.
+    const container = shell.slice(shell.indexOf("<div class={cn("));
+    expect(container).not.toMatch(/mx-auto/);
+  });
+
   it("routes every page through PageShell", () => {
     const missing = shelled
       .filter((p) => !read(p).includes("PageShell"))

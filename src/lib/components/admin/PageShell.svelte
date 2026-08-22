@@ -20,13 +20,39 @@
 	 * on the return sweep. `wide` is for data tables, which want the
 	 * horizontal room. `full` opts out for editors that manage their own
 	 * layout (the split markdown preview, for one).
+	 *
+	 * ## Why `wide` and `default` are no longer fixed caps (#195)
+	 *
+	 * A downstream measured the previous caps against real monitors: at
+	 * 1920px the `wide` dashboard left 384px (23%) of the available area
+	 * empty, and `default` wasted 640px (38%); at 2560px `wide` wasted
+	 * 44%. Nineteen pages are data tables that scroll horizontally
+	 * INSIDE a container itself short of the window — columns truncated
+	 * next to blank screen. A cap measured in pixels cannot follow a
+	 * viewport, so the two layout widths now scale with it:
+	 *
+	 *   wide     → fills the available width outright. Tables want every
+	 *              pixel; there is no reading measure to protect.
+	 *   default  → tracks the viewport but stops at 96rem, so mixed
+	 *              content (cards + prose + a table) grows on a 1920px
+	 *              screen without turning body copy into a 1600px line.
+	 *
+	 * `form` deliberately stays a FIXED `max-w-2xl`. It is the one width
+	 * protecting a reading measure: a single-column form stretched to
+	 * 1664px is materially worse than the whitespace beside it. The 60%
+	 * "waste" the issue measures for `form` at 1920px is the feature.
 	 */
 	export type ShellWidth = 'form' | 'default' | 'wide' | 'full';
 
 	const WIDTHS: Record<ShellWidth, string> = {
+		// Fixed: protects the ~75-character measure. See the note above
+		// before "fixing" this one — it is intentional.
 		form: 'max-w-2xl',
-		default: 'max-w-5xl',
-		wide: 'max-w-7xl',
+		// Fluid to 96rem (1536px): grows on wide monitors, still stops
+		// body copy short of an unreadable line length.
+		default: 'max-w-[96rem]',
+		// Uncapped: data tables take the whole available width.
+		wide: 'max-w-none',
 		full: 'max-w-none'
 	};
 </script>

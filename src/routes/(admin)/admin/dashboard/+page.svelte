@@ -111,7 +111,7 @@
 			</CardContent>
 		</Card>
 
-		<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:col-span-2 lg:content-start">
+		<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:col-span-2 lg:content-start xl:grid-cols-5">
 			<Card>
 				<CardContent class="p-3">
 					<div class="text-xs font-medium text-muted-foreground">{m.cms_stat_articles()}</div>
@@ -149,7 +149,7 @@
 	{#if data.shop}
 		<section class="space-y-3">
 			<h2 class="text-sm font-medium text-muted-foreground">{m.shop_dashboard_title()}</h2>
-			<div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+			<div class="grid grid-cols-2 gap-3 sm:grid-cols-4 2xl:grid-cols-8">
 				<Card>
 					<CardContent class="p-3">
 						<div class="text-xs font-medium text-muted-foreground">
@@ -188,7 +188,7 @@
 				</Card>
 			</div>
 
-			<div class="grid gap-4 lg:grid-cols-2">
+			<div class="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
 				<Card>
 					<CardHeader>
 						<CardTitle class="text-sm flex items-center justify-between">
@@ -272,7 +272,7 @@
 	{/if}
 
 	<!-- Quick actions: secondary to the metrics above, so ghost-weight links. -->
-	<section class="grid gap-3 grid-cols-2 md:grid-cols-4">
+	<section class="grid gap-3 grid-cols-2 md:grid-cols-4 2xl:grid-cols-8">
 		<a
 			href={resolve('/(admin)/admin/articles/new')}
 			class="group rounded-lg border border-border bg-card p-3 transition-colors hover:border-primary hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -317,7 +317,7 @@
 		</a>
 	</section>
 
-	<div class="grid gap-4 lg:grid-cols-2">
+	<div class="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
 		<!-- Scheduled -->
 		<Card>
 			<CardHeader>
@@ -426,7 +426,7 @@
 	{/if}
 
 	<!-- Performance: top articles + search insights (v1.8) -->
-	<div class="grid gap-4 lg:grid-cols-2">
+	<div class="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
 		<Card>
 			<CardHeader>
 				<CardTitle class="text-sm">{m.cms_dashboard_top_articles()}</CardTitle>

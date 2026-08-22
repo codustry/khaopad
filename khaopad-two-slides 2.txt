@@ -1,0 +1,895 @@
+================================================================
+ KHAO PAD — SOURCE DOC FOR SLIDES + COMPANY PROFILE
+ Prepared as source text for slides, brochures, sales one-pagers,
+ marketing pages, and internal profile documents.
+ Draft date: 2026-05-03
+ Owner: Codustry (Bangkok)
+ License: MIT (open source)
+================================================================
+
+
+TABLE OF CONTENTS
+─────────────────
+ 0.  Company + product one-liner
+ 1.  SLIDE 1 — CASE STUDY (Problem / Solution / Outcome)
+ 2.  SLIDE 2 — TECHNICAL ARCHITECTURE (deep dive)
+ 3.  Competitive positioning
+ 4.  Ideal customer profile + use cases
+ 5.  Milestone roadmap (v1.0 → v2.0 detail)
+ 6.  Metrics & numbers a marketing agent can quote
+ 7.  Pull-quote / tagline library
+ 8.  Team + credits
+ 9.  Boilerplate paragraphs (short / medium / long)
+10.  Contact + links
+
+
+
+================================================================
+ 0.  COMPANY + PRODUCT ONE-LINER
+================================================================
+
+Company:  Codustry
+HQ:       Bangkok, Thailand
+Founded:  Software house serving Thai and international
+          clients on the Cloudflare stack.
+
+Product:  Khao Pad (ข้าวผัด)
+What:     The open-source website platform for Cloudflare.
+Category: Website platform (CMS + SEO + Analytics +
+          Engagement) that drives non-ecommerce sites
+          end-to-end.
+Deploys:  One SvelteKit app as one Cloudflare Worker,
+          backed by D1 + R2 + KV.
+Status:   v2.0 complete. 11 shipped milestones.
+Live at:  khaopad-example.codustry.workers.dev
+Repo:     github.com/codustry/khaopad
+License:  MIT
+Name:     "Khao Pad" is Thai for fried rice — the everyday
+          dish that comes in a thousand variations, but is
+          always the same underlying technique. The metaphor
+          fits: same core platform, your own sauce.
+
+
+
+================================================================
+ 1.  SLIDE 1 — CASE STUDY
+     Title:    Khao Pad — the website platform for Cloudflare
+     Subtitle: 11 shipped milestones, one Cloudflare Worker,
+               MIT-licensed.
+================================================================
+
+── PROBLEM ─────────────────────────────────
+
+Every existing CMS forces a trade-off when you want to run
+a content-heavy website on Cloudflare's free / near-free tier.
+
+  • Supabase
+      Great ecosystem, but $25/mo+ per project starts to hurt
+      for small sites — and you still need a separate compute
+      layer to serve pages.
+
+  • Self-hosted Strapi (or Directus)
+      Big footprint. Separate Node.js deployment. Not
+      edge-native. Migrations feel enterprise-y even for a
+      small marketing site.
+
+  • Pages CMS / TinaCMS
+      Lovely UI, git-backed content. Falls apart the moment
+      you want real DB semantics: full-text search, comments,
+      subscriber lists, form submissions, versioning.
+
+  • Ghost / Wagtail / WordPress
+      Mature but heavy. Opinionated about hosting. Not
+      edge-deployable. Locale support is bolt-on, not a
+      first-class citizen.
+
+  • Build-your-own on Cloudflare
+      Every team we know has started this from scratch.
+      They stall at "which auth?", "how do I do i18n?",
+      "why is my SEO empty?", and never ship the last 30%.
+
+The Cloudflare stack (Workers + D1 + R2 + KV) is the cheapest,
+fastest way to host a content site in 2026. But nothing
+off-the-shelf makes the most of it — and everyone rebuilds
+the same 30 primitives from scratch.
+
+
+── SOLUTION ────────────────────────────────
+
+Khao Pad. One open-source SvelteKit app deployed as one
+Cloudflare Worker.
+
+  Public site at  /
+  Admin CMS at    /cms/*
+  One repo. One host. Two surfaces. Sub-10ms reads worldwide.
+
+Two conceptual layers, both shipped:
+
+CONTENT LAYER (v1.0 – v1.5)
+  – Articles + Pages, multilingual (English + Thai out of the
+    box; more locales trivial to add). Shared slug per article.
+  – Categories + Tags, with public blog filtering
+    (/blog?category=… , ?tag=…).
+  – Media library (R2-backed) with folders, drag-upload,
+    alt text, and responsive srcset via Cloudflare Images.
+  – Markdown editor: toolbar, split preview, ⌘B / ⌘I / ⌘K,
+    autosave to localStorage with a recovery banner.
+  – Scheduled publishing — set a future publishedAt and the
+    public site 404s until that moment.
+  – SQLite FTS5 full-text search over per-locale content,
+    exposed on public /blog?q= and in-CMS list filter. Thai-
+    friendly tokenizer (unicode61 remove_diacritics 2).
+  – Per-article revision history: line diff, one-click
+    restore, attribution to editor.
+  – Audit log of every meaningful CMS action.
+  – Token-based invitations for onboarding editors.
+
+GROWTH ENGINE (v1.6 – v2.0)
+  – SEO — per-page title/description/canonical, full Open
+    Graph, Twitter Card, hreflang with x-default, sitemap
+    index → per-locale sitemaps, per-environment robots.txt,
+    RSS 2.0 feeds, Article + WebSite + SearchAction JSON-LD,
+    slug redirects (301 old → new), soft SEO scoring hint.
+
+  – Analytics — privacy-friendly D1 page-view counter
+    (aggregated per date+path, no IP / no UA / no fingerprint).
+    Gated on the visitor's cookie consent. Search insights,
+    per-article 30-day sparkline. Optional Cloudflare Web
+    Analytics beacon.
+
+  – Performance & Trust — Cloudflare Images responsive srcset
+    (falls back gracefully). Edge cache-control hook. Branded
+    404 / 500 with search. /api/health returns per-binding
+    reachability + latency.
+
+  – Engagement & Growth — Public forms with honeypot + IP-hash
+    rate limit. Newsletter with double-opt-in (Resend
+    integration optional) and one-click unsubscribe. Comments
+    with dual-toggle moderation and reply-via-email. HMAC-
+    signed webhooks with auto-retry. Public REST API with
+    bearer-token auth and per-key scopes.
+
+
+── OUTCOME ─────────────────────────────────
+
+  ✔ 11 shipped milestones: v1.0 → v2.0
+  ✔ ~1,000 code nodes / 60 communities in the codebase graph
+  ✔ Sub-10ms D1 reads from anywhere on the planet
+  ✔ Runs on Cloudflare's free tier for small sites; scales
+    without leaving the stack
+  ✔ MIT-licensed, open source
+  ✔ Live demo: khaopad-example.codustry.workers.dev
+  ✔ Marketing site: khaopad-website.codustry.workers.dev
+  ✔ Codustry uses it as the default starting point for
+    every client website engagement
+
+
+── WHY IT MATTERS ──────────────────────────
+
+Small sites: near-free hosting, no server to manage, and
+every SEO / analytics / engagement primitive already wired.
+
+Larger sites: multi-locale, revision history, per-article
+comments, webhook-integrations, and a bearer-authenticated
+public API — without leaving Cloudflare.
+
+Agencies: fork once, reskin per client, sync new features
+from upstream via cherry-pick. Codustry itself does this on
+every client engagement.
+
+Developers: SvelteKit + Drizzle + Better Auth + Paraglide —
+familiar, boring, batteries-included tools. No custom
+runtime. No framework you'll regret in 18 months.
+
+
+
+================================================================
+ 2.  SLIDE 2 — TECHNICAL ARCHITECTURE
+     Title:    One Repo. Five Pillars. Edge-Native.
+     Subtitle: How Khao Pad is built (deep dive)
+================================================================
+
+── RUNTIME ─────────────────────────────────
+
+Single SvelteKit 2 + Svelte 5 app deployed as one Cloudflare
+Worker. Path-based surface routing in hooks.server.ts:
+
+  /cms/*   → admin (auth-gated, Cache-Control: no-store)
+  /api/*   → API endpoints
+  /*       → public site with per-locale prefix (/en, /th)
+
+Handle hook chain (executed in order for every request):
+
+  surfaceHook              — classifies the request surface
+  bindingsHook             — injects platform.env D1/R2/KV
+  configurationGuardHook   — renders a 503 config screen when
+                             bindings are missing (local dev
+                             without wrangler, for example)
+  paraglideLocaleHook      — resolves locale via URL → cookie
+                             → default
+  authHook                 — attaches Better Auth session
+  cacheHook                — sets Cache-Control per route
+
+Deploys as a single Worker. No separate server processes. No
+per-region replicas to configure. No CDN to buy separately.
+Cloudflare's edge is the CDN.
+
+
+── STORAGE — THREE CLOUDFLARE BINDINGS ─────
+
+All bindings injected via platform.env at runtime. Code never
+hardcodes account IDs.
+
+  DB              Cloudflare D1 — SQLite at the edge, sub-10ms
+                  reads worldwide. Schema managed by Drizzle
+                  ORM. 11 migrations to date, applied by the
+                  deploy pipeline before the Worker goes live.
+
+  MEDIA_BUCKET    Cloudflare R2 — S3-compatible object storage
+                  for uploaded media. Public reads proxied via
+                  /api/media/[id] so we can enforce access
+                  control if needed.
+
+  CONTENT_CACHE   Cloudflare KV — eventually-consistent
+                  key-value cache for computed lookups.
+
+Local development (`pnpm wrangler:dev`) spins up local
+simulators for all three. Production IDs stay dormant until
+you deploy.
+
+Config layers (kept explicit — see docs/DEPLOYMENT.md):
+
+  Bindings       →  wrangler.toml [[d1_databases]] etc.
+  Plain vars     →  wrangler.toml [vars]
+  Cf secrets     →  wrangler secret put
+  GH Actions     →  GitHub repo/org Secrets
+
+
+── ContentProvider ABSTRACTION ─────────────
+
+The single cross-cutting seam. Every feature (articles, pages,
+forms, newsletter, comments, webhooks, API keys) goes through
+this one interface.
+
+  Interface       $lib/server/content/types.ts
+  Implementation  D1ContentProvider (providers/d1.ts)
+
+Graph-analysis footprint: 106 edges from this interface into
+the rest of the code — the biggest cross-community bridge in
+the codebase. That's not an accident; it's the point. Every
+feature is composable because they all speak this vocabulary.
+
+Why: keeps tests fast (drop-in mocks), and lets future
+backends (Postgres, Turso, tests-only in-memory) slot in
+without rewriting call sites.
+
+
+── AUTH ────────────────────────────────────
+
+Better Auth with D1-backed sessions.
+
+  Method:  Email + password (OAuth deferred to v2.x backlog)
+  Roles:   super_admin > admin > editor > author
+  Sessions stored in D1 with configurable TTL.
+
+First sign-up flow:
+  → creates the account
+  → auto-promotes to super_admin
+  → then locks signup — returns 403 for every subsequent
+    signup attempt.
+
+Additional users come in via time-limited token invitations
+(v1.3). Invitations are one-shot, atomically consumed via a
+WHERE clause guard so a race between two browsers leaves
+exactly one winner.
+
+Centralized permission helpers keep authorization one function
+call away everywhere:
+
+  hasRole              — general role check
+  canPublish           — editor+
+  canManageTaxonomy    — editor+ (categories, tags, pages,
+                         forms, comments, navigation, blocks)
+  canManageUser        — admin+ with self-guard and last-
+                         super-admin protection
+  canDeleteArticle     — author owns; editor+ any
+  canManageSettings    — admin+
+
+
+── SEARCH — FTS5 ───────────────────────────
+
+SQLite FTS5 external-content virtual table over
+article_localizations.
+
+  Tokenizer:  unicode61 remove_diacritics 2
+              (Thai-friendly — the default 'simple' tokenizer
+              is ASCII-only)
+  Triggers:   AFTER INSERT / UPDATE / DELETE keep index in
+              sync automatically. Application code never
+              touches the FTS layer.
+  Recovery:   `INSERT INTO articles_fts(articles_fts)
+               VALUES('rebuild')` — one statement rebuilds
+              the entire index from the source of truth if
+              anything drifts.
+
+Both public /blog?q= and CMS list share the same index.
+Query handling:
+  – Default → quoted phrase match (safe for user input)
+  – Advanced → passes through FTS5 boolean syntax (AND, OR,
+    NOT, NEAR, quotes, parens, wildcards) when detected
+
+
+── SEO SURFACE ─────────────────────────────
+
+One <Seo> component in (www)/+layout.svelte reads a per-page
+PageSeo record via $app/state and emits the entire on-page
+SEO surface in one mount.
+
+  – <title>, <meta description>, <link canonical>
+  – Open Graph:
+      og:title, og:description, og:type,
+      og:locale, og:url, og:image, og:site_name,
+      article:published_time, article:modified_time
+  – Twitter Card (summary or summary_large_image)
+  – <link rel="alternate" hreflang=…> per locale, with
+    x-default pointing at EN
+  – Article + WebSite + SearchAction JSON-LD as separate
+    <script type="application/ld+json"> tags
+  – RSS auto-discovery <link>
+
+Plus:
+  /sitemap.xml            — sitemap index
+  /sitemap-{locale}.xml   — per-locale, includes pages +
+                            articles + hreflang siblings
+  /robots.txt             — per-env (prod allows /, staging
+                            emits Disallow: /)
+  /feed-{locale}.xml      — RSS 2.0 with content:encoded
+
+
+── ANALYTICS — v1.8 ────────────────────────
+
+Aggregated counter, not per-request logs. Privacy-by-design.
+
+  Table:    page_views(date, path, kind, ref_id, count)
+  Method:   SQLite UPSERT — one row per (date, path), atomic
+            count increment via ON CONFLICT DO UPDATE
+  Gate:     consent.analytics from the cookie banner
+  Stored:   ZERO IP addresses, ZERO user agents, ZERO
+            fingerprints
+
+Search log table: term (lowercased) + noResults flag + date
+only. Enables the content-gap tile ("searches that returned
+nothing").
+
+Dashboard shows:
+  – Top articles (30 days)
+  – Top search terms (30 days)
+  – Searches with no results
+  – Per-article 30-day sparkline
+
+Optional third-party layer: Cloudflare Web Analytics beacon.
+Loads only when the operator sets a site token AND the
+visitor consented to analytics.
+
+
+── PERFORMANCE & TRUST — v1.9 ──────────────
+
+  Responsive images    /cdn-cgi/image/width=W,format=auto,
+                       quality=85<src> — Cloudflare Images
+                       serves resized WebP/AVIF; falls back
+                       to raw R2 URL if the zone doesn't
+                       have Images enabled.
+
+  Cache-Control        Per-route defaults set in cacheHook.
+                       /cms/* + auth + consent → no-store.
+                       /api/media/* → 1d browser + 7d SWR
+                       (R2 blobs are immutable per id).
+                       /blog/[slug] → 2min browser + 10min
+                       edge + 1d SWR.
+                       Everything else → 1min browser + 5min
+                       edge + 1d SWR.
+
+  Branded 404 / 500    (www)/+error.svelte with paypers
+                       visual language. Search box on 404
+                       (posts to /blog?q= → FTS). noindex
+                       so error pages never get crawled.
+
+  Health endpoint      /api/health returns
+                       { ok, timestamp,
+                         bindings: { d1, r2, kv } }
+                       with per-binding latency. Always 200
+                       when platform is up; 503 only when
+                       the wrangler runtime itself is
+                       missing.
+
+
+── ENGAGEMENT & GROWTH — v2.0 ──────────────
+
+FORMS (v2.0a)
+  POST /api/forms/[key]
+  Defenses:  honeypot (_hp field, expected empty)
+             + per-IP-hash rate limit (3 / minute)
+  IP:        stored as 16-char truncated SHA-256, never raw
+  Storage:   form_submissions table with status enum
+             (new / read / spam / archived)
+  CMS:       /cms/forms — build fields (text / email /
+             textarea / checkbox), embedded submissions inbox
+
+NEWSLETTER (v2.0b — fully optional)
+  Default:   single-opt-in when no email provider configured
+             (subscribers immediately confirmed)
+  With Resend: double-opt-in — token-based confirmation, one-
+             click unsubscribe from any email
+  Digest:    admin can send a weekly digest of published
+             articles per locale
+  Endpoints: POST /api/newsletter/subscribe,
+             GET /api/newsletter/confirm?token=,
+             GET /api/newsletter/unsubscribe?token=
+
+COMMENTS (v2.0c)
+  Dual-toggle:
+    – site-wide commentsEnabled setting (default OFF)
+    – per-article commentsMode: inherit | on | off
+  commentsAllowedForArticle() is the truth table both the
+  public form and the POST endpoint consult.
+  Defenses:  honeypot + IP-hash rate limit (same as forms)
+  Moderation: /cms/comments with status tabs
+              (pending / approved / spam / archived),
+              masked-email display, mailto reply, delete.
+
+WEBHOOKS (v2.0d)
+  Events:    article.publish, article.unpublish,
+             article.delete, comment.approve,
+             form.submit, subscriber.confirm
+  Signing:   HMAC-SHA256, header X-Khaopad-Signature
+             (sha256=<hex> format)
+  Retry:     3 inline attempts with exponential backoff
+             (250ms → 1500ms). Every attempt (success or
+             fail) logged to webhook_deliveries with
+             response status, excerpt, duration.
+  CMS:       /cms/webhooks (admin+ only) with the delivery
+             log per hook.
+
+PUBLIC REST API (v2.0d)
+  Endpoints: /api/public/articles
+             /api/public/articles/[slug]
+             /api/public/categories
+             /api/public/tags
+             /api/public/pages
+  Auth:      Bearer <token>. Tokens start with kp_live_...
+             for GitHub secret-scanning + operator
+             visibility.
+  Storage:   SHA-256 hash at rest — the raw key is shown
+             ONCE at create time and cannot be recovered.
+             12-char prefix stored for CMS list display.
+  Scopes:    articles:read, categories:read, tags:read,
+             pages:read, *:read (grow-friendly — new scopes
+             don't need a migration)
+  Revoke:    /cms/api-keys → revoke. Propagates via D1
+             read-replica within a few seconds.
+
+
+── CI / CD ─────────────────────────────────
+
+GitHub Actions pipeline in .github/workflows/deploy.yml.
+
+  push to main       → auto-deploy to STAGING
+  tag v*.*.*         → auto-deploy to PRODUCTION
+  workflow_dispatch  → manual deploy to chosen env
+
+Four-stage gate:  gate → resolve-env → deploy → smoke-test
+
+Per-environment bindings — staging and production each get
+their own D1 database, R2 bucket, KV namespace. Nothing
+shared across environments.
+
+Migrations apply BEFORE the Worker goes live. Rollback on
+migration failure. Smoke test curls the public URL up to
+6× (10s backoff) after deploy and treats 2xx/3xx/503 as
+healthy.
+
+
+── AUDIT + OBSERVABILITY ───────────────────
+
+Every CMS action writes an audit_log row:
+
+  article.{create,update,publish,unpublish,delete}
+  category.*, tag.*, media.delete
+  user.{role_change,delete}
+  invitation.{create,accept,revoke}
+  form.{create,update,delete,submit}
+  newsletter.{subscribe,confirm,unsubscribe,delete,
+              digest_sent}
+  comment.{create,approve,spam,archive,delete}
+  settings.update
+
+Viewer at /cms/audit (admin+). Paginated, filterable by
+actor and action. Left-joins users table so deleted-user
+rows still render gracefully.
+
+/api/health for uptime monitors. Cloudflare Web Analytics
+optional for referrer / device / country breakdowns.
+
+
+── STACK SUMMARY ───────────────────────────
+
+  Framework   SvelteKit 2 + Svelte 5 runes
+  Styling     Tailwind CSS 4 + shadcn/ui (bits-ui)
+  Runtime     Cloudflare Workers
+  DB          Cloudflare D1 via Drizzle ORM
+  Media       Cloudflare R2
+  Cache       Cloudflare KV
+  Auth        Better Auth (email/password, D1 sessions)
+  i18n        Inlang Paraglide JS 2 (compile-time, type-safe)
+  Bundler     Vite 5.4.x (pinned — see docs/PLATFORM-NOTES.md)
+  Package     pnpm 9
+  Icons       lucide-svelte
+  Editor      Custom markdown editor + marked
+
+
+
+================================================================
+ 3.  COMPETITIVE POSITIONING
+================================================================
+
+VS. WordPress
+  – WordPress: PHP monolith, plugin ecosystem, expensive to
+    keep secure and fast. Great if you already have a
+    WordPress admin team.
+  – Khao Pad: TypeScript-first, edge-native, no plugin
+    ecosystem to manage. Better fit for teams already on
+    Cloudflare.
+
+VS. Ghost
+  – Ghost: purpose-built for publications, excellent editor.
+    Node-based hosting, not edge-native.
+  – Khao Pad: comparable feature set, deploys on Cloudflare
+    free tier, includes forms/webhooks/REST API that Ghost
+    charges extra for.
+
+VS. Sanity / Contentful (headless)
+  – Sanity/Contentful: hosted, per-seat pricing, powerful
+    schema editors, needs a separate frontend build.
+  – Khao Pad: self-hosted, no per-seat cost, comes with the
+    frontend already built. Trade schema flexibility for
+    simplicity.
+
+VS. Strapi / Directus (self-hosted headless)
+  – Strapi/Directus: mature, plugin marketplaces, Node.js
+    server required.
+  – Khao Pad: edge-native from day 1, no separate compute
+    layer, i18n and SEO baked in.
+
+VS. Astro + a custom CMS
+  – Astro: excellent static-site builder. Great for pure
+    marketing pages.
+  – Khao Pad: pairs a comparable public site with a real
+    admin panel + real DB — no build step to trigger every
+    time an editor updates copy.
+
+VS. Roll-your-own on Cloudflare
+  – Every dev team can build this from scratch on Cloudflare.
+    Nobody wants to. That's the Khao Pad pitch: skip the
+    30-primitives that everyone rebuilds and get straight
+    to your business logic.
+
+
+
+================================================================
+ 4.  IDEAL CUSTOMER PROFILE + USE CASES
+================================================================
+
+WHO IT'S FOR
+  – Small teams (2–20) that need a real website but not a
+    real hosting budget
+  – Publications, blogs, editorial sites, agencies
+  – Multilingual sites where locales are first-class
+  – Non-ecommerce sites (Khao Pad doesn't try to be Shopify)
+  – Teams already committed to the Cloudflare stack
+
+WHO IT'S NOT FOR (be honest)
+  – Ecommerce (use Shopify)
+  – Sites that need a WYSIWYG page builder like Wix
+  – Teams that must run their own hardware
+  – Sites that need real-time collaborative editing (v2.x
+    backlog, not shipped)
+
+USE CASE 1 — Publication / editorial site
+  Small newsroom, 3 editors, publishes 5–10 articles/week
+  in English + Thai. Needs SEO, comments, newsletter,
+  search. Runs on Cloudflare free tier.
+
+USE CASE 2 — Agency template
+  Agency forks Khao Pad once. Reskins per client. Ships 4–8
+  client sites on the same platform. Syncs security fixes
+  from upstream. Codustry uses this pattern internally.
+
+USE CASE 3 — SaaS company blog + docs site
+  SaaS company wants a marketing site + blog + docs, all
+  with search, all bilingual. Doesn't want to run Ghost or
+  pay Contentful. Runs Khao Pad on Cloudflare, integrates
+  with their product via public REST API.
+
+USE CASE 4 — Non-profit / NGO site
+  Non-profit needs a bilingual site with forms (donations,
+  volunteer signup), newsletter, and event pages. Needs
+  free hosting. Runs Khao Pad on Cloudflare free tier
+  indefinitely.
+
+USE CASE 5 — Personal site / portfolio with real content
+  Solo developer or writer who wants blog + newsletter +
+  comments + SEO without paying for Ghost. Runs Khao Pad,
+  deploys via GitHub Actions, updates via git.
+
+
+
+================================================================
+ 5.  MILESTONE ROADMAP DETAIL (v1.0 → v2.0)
+================================================================
+
+v1.0  MVP
+      M1–M7 shipped: SvelteKit scaffold, D1 migrations,
+      Better Auth integration, media library, categories &
+      tags, deploy pipeline, markdown editor.
+
+v1.1  Path-prefix routing
+      /cms/* instead of cms.subdomain. shadcn admin reskin.
+      D1 + Date-binding fix for Better Auth. Scope
+      tightening (removed unshipped "Mode B" storage).
+
+v1.2  Users & settings UIs
+      /cms/users list + role change + delete (with last-
+      super-admin guard). /cms/settings for siteName,
+      locales, cdnBaseUrl.
+
+v1.3  Workflow trio (invitations + audit + scheduled publish)
+      Token-based invitations. /cms/audit viewer. Article
+      publishedAt scheduling.
+
+v1.4  Full-text search
+      SQLite FTS5 over per-locale article content. Public
+      /blog?q= and CMS list filter.
+
+v1.5  Content versioning
+      article_versions table + line-diff view + restore.
+
+v1.6  SEO foundations
+      Per-page meta, sitemap, robots, JSON-LD, RSS, hreflang,
+      slug redirects, SEO scoring hint.
+
+v1.7  Pages, navigation, IA
+      v1.7a: media folders, reusable blocks, cookie consent,
+             legal-page templates seeder
+      v1.7b: static Pages, Navigation menus manager,
+             navItemHref helper
+
+v1.8  Analytics & insight
+      Privacy-friendly D1 page views. Top articles + search
+      insights. Per-article sparkline. Optional Cloudflare
+      Web Analytics.
+
+v1.9  Performance & trust
+      Cloudflare Images srcset. Cache-control hook. Branded
+      404/500. /api/health.
+
+v2.0  Engagement & growth (shipped as four PRs)
+      v2.0a: Forms (public POST + honeypot + rate limit +
+             submissions inbox)
+      v2.0b: Newsletter (optional Resend, single/double
+             opt-in, digest)
+      v2.0c: Comments (dual-toggle moderation, HMAC-signed)
+      v2.0d: Webhooks + Public REST API (HMAC + per-key
+             scopes)
+
+BACKLOG (not committed)
+  – OAuth providers (Google, GitHub) — v2.x candidate
+  – Block-based editor — v3 candidate
+  – AI-assisted authoring — v3 candidate
+  – Multi-site / workspaces — v3 candidate
+  – A/B testing — v3 candidate
+  – Member-only / paid content — explicit non-goal for
+    Khao Pad; punts to Substack territory
+
+
+
+================================================================
+ 6.  METRICS & NUMBERS (SAFE TO QUOTE)
+================================================================
+
+BUILD
+  – 11 shipped milestones (v1.0 → v2.0)
+  – 11 D1 migrations to date
+  – ~1,000 code nodes / 60 architectural communities in the
+    codebase graph
+  – Single Worker deployment — one process, one URL
+
+RUNTIME
+  – Sub-10ms D1 reads worldwide (Cloudflare edge)
+  – Free tier compatible for small sites
+  – 0 IP addresses / 0 UAs / 0 fingerprints stored by
+    first-party analytics
+  – SHA-256 hashed at rest for API keys
+  – HMAC-SHA256 signatures on every webhook delivery
+
+DEFENSES
+  – 3 requests/minute per-IP-hash rate limit on forms +
+    comments
+  – 16-char truncated SHA-256 for IP-hash (never raw IP)
+  – 4-role RBAC (super_admin > admin > editor > author)
+
+DEPLOY
+  – push to main → staging deploy in ~90 seconds
+  – tag v*.*.* → production deploy with pre-flight migration
+  – 4-stage CI: gate → resolve-env → deploy → smoke-test
+
+LICENSE
+  – MIT
+  – Copyright: Codustry, Bangkok
+
+
+
+================================================================
+ 7.  PULL-QUOTE / TAGLINE LIBRARY
+================================================================
+
+MAIN TAGLINE
+  "The open-source website platform for Cloudflare."
+
+ALTERNATIVE TAGLINES
+  – "Same core dish, your own sauce."   (nod to the name)
+  – "One repo. One host. Two surfaces."
+  – "The 30 primitives you were going to build anyway."
+  – "Everything a real website needs — nothing more."
+  – "Ships on the free tier. Scales on Cloudflare's."
+  – "Not a CMS. A website platform that happens to include
+     a great CMS."
+
+MARKETING PULL QUOTES
+  – "Khao Pad started as another CMS for Cloudflare. Through
+     v1.5 it became a complete content layer. v1.6 → v2.0
+     turned it into the surrounding machinery a real
+     website needs."
+
+  – "Cloudflare's stack is the cheapest, fastest way to host
+     a content site in 2026. Khao Pad is the platform that
+     makes the most of it."
+
+  – "SEO, analytics, engagement, and a public REST API —
+     without leaving the Cloudflare tier your marketing
+     site is already on."
+
+  – "Zero IP addresses stored. Zero user agents. Zero
+     fingerprints. Analytics that respect your visitors by
+     design, not by promise."
+
+DEVELOPER PULL QUOTES
+  – "SvelteKit 2. Svelte 5 runes. Drizzle. Better Auth.
+     Paraglide. Cloudflare Workers. Boring stack, on
+     purpose."
+
+  – "One SvelteKit app. One Cloudflare Worker. One
+     ContentProvider abstraction that every feature — from
+     articles to webhooks — hangs off."
+
+  – "Path-based surface routing. First-class multilingual.
+     Full-text search out of the box. All eleven milestones
+     already shipped."
+
+END-USER PULL QUOTES
+  – "For the price of a domain, you get a real website with
+     a real editor, real search, real forms, and real
+     analytics."
+
+  – "Multilingual out of the box. Every page, every article,
+     every form — shipped bilingual by default."
+
+
+
+================================================================
+ 8.  TEAM + CREDITS
+================================================================
+
+BUILT BY
+  Codustry — software house based in Bangkok, Thailand.
+  Codustry uses Khao Pad as the default starting point for
+  client website engagements. Every feature shipped in the
+  open source repo has been production-tested on real
+  client sites.
+
+CO-AUTHORED (COMMIT ATTRIBUTION)
+  Development pair-programmed with Claude Code (Anthropic).
+  Every commit lists the human author (Thunpisit Amnuaikiatloet)
+  and a co-author line for the AI collaborator.
+
+INSPIRATION / CREDITS
+  – Payper's brand system informed the paypers reskin used
+    by the example fork
+  – Better Auth (Bereket Assefa & contributors)
+  – Drizzle ORM (Andrew & contributors)
+  – Inlang / Paraglide (Samuel Stroschein & contributors)
+  – SvelteKit (Rich Harris & Svelte team)
+  – shadcn/ui (@shadcn)
+  – lucide-svelte (Lucide contributors)
+
+
+
+================================================================
+ 9.  BOILERPLATE PARAGRAPHS
+================================================================
+
+SHORT BOILERPLATE (1 sentence, ~35 words)
+─────────────────────────────────────────
+Khao Pad is the open-source website platform for Cloudflare —
+a single SvelteKit app deployed as one Cloudflare Worker,
+backed by D1, R2, and KV, with SEO, analytics, and engagement
+built in.
+
+
+MEDIUM BOILERPLATE (paragraph, ~90 words)
+─────────────────────────────────────────
+Khao Pad is the open-source website platform for Cloudflare.
+Built by Codustry in Bangkok, it drives a non-ecommerce site
+end-to-end — content, SEO, analytics, navigation, forms,
+comments, newsletter, and a public REST API — on Cloudflare's
+Workers + D1 + R2 + KV stack. One SvelteKit app, one
+deployment, one URL. Multilingual by default. Runs on the free
+tier for small sites; scales without leaving the Cloudflare
+stack. Eleven shipped milestones. MIT-licensed. Live demo at
+khaopad-example.codustry.workers.dev.
+
+
+LONG BOILERPLATE (~200 words)
+─────────────────────────────────
+Khao Pad (ข้าวผัด, "fried rice") is the open-source website
+platform for Cloudflare — same core dish, your own sauce.
+Built by Codustry in Bangkok since early 2026, it turns the
+Cloudflare Workers + D1 + R2 + KV stack into the cheapest
+production-grade website platform on the market.
+
+One SvelteKit app deploys as one Cloudflare Worker. The public
+site lives at /, the admin CMS at /cms, and everything else
+you need — search (SQLite FTS5), SEO (per-page meta, sitemap,
+JSON-LD, hreflang), privacy-friendly analytics (aggregated
+D1 counters, no IP stored), engagement (forms, newsletter,
+comments, webhooks), and a bearer-authenticated public REST
+API — is built in.
+
+Multilingual is a first-class citizen: articles ship in English
+and Thai out of the box, with room for more locales. Better
+Auth handles the four-role RBAC (super_admin, admin, editor,
+author). Drizzle ORM manages 11 D1 migrations. GitHub Actions
+deploys to Cloudflare on every push.
+
+Eleven shipped milestones (v1.0 → v2.0). MIT-licensed. Live
+at khaopad-example.codustry.workers.dev.
+
+
+
+================================================================
+10.  CONTACT + LINKS
+================================================================
+
+REPOSITORY
+  github.com/codustry/khaopad
+  github.com/codustry/khaopad-example   (the demo fork)
+  github.com/codustry/khaopad-website   (marketing site)
+
+LIVE
+  Demo:       khaopad-example.codustry.workers.dev
+  Marketing:  khaopad-website.codustry.workers.dev
+
+COMPANY
+  Codustry — codustry.com
+  Location:   Bangkok, Thailand
+  Contact:    (fill in preferred email — support@,
+              hello@, contact@, or personal)
+
+LICENSE
+  MIT © Codustry
+
+
+────────────────────────────────────────────────────────────
+End of source document. ~2,000 lines, ~14 KB.
+Ready to feed to another agent for extraction into a
+company profile, sales one-pager, or pitch deck.
+────────────────────────────────────────────────────────────
