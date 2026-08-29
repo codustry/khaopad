@@ -91,6 +91,11 @@ export const actions: Actions = {
     // article overrides via `articles.commentsMode` ("on" / "off")
     // still apply regardless.
     const commentsEnabled = form.get("comments_enabled") === "on";
+    // #199: anonymous install telemetry opt-in. Default off — see
+    // docs/TELEMETRY.md. The env veto (KHAOPAD_TELEMETRY_DISABLED=1)
+    // is checked at send time and overrides this either way, so an
+    // operator can hard-disable without reaching this form.
+    const telemetryEnabled = form.get("telemetry_enabled") === "on";
     // v3.16 (C4): operator email for new-paid-order notifications.
     // Empty = channel off (LINE Notify is configured separately in the
     // secrets portal).
@@ -219,6 +224,10 @@ export const actions: Actions = {
         "newsletter.allowSingleOptIn": newsletterAllowSingleOptIn,
         // Comments (v2.0c) — site-wide kill switch.
         commentsEnabled,
+        // Telemetry (#199) — always written as a boolean so switching
+        // it back OFF persists as an explicit false rather than
+        // deleting the row and re-reading as "never decided".
+        telemetryEnabled,
         // Optional plugins (#193). Always written as an array — an
         // empty one is meaningful ("everything switched off") and must
         // persist, so this is deliberately NOT collapsed to undefined
