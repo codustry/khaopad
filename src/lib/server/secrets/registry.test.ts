@@ -36,6 +36,7 @@ describe("managed secret registry", () => {
       "BEAM_WEBHOOK_SECRET",
       "LINE_NOTIFY_TOKEN",
       "RESEND_API_KEY",
+      "RESEND_FROM",
       "STRIPE_SECRET_KEY",
       "STRIPE_WEBHOOK_SECRET",
       "TONBAB_API_KEY",
@@ -64,12 +65,16 @@ describe("managed secret registry", () => {
     expect(isManagedSecret("BEAM_MERCHANT_ID")).toBe(true);
   });
 
-  it("marks credentials sensitive but the merchant identifier public", () => {
-    // A wrong flag means a live key renders in full on the page. The
-    // merchant id is a public identifier — masking it would only make a
-    // typo harder to spot against the Lighthouse dashboard.
+  it("marks credentials sensitive but public identifiers public", () => {
+    // A wrong flag means a live key renders in full on the page. The two
+    // exceptions are not credentials at all: the Beam merchant id is a
+    // public identifier (masking it would only make a typo harder to spot
+    // against the Lighthouse dashboard), and RESEND_FROM is the From
+    // header stamped on every outbound email — visible to every
+    // recipient, so masking it in the admin hides nothing from anyone.
+    const PUBLIC_KEYS = new Set(["BEAM_MERCHANT_ID", "RESEND_FROM"]);
     for (const def of MANAGED_SECRETS) {
-      const expected = def.key !== "BEAM_MERCHANT_ID";
+      const expected = !PUBLIC_KEYS.has(def.key);
       expect(def.sensitive, `${def.key}.sensitive`).toBe(expected);
     }
   });

@@ -5,6 +5,8 @@ import { drizzle } from "drizzle-orm/d1";
 import * as schema from "../content/schema";
 import { createKvRateLimitStorage } from "./kv-rate-limit";
 import { sendSignInOtpEmail } from "./otp-email";
+import { sendResetPasswordEmail } from "./reset-email";
+import { claimResetSlot, emailThrottleKey } from "./reset-throttle";
 
 /**
  * D1 + Better Auth date binding workaround.
@@ -100,7 +102,75 @@ export function createAuth(
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL,
     basePath: "/api/auth",
-    emailAndPassword: { enabled: true },
+    emailAndPassword: {
+      enabled: true,
+      /**
+       * Password reset by emailed link (feat/password-reset).
+       *
+       * Before this, a locked-out admin had NO recovery path: no route,
+       * no UI, no sender — only a `/forget-password` entry in the
+       * rate-limit guard's path list, guarding an endpoint that answered
+       * nothing. Recovery meant someone with database access editing the
+       * `accounts` row by hand.
+       *
+       * ## Token hygiene
+       *
+       * One hour, single-use. Better Auth stores the token in the
+       * `verifications` table and DELETES the row when it is consumed, so
+       * replaying a link that already set a password fails as
+       * INVALID_TOKEN. An hour is the usual trade: long enough to survive
+       * a slow mail hop, short enough that a link sitting in a shared or
+       * later-compromised inbox stops being a key quickly.
+       *
+       * ## The 24h send throttle lives HERE, not in the route
+       *
+       * `sendResetPassword` is the single choke point every reset email
+       * passes through — the /admin/forgot-password form action, a direct
+       * POST to /api/auth/forget-password, and any future caller all land
+       * on it. Putting the limit in the route would leave the raw endpoint
+       * unthrottled, which is the same class of mistake the rate-limit
+       * guard's comment records (a route-level guard that the profile
+       * action bypassed entirely).
+       *
+       * Returning early WITHOUT sending is invisible to the caller:
+       * Better Auth answers `{ status: true }` to /forget-password
+       * regardless of what this callback does, and regardless of whether
+       * the address matched an account. That is what keeps both the
+       * "unknown email" and "already sent today" cases indistinguishable
+       * from a successful send — see the forgot-password route for the
+       * full enumeration argument.
+       */
+      sendResetPassword: async ({ user, url }) => {
+        // Throttle keyed on the address, not the user id: the id is only
+        // available for accounts that exist, and the key must be
+        // computable for the not-found case too if this is ever reused.
+        const key = await emailThrottleKey(user.email);
+        const maySend = await claimResetSlot(d1, key);
+        if (!maySend) return; // silent — see the enumeration note above
+
+        await sendResetPasswordEmail(
+          {
+            RESEND_API_KEY: env.RESEND_API_KEY,
+            RESEND_FROM: env.RESEND_FROM,
+            DB: d1,
+          },
+          { email: user.email, url },
+        );
+      },
+      /** One hour. Single-use is Better Auth's own behaviour. */
+      resetPasswordTokenExpiresIn: 60 * 60,
+      /**
+       * Sign every other device out when a reset completes.
+       *
+       * Same reasoning the profile page's change-password action records:
+       * a password reset is what you do when you believe someone else has
+       * your credentials, so leaving their sessions alive would make the
+       * reset cosmetic. More so here — the reset path is reached by people
+       * who have LOST access, which is what a takeover looks like from the
+       * victim's side.
+       */
+      revokeSessionsOnPasswordReset: true,
+    },
     /**
      * Rate limiting — OFF by default in Better Auth, and nothing else in
      * this codebase limits auth attempts.

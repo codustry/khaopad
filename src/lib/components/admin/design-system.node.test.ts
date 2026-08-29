@@ -21,8 +21,21 @@ const ADMIN_ROUTES = new URL("../../../routes/(admin)/admin", import.meta.url)
   .pathname;
 const COMPONENTS = new URL(".", import.meta.url).pathname;
 
-/** Pages that render outside the admin shell and own their full-bleed layout. */
-const UNSHELLED = ["login", "signup", "invite"];
+/**
+ * Pages that render outside the admin shell and own their full-bleed layout.
+ *
+ * All of these are reached WITHOUT a session, so there is no sidebar to sit
+ * beside and no PageShell to sit inside — they are the pages you see before
+ * (or instead of) getting into the admin. The password-reset pair joins them
+ * for the same reason: they exist precisely for someone who cannot sign in.
+ */
+const UNSHELLED = [
+  "login",
+  "signup",
+  "invite",
+  "forgot-password",
+  "reset-password",
+];
 
 function adminPages(dir = ADMIN_ROUTES, acc: string[] = []): string[] {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
