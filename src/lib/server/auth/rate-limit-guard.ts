@@ -40,7 +40,11 @@ const GUARDED_PATHS = [
   "/change-password",
   "/sign-up/email",
   "/email-otp/send-verification-otp",
-  "/forget-password",
+  // The real reset endpoint in Better Auth 1.6.5. The list previously
+  // carried "/forget-password", which is not a registered route in this
+  // version at all (it appears only inside the library's own rate-limit
+  // path matcher) — so the reset path was, in practice, unguarded here.
+  "/request-password-reset",
 ];
 
 /** Minimal shape of the Cloudflare ratelimit binding. */

@@ -5,7 +5,16 @@ import type { LayoutServerLoad } from "./$types";
 
 export const load: LayoutServerLoad = async ({ locals, url }) => {
   // Routes that render their own layout (no sidebar) and don't require auth.
-  const PUBLIC_CMS_PATHS = ["/admin/login", "/admin/signup"];
+  // The reset pages MUST be here: they are reached by people who cannot
+  // sign in, so gating them behind a session would redirect the only
+  // users they exist for straight back to the login form they are
+  // locked out of.
+  const PUBLIC_CMS_PATHS = [
+    "/admin/login",
+    "/admin/signup",
+    "/admin/forgot-password",
+    "/admin/reset-password",
+  ];
   const isPublicCms =
     PUBLIC_CMS_PATHS.includes(url.pathname) ||
     url.pathname.startsWith("/admin/invite/");

@@ -132,7 +132,15 @@
 				</div>
 
 				<div class="space-y-1.5">
-					<Label for="password">{m.cms_password()}</Label>
+					<div class="flex items-baseline justify-between gap-2">
+						<Label for="password">{m.cms_password()}</Label>
+						<a
+							href={resolve('/(admin)/admin/forgot-password')}
+							class="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+						>
+							{m.cms_forgot_password_link()}
+						</a>
+					</div>
 					<Input
 						id="password"
 						type="password"

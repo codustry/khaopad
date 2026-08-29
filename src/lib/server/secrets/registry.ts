@@ -102,8 +102,17 @@ export const MANAGED_SECRETS: readonly SecretDef[] = [
   {
     key: "RESEND_API_KEY",
     label: "Resend API key",
-    help: "Sends order receipts and abandoned-cart email. Leave unset to disable transactional email — the shop degrades quietly rather than failing.",
+    help: "Sends order receipts, abandoned-cart email, sign-in codes and admin password-reset links. Leave unset to disable transactional email — the shop degrades quietly rather than failing, and password reset silently sends nothing.",
     sensitive: true,
+    group: "Email — Resend",
+  },
+  {
+    key: "RESEND_FROM",
+    label: "Resend sender identity",
+    help: "The From header for outbound mail, e.g. `Your Site <no-reply@yourdomain.com>`. Must be a domain verified in YOUR Resend account. Leave unset and password-reset mail falls back to the Codustry identity, which only works on Codustry's own Resend account — every fork should set its own.",
+    // The From header is public on every email it sends; masking it would
+    // only make a typo harder to spot.
+    sensitive: false,
     group: "Email — Resend",
   },
   {

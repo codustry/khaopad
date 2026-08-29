@@ -232,6 +232,13 @@
       "when": 1786291020000,
       "tag": "0032_plugin_shop_fixed_bundles",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1786291080000,
+      "tag": "0033_auth_reset_throttle",
+      "breakpoints": true
     }
   ]
 }

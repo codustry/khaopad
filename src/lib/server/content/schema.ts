@@ -736,3 +736,26 @@ export const customerAddresses = sqliteTable("customer_addresses", {
 });
 
 export type CustomerAddress = typeof customerAddresses.$inferSelect;
+
+// ─── Password-reset throttle (feat/password-reset) ─────────────────
+// Durable counters for the "one reset email per account per 24 hours"
+// limit. D1 rather than KV on purpose — see
+// $lib/server/auth/reset-throttle.ts for why KV's read cache and
+// cross-colo eventual consistency cannot hold this window, and why the
+// claim is a single atomic INSERT ... ON CONFLICT rather than a
+// read-then-write pair.
+//
+// `key` is a SHA-256 hex digest ("email:<hash>" or "ip:<hash>"), never a
+// plaintext address: this table must not become a readable list of who
+// forgot their password.
+
+export const authResetThrottle = sqliteTable("auth_reset_throttle", {
+  /** "email:<sha256hex>" or "ip:<sha256hex>" — never a plaintext value. */
+  key: text("key").primaryKey(),
+  /** Epoch millis of the most recent send claimed against this key. */
+  lastSentAt: integer("last_sent_at").notNull(),
+  /** Sends claimed inside the current window (per-IP budget uses it). */
+  sendCount: integer("send_count").notNull().default(1),
+});
+
+export type AuthResetThrottle = typeof authResetThrottle.$inferSelect;
