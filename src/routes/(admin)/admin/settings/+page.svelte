@@ -49,6 +49,11 @@
 	let commentsEnabled = $state(
 		(data.settings.commentsEnabled as boolean | undefined) ?? false,
 	);
+	// #199 — anonymous install telemetry. Default OFF: absent means the
+	// operator has never opted in, and we treat "never decided" as no.
+	let telemetryEnabled = $state(
+		(data.settings.telemetryEnabled as boolean | undefined) ?? false,
+	);
 	/**
 	 * #193 — opt-in plugin switches, one per installed OPTIONAL plugin.
 	 *
@@ -352,6 +357,35 @@
 						{m.cms_settings_comments_enabled()}
 						<span class="block text-xs text-muted-foreground mt-0.5">
 							{m.cms_settings_comments_enabled_help()}
+						</span>
+					</span>
+				</label>
+			</CardContent>
+		</Card>
+
+		<!--
+			#199 — anonymous install telemetry. Off by default and stated
+			as such in the card, because a toggle whose default the
+			operator has to guess is not really an opt-in.
+		-->
+		<Card class="mt-6">
+			<CardHeader>
+				<CardTitle>{m.cms_settings_telemetry()}</CardTitle>
+			</CardHeader>
+			<CardContent class="space-y-4">
+				<p class="text-xs text-muted-foreground">{m.cms_settings_telemetry_help()}</p>
+				<label class="flex items-start gap-2 text-sm cursor-pointer">
+					<input
+						type="checkbox"
+						id="telemetry_enabled"
+						name="telemetry_enabled"
+						bind:checked={telemetryEnabled}
+						class="mt-0.5 h-4 w-4"
+					/>
+					<span>
+						{m.cms_settings_telemetry_enabled()}
+						<span class="block text-xs text-muted-foreground mt-0.5">
+							{m.cms_settings_telemetry_enabled_help()}
 						</span>
 					</span>
 				</label>

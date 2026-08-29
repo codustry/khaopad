@@ -179,3 +179,30 @@ id = "PRODUCTION_KV_ID"
 #
 # Then set CRON_SECRET in [vars]:
 # CRON_SECRET = "generate-with-openssl-rand-hex-32"
+
+# ──────────────────────────────────────
+# Anonymous install telemetry (#199) — OFF unless you opt in
+# ──────────────────────────────────────
+# The engine can send a small anonymous weekly ping so the maintainers
+# can see how many installs exist. It is off by default and stays off
+# until BOTH of these are true:
+#
+#   1. TELEMETRY_ENDPOINT below is set, and
+#   2. a site admin ticks Settings → Anonymous usage data.
+#
+# No site URL, no hostname, no IP, no user data, no content and no
+# exact counts are ever sent. docs/TELEMETRY.md lists every field.
+#
+# Sending happens only from the weekly cron tick at /api/telemetry/cron
+# (guarded by CRON_SECRET, same as the shop sweep) — never from a page
+# render, so no visitor ever waits on it.
+#
+# [vars]
+# TELEMETRY_ENDPOINT = "https://khaopad-analytics.<subdomain>.workers.dev/v1/ping"
+#
+# To force telemetry OFF regardless of the admin setting — useful when
+# you manage a fleet and want silence guaranteed from deploy config:
+# KHAOPAD_TELEMETRY_DISABLED = "1"
+#
+# Add the weekly schedule to the [triggers] crons list above:
+#   crons = ["0 3 * * 1"]  # Mondays 03:00 UTC

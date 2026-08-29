@@ -158,6 +158,15 @@ export interface SiteSettings {
    */
   commentsEnabled?: boolean;
   /**
+   * #199: anonymous install telemetry opt-in. Absent/false = the
+   * engine sends nothing, which is the deliberate default — khaopad
+   * forks are typically commercial client sites, and phoning home from
+   * someone else's production deployment is not the engine's call to
+   * make. `KHAOPAD_TELEMETRY_DISABLED=1` overrides this to off
+   * regardless. See docs/TELEMETRY.md.
+   */
+  telemetryEnabled?: boolean;
+  /**
    * #193: opt-in plugin set. Slugs of OPTIONAL plugins (those whose
    * manifest declares `optional: true`) the operator switched on in
    * Settings → Features.
