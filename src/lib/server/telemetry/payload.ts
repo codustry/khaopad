@@ -96,6 +96,26 @@ export interface TelemetryPayload {
    * or the colo code itself, all of which narrow a site far too much.
    */
   region?: string;
+  /**
+   * Deployment environment — "production", "preview" or "development".
+   *
+   * The signal that separates real adoption from someone running
+   * `pnpm dev` twice. Without it every localhost experiment counts as
+   * an install and the adoption numbers are noise. Derived from
+   * WORKERS_ENV; unknown values collapse to "development" so a
+   * misconfigured deployment cannot inflate production counts.
+   */
+  environment: "production" | "preview" | "development";
+  /**
+   * Whether the site is served from a custom domain, as a BOOLEAN.
+   *
+   * The strongest "this is a real deployment" signal available — but
+   * the domain ITSELF is never sent. A hostname identifies the
+   * operator's business, which is exactly the line this payload does
+   * not cross; the boolean carries the signal with none of the
+   * identity.
+   */
+  hasCustomDomain: boolean;
 }
 
 /** The exact set of top-level keys. Pinned by test. */
@@ -109,6 +129,8 @@ export const TELEMETRY_PAYLOAD_KEYS = [
   "localeCount",
   "buckets",
   "region",
+  "environment",
+  "hasCustomDomain",
 ] as const;
 
 /**
