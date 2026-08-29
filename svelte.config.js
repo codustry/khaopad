@@ -50,10 +50,16 @@ const config = {
         "default-src": ["self"],
         "script-src": ["self"],
         // bits-ui / svelte-sonner emit inline style attributes.
-        "style-src": ["self", "unsafe-inline"],
+        // fonts.googleapis.com: the admin layout links the IBM Plex
+        // stylesheet (Thai + mono). Without it here the CSP blocks the
+        // <link> and the admin silently falls back to system fonts —
+        // no error surfaces on the page, only in the console.
+        "style-src": ["self", "unsafe-inline", "https://fonts.googleapis.com"],
         "img-src": ["self", "data:", "blob:", "https:"],
         "media-src": ["self", "data:", "blob:", "https:"],
-        "font-src": ["self", "data:"],
+        // gstatic serves the actual woff2 files the stylesheet above
+        // references; allowing only the stylesheet still yields no fonts.
+        "font-src": ["self", "data:", "https://fonts.gstatic.com"],
         "connect-src": ["self"],
         "frame-ancestors": ["none"],
         "form-action": ["self"],
