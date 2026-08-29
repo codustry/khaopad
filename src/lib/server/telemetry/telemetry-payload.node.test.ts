@@ -16,9 +16,11 @@ import {
 import type { ContentProvider, SiteSettings } from "$lib/server/content/types";
 import {
   buildPayload,
+  derivesCustomDomain,
   isDisabledByEnv,
   isDue,
   maybeSendTelemetry,
+  normalizeEnvironment,
   SEND_INTERVAL_MS,
 } from "./index";
 
@@ -373,5 +375,40 @@ describe("failure is silent", () => {
     });
     expect(res).toEqual({ sent: true });
     expect(writes).toBeGreaterThan(0);
+  });
+});
+
+describe("environment + hasCustomDomain (adoption signal, no identity)", () => {
+  it("only an explicit production marker counts as production", () => {
+    expect(normalizeEnvironment("production")).toBe("production");
+    expect(normalizeEnvironment("prod")).toBe("production");
+    expect(normalizeEnvironment("preview")).toBe("preview");
+    expect(normalizeEnvironment("staging")).toBe("preview");
+    // The point of the field: unset/unknown must NOT inflate production.
+    expect(normalizeEnvironment(undefined)).toBe("development");
+    expect(normalizeEnvironment("")).toBe("development");
+    expect(normalizeEnvironment("PRODUCTION_ISH")).toBe("development");
+    expect(normalizeEnvironment(42)).toBe("development");
+  });
+
+  it("recognises a real domain and rejects tyre-kicks", () => {
+    expect(derivesCustomDomain("https://www.bactrack.in.th")).toBe(true);
+    expect(derivesCustomDomain("https://test.drvakuum.com/en")).toBe(true);
+    expect(derivesCustomDomain("https://foo.workers.dev")).toBe(false);
+    expect(derivesCustomDomain("https://foo.pages.dev")).toBe(false);
+    expect(derivesCustomDomain("http://localhost:5173")).toBe(false);
+    expect(derivesCustomDomain("http://192.168.1.10:8787")).toBe(false);
+    expect(derivesCustomDomain("https://example.com")).toBe(false);
+    expect(derivesCustomDomain(undefined)).toBe(false);
+    expect(derivesCustomDomain("not a url")).toBe(false);
+  });
+
+  it("returns a boolean, never the hostname itself", () => {
+    // The whole justification for inspecting the URL is that nothing
+    // derived from it survives. If this ever returns a string, the
+    // payload has started carrying the operator's business identity.
+    const out = derivesCustomDomain("https://www.bactrack.in.th");
+    expect(typeof out).toBe("boolean");
+    expect(JSON.stringify(out)).not.toContain("bactrack");
   });
 });

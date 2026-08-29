@@ -86,6 +86,51 @@ export interface BuildPayloadInput {
   counts: { articles: number; pages: number; users: number };
   runtime: string;
   continent?: unknown;
+  /** Raw WORKERS_ENV (or equivalent). Normalised, never sent verbatim. */
+  workersEnv?: unknown;
+  /** The site's configured public origin. Used ONLY to derive a boolean. */
+  publicSiteUrl?: unknown;
+}
+
+/**
+ * Normalise the deployment environment to one of three labels.
+ *
+ * Anything unrecognised collapses to "development", deliberately: a
+ * misconfigured or absent WORKERS_ENV must not be able to inflate the
+ * production install count. Only an explicit, known production marker
+ * counts as production.
+ */
+export function normalizeEnvironment(
+  raw: unknown,
+): "production" | "preview" | "development" {
+  const v = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (v === "production" || v === "prod") return "production";
+  if (v === "preview" || v === "staging") return "preview";
+  return "development";
+}
+
+/**
+ * Does this deployment sit on a real custom domain?
+ *
+ * Returns a BOOLEAN and nothing else — the hostname is inspected here
+ * and immediately discarded. `*.workers.dev`, localhost and any
+ * unparseable value are all "no", which is what separates a tyre-kick
+ * from a deployment someone has committed a domain to.
+ */
+export function derivesCustomDomain(rawUrl: unknown): boolean {
+  if (typeof rawUrl !== "string" || !rawUrl) return false;
+  let host: string;
+  try {
+    host = new URL(rawUrl).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (!host || host === "localhost" || host.endsWith(".local")) return false;
+  if (host.endsWith(".workers.dev") || host.endsWith(".pages.dev"))
+    return false;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return false; // bare IP
+  if (host === "example.com" || host.endsWith(".example.com")) return false;
+  return host.includes(".");
 }
 
 /**
@@ -112,6 +157,8 @@ export async function buildPayload(
 
   const region = coarseRegion(input.continent);
   return {
+    environment: normalizeEnvironment(input.workersEnv),
+    hasCustomDomain: derivesCustomDomain(input.publicSiteUrl),
     payloadVersion: TELEMETRY_PAYLOAD_VERSION,
     installId,
     engineVersion: ENGINE_VERSION,
@@ -190,6 +237,10 @@ export async function maybeSendTelemetry(opts: {
       counts: opts.counts,
       runtime: opts.runtime ?? "cloudflare-workers",
       continent: opts.continent,
+      // Both come from the deployment's own [vars]; each is reduced to a
+      // label or a boolean inside buildPayload and never sent verbatim.
+      workersEnv: opts.env?.WORKERS_ENV,
+      publicSiteUrl: opts.env?.PUBLIC_SITE_URL,
     });
     if (!payload) return { sent: false, reason: "failed" };
 
