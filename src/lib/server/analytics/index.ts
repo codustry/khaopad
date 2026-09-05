@@ -1,5 +1,5 @@
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import * as schema from "../content/schema";
 
@@ -288,6 +288,77 @@ export class AnalyticsService {
       )
       .get();
     return Number(row?.total ?? 0);
+  }
+
+  /**
+   * Site-wide views per day for the last `days`, oldest first.
+   *
+   * Days with no rows are filled with 0 rather than omitted. A sparse
+   * series would draw a chart that silently rescales its own x-axis —
+   * a fortnight of silence and a fortnight of traffic would produce the
+   * same-looking line.
+   */
+  async dailyViews(days = 30): Promise<SparklinePoint[]> {
+    const since = sinceDate(days);
+    const rows = await this.db
+      .select({
+        date: schema.pageViews.date,
+        count: sql<number>`SUM(${schema.pageViews.count})`,
+      })
+      .from(schema.pageViews)
+      .where(gte(schema.pageViews.date, since))
+      .groupBy(schema.pageViews.date)
+      .all();
+    const byDate = new Map(rows.map((r) => [r.date, Number(r.count)]));
+    const out: SparklinePoint[] = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = dateMinusDays(i);
+      out.push({ date: d, count: byDate.get(d) ?? 0 });
+    }
+    return out;
+  }
+
+  /**
+   * Total views for the last `days`, and for the `days` before that.
+   *
+   * The dashboard shows a direction of travel, not a bare total: "964"
+   * is trivia, "964, up 18%" is a fact you can act on. Returning both
+   * halves lets the caller decide how to render the comparison — and
+   * lets it decline to, when the previous period has no data at all.
+   */
+  async viewsWithPrevious(
+    days = 30,
+  ): Promise<{ current: number; previous: number | null }> {
+    const currentSince = sinceDate(days);
+    const previousSince = sinceDate(days * 2);
+
+    const sum = async (from: string, to?: string) => {
+      const row = await this.db
+        .select({ total: sql<number>`SUM(${schema.pageViews.count})` })
+        .from(schema.pageViews)
+        .where(
+          to
+            ? and(
+                gte(schema.pageViews.date, from),
+                lt(schema.pageViews.date, to),
+              )
+            : gte(schema.pageViews.date, from),
+        )
+        .get();
+      return Number(row?.total ?? 0);
+    };
+
+    const [current, previousRaw] = await Promise.all([
+      sum(currentSince),
+      sum(previousSince, currentSince),
+    ]);
+
+    // `0` for the previous window is ambiguous: a brand-new install and
+    // a site that genuinely lost all its traffic both report zero, and
+    // a percentage against zero is undefined either way. `null` says
+    // "no basis for comparison" so the caller can omit the delta rather
+    // than print a meaningless +100%.
+    return { current, previous: previousRaw > 0 ? previousRaw : null };
   }
 }
 
