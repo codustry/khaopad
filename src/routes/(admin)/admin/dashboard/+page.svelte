@@ -1,10 +1,48 @@
 <script lang="ts">
+	/**
+	 * The admin dashboard.
+	 *
+	 * ## The ordering principle
+	 *
+	 * Act first, context second, reference last. The page is three bands:
+	 *
+	 *   1. NEEDS YOU  — work items. Drafts, the scheduled queue, and the
+	 *                   searches that returned nothing (each one a brief
+	 *                   for an article that does not exist yet).
+	 *   2. REACH      — is the site growing? Views with a direction of
+	 *                   travel, the daily trend, and the articles that
+	 *                   produced it.
+	 *   3. REFERENCE  — translation coverage when it is incomplete, and
+	 *                   the audit feed. Neither is news; both are useful
+	 *                   to look up.
+	 *
+	 * ## What was removed, and why
+	 *
+	 * The previous version showed six equal-weight counters. `Articles`
+	 * was printed twice (as the headline's sub-line AND its own tile);
+	 * `Media Files` and `Users` drive no decision from a dashboard and
+	 * live on their own pages; and `Published` was the page's biggest
+	 * number despite being a stock that only moves when you move it —
+	 * it cannot be news. Total views, the one number an operator
+	 * actually checks, was absent entirely.
+	 *
+	 * The test each surviving number has to pass: what would an operator
+	 * DO differently on seeing it change?
+	 */
 	import { resolve } from '$app/paths';
 	import * as m from '$lib/paraglide/messages';
 	import { getLocale } from '$lib/paraglide/runtime';
 	import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui';
 	import { LayoutDashboard } from 'lucide-svelte';
-	import { PageShell, PageHeader, StatusBadge } from '$lib/components/admin';
+	import {
+		PageShell,
+		PageHeader,
+		StatusBadge,
+		MetricTile,
+		EmptyState,
+		TrendChart,
+		Sparkline
+	} from '$lib/components/admin';
 	import { formatSatang, type Satang } from '$plugins/shop/money';
 	import type { PageData } from './$types';
 
@@ -15,6 +53,32 @@
 	const scheduled = $derived(data.scheduled);
 	const coverage = $derived(data.coverage);
 	const activity = $derived(data.activity);
+
+	/** A site with nothing published yet gets a single instruction, not 8 empty panels. */
+	const isFreshInstall = $derived(stats.total === 0);
+
+	// ── Reach ────────────────────────────────────────────────
+	const views = $derived(data.viewsCompared);
+	const hasViews = $derived((views?.current ?? 0) > 0);
+
+	/**
+	 * Percentage change vs the previous 30 days, or `null` when there is
+	 * no basis for one. The loader already reports `previous: null` for a
+	 * window with no data, because "+100% on zero" is not a fact.
+	 */
+	const viewsDelta = $derived.by(() => {
+		if (!views || views.previous === null || views.previous === 0) return null;
+		return Math.round(((views.current - views.previous) / views.previous) * 100);
+	});
+
+	const deltaTone = $derived(
+		viewsDelta === null ? 'neutral' : viewsDelta > 0 ? 'good' : viewsDelta < 0 ? 'warn' : 'neutral'
+	);
+
+	/** Locale-aware thousands separators; `964` reads worse as `964` at 4+ digits. */
+	function num(n: number): string {
+		return n.toLocaleString(getLocale() === 'th' ? 'th-TH' : 'en-US');
+	}
 
 	function relativeTime(iso: string): string {
 		const then = new Date(iso).getTime();
@@ -44,21 +108,28 @@
 	/** Best-effort label for an audit row. */
 	function entityLabel(row: (typeof activity)[number]): string {
 		const md = row.metadata;
-		if (md && typeof md === 'object' && !Array.isArray(md)) {
-			const title = (md as Record<string, unknown>).title;
-			if (typeof title === 'string' && title) return title;
-			const slug = (md as Record<string, unknown>).slug;
-			if (typeof slug === 'string' && slug) return slug;
-			const name = (md as Record<string, unknown>).name;
-			if (typeof name === 'string' && name) return name;
+		if (md && typeof md === 'object' && 'title' in md && typeof md.title === 'string') {
+			return md.title;
 		}
-		return row.entityId.slice(0, 8);
+		if (md && typeof md === 'object' && 'slug' in md && typeof md.slug === 'string') {
+			return md.slug;
+		}
+		return `${row.entityType} ${row.entityId.slice(0, 8)}`;
 	}
 
 	function pct(part: number, total: number): number {
 		if (total === 0) return 0;
 		return Math.round((part / total) * 100);
 	}
+
+	/**
+	 * Coverage is shown only when a locale is BEHIND. At 100% it is a
+	 * congratulation, not information, and a permanently-green bar
+	 * teaches the eye to skip that region of the page.
+	 */
+	const coverageIncomplete = $derived(
+		coverage.total > 0 && (coverage.en < coverage.total || coverage.th < coverage.total)
+	);
 </script>
 
 <svelte:head>
@@ -83,470 +154,504 @@
 		{/snippet}
 	</PageHeader>
 
-	<div class="space-y-6">
-	<!--
-		Hierarchy: published count is the one number that answers "is the site
-		healthy?", so it gets a full card and 5xl type. The other five stats
-		were previously the same visual weight, which flattened the page into
-		six equal claims on attention; they are now a dense secondary row.
-	-->
-	<section class="grid gap-3 lg:grid-cols-3">
-		<Card class="lg:col-span-1">
-			<CardContent class="p-6">
-				<div class="text-sm font-medium text-muted-foreground">{m.cms_stat_published()}</div>
-				<div class="mt-2 text-5xl font-semibold tabular-nums tracking-tight">
-					{stats.published}
-				</div>
-				<div class="mt-2 text-xs text-muted-foreground">
-					{m.cms_stat_articles()}: {stats.total}
-				</div>
-				<Button
-					variant="outline"
-					size="sm"
-					class="mt-4"
-					href={resolve('/(admin)/admin/articles')}
-				>
-					{m.cms_quick_browse_articles()}
+	{#if isFreshInstall}
+		<!--
+			A brand-new install used to render eight panels, six of them
+			empty — which reads as a broken deployment rather than a new
+			one. One instruction is more useful and more honest.
+		-->
+		<EmptyState title={m.cms_dashboard_start_title()} description={m.cms_dashboard_start_body()}>
+			{#snippet action()}
+				<Button href={resolve('/(admin)/admin/articles/new')}>
+					{m.cms_quick_new_article()}
 				</Button>
-			</CardContent>
-		</Card>
+			{/snippet}
+		</EmptyState>
+	{:else}
+		<div class="space-y-8">
+			<!-- ─────────────── 1. NEEDS YOU ─────────────── -->
+			<section class="space-y-3">
+				<h2 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+					{m.cms_dashboard_needs_you()}
+				</h2>
 
-		<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:col-span-2 lg:content-start xl:grid-cols-5">
-			<Card>
-				<CardContent class="p-3">
-					<div class="text-xs font-medium text-muted-foreground">{m.cms_stat_articles()}</div>
-					<div class="mt-0.5 text-xl font-semibold tabular-nums">{stats.total}</div>
-				</CardContent>
-			</Card>
-			<Card>
-				<CardContent class="p-3">
-					<div class="text-xs font-medium text-muted-foreground">{m.cms_stat_drafts()}</div>
-					<div class="mt-0.5 text-xl font-semibold tabular-nums">{stats.drafts}</div>
-				</CardContent>
-			</Card>
-			<Card>
-				<CardContent class="p-3">
-					<div class="text-xs font-medium text-muted-foreground">{m.cms_stat_scheduled()}</div>
-					<div class="mt-0.5 text-xl font-semibold tabular-nums">{stats.scheduled}</div>
-				</CardContent>
-			</Card>
-			<Card>
-				<CardContent class="p-3">
-					<div class="text-xs font-medium text-muted-foreground">{m.cms_stat_media()}</div>
-					<div class="mt-0.5 text-xl font-semibold tabular-nums">{stats.media}</div>
-				</CardContent>
-			</Card>
-			<Card>
-				<CardContent class="p-3">
-					<div class="text-xs font-medium text-muted-foreground">{m.cms_stat_users()}</div>
-					<div class="mt-0.5 text-xl font-semibold tabular-nums">{stats.users}</div>
-				</CardContent>
-			</Card>
-		</div>
-	</section>
-
-	<!-- Shop (#160 C9): plugin-gated, admin+ — data.shop is null otherwise. -->
-	{#if data.shop}
-		<section class="space-y-3">
-			<h2 class="text-sm font-medium text-muted-foreground">{m.shop_dashboard_title()}</h2>
-			<div class="grid grid-cols-2 gap-3 sm:grid-cols-4 2xl:grid-cols-8">
-				<Card>
-					<CardContent class="p-3">
-						<div class="text-xs font-medium text-muted-foreground">
-							{m.shop_dashboard_orders_today()}
-						</div>
-						<div class="mt-0.5 text-xl font-semibold tabular-nums">{data.shop.today.orders}</div>
-					</CardContent>
-				</Card>
-				<Card>
-					<CardContent class="p-3">
-						<div class="text-xs font-medium text-muted-foreground">
-							{m.shop_dashboard_revenue_today()}
-						</div>
-						<div class="mt-0.5 text-xl font-semibold tabular-nums">
-							{formatSatang(data.shop.today.revenueSatang as Satang)}
-						</div>
-					</CardContent>
-				</Card>
-				<Card>
-					<CardContent class="p-3">
-						<div class="text-xs font-medium text-muted-foreground">
-							{m.shop_dashboard_orders_7d()}
-						</div>
-						<div class="mt-0.5 text-xl font-semibold tabular-nums">{data.shop.week.orders}</div>
-					</CardContent>
-				</Card>
-				<Card>
-					<CardContent class="p-3">
-						<div class="text-xs font-medium text-muted-foreground">
-							{m.shop_dashboard_revenue_7d()}
-						</div>
-						<div class="mt-0.5 text-xl font-semibold tabular-nums">
-							{formatSatang(data.shop.week.revenueSatang as Satang)}
-						</div>
-					</CardContent>
-				</Card>
-			</div>
-
-			<div class="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
-				<Card>
-					<CardHeader>
-						<CardTitle class="text-sm flex items-center justify-between">
-							<span>{m.shop_dashboard_recent_orders()}</span>
-							<a
-								href={resolve('/(admin)/admin/shop/orders')}
-								class="text-xs text-muted-foreground hover:text-foreground"
-							>
-								{m.cms_dashboard_view_all()}
-							</a>
-						</CardTitle>
-					</CardHeader>
-					<CardContent class="p-0">
-						{#if data.shop.recentOrders.length === 0}
-							<div class="p-4 text-sm text-muted-foreground">
-								{m.shop_dashboard_orders_empty()}
-							</div>
-						{:else}
-							<ul class="divide-y divide-border">
-								{#each data.shop.recentOrders as order (order.id)}
-									<li>
-										<a
-											href={resolve('/(admin)/admin/shop/orders/[id]', { id: order.id })}
-											class="flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors"
-										>
-											<div class="flex-1 min-w-0">
-												<div class="text-sm font-medium truncate">{order.orderNumber}</div>
-												<div class="text-xs text-muted-foreground truncate">{order.email}</div>
-											</div>
-											<StatusBadge status={order.financialStatus} />
-											<span class="text-sm tabular-nums">
-												{formatSatang(order.totalSatang as Satang)}
-											</span>
-										</a>
-									</li>
-								{/each}
-							</ul>
-						{/if}
-					</CardContent>
-				</Card>
-
-				<Card>
-					<CardHeader>
-						<CardTitle class="text-sm">{m.shop_dashboard_low_stock()}</CardTitle>
-					</CardHeader>
-					<CardContent class="p-0">
-						{#if data.shop.lowStock.length === 0}
-							<div class="p-4 text-sm text-muted-foreground">
-								{m.shop_dashboard_low_stock_empty()}
-							</div>
-						{:else}
-							<ul class="divide-y divide-border">
-								{#each data.shop.lowStock as row (row.variantId)}
-									<li>
-										<a
-											href={resolve('/(admin)/admin/shop/products/[id]', { id: row.productId })}
-											class="flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors"
-										>
-											<div class="flex-1 min-w-0">
-												<div class="text-sm font-medium truncate">
-													{row.productTitle ?? row.variantTitle}
+				<div class="grid gap-4 lg:grid-cols-3">
+					<!-- Drafts -->
+					<Card>
+						<CardHeader class="pb-3">
+							<CardTitle class="flex items-center justify-between text-sm">
+								<span>{m.cms_dashboard_drafts_title()}</span>
+								<a
+									href={resolve('/(admin)/admin/articles?status=draft')}
+									class="rounded-sm text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+								>
+									{m.cms_dashboard_view_all()}
+								</a>
+							</CardTitle>
+						</CardHeader>
+						<CardContent class="p-0">
+							{#if drafts.length === 0}
+								<div class="px-4 pb-4">
+									<EmptyState
+										size="sm"
+										title={m.cms_dashboard_drafts_empty_title()}
+										description={m.cms_dashboard_drafts_empty_body()}
+									/>
+								</div>
+							{:else}
+								<ul class="divide-y divide-border">
+									{#each drafts as d (d.id)}
+										<li>
+											<a
+												href={resolve('/(admin)/admin/articles/[id]', { id: d.id })}
+												class="block px-4 py-2.5 transition-colors hover:bg-muted/40"
+											>
+												<div class="truncate text-sm font-medium">{d.title}</div>
+												<div class="mt-0.5 text-xs text-muted-foreground">
+													{relativeTime(d.updatedAt)}
 												</div>
-												{#if row.productTitle && row.variantTitle}
-													<div class="text-xs text-muted-foreground truncate">
-														{row.variantTitle}
-													</div>
-												{/if}
-											</div>
-											<span class="text-sm tabular-nums {row.available <= 0 ? 'text-destructive' : 'text-muted-foreground'}">
-												{row.available}
+											</a>
+										</li>
+									{/each}
+								</ul>
+							{/if}
+						</CardContent>
+					</Card>
+
+					<!-- Scheduled -->
+					<Card>
+						<CardHeader class="pb-3">
+							<CardTitle class="flex items-center justify-between text-sm">
+								<span>{m.cms_dashboard_scheduled_title()}</span>
+								{#if stats.scheduled > 0}
+									<Badge variant="outline">{stats.scheduled}</Badge>
+								{/if}
+							</CardTitle>
+						</CardHeader>
+						<CardContent class="p-0">
+							{#if scheduled.length === 0}
+								<div class="px-4 pb-4">
+									<EmptyState
+										size="sm"
+										title={m.cms_dashboard_scheduled_empty_title()}
+										description={m.cms_dashboard_scheduled_empty_body()}
+									/>
+								</div>
+							{:else}
+								<ul class="divide-y divide-border">
+									{#each scheduled as a (a.id)}
+										<li>
+											<a
+												href={resolve('/(admin)/admin/articles/[id]', { id: a.id })}
+												class="block px-4 py-2.5 transition-colors hover:bg-muted/40"
+											>
+												<div class="truncate text-sm font-medium">{a.title}</div>
+												<div class="mt-0.5 text-xs text-muted-foreground">
+													{relativeTime(a.publishedAt)} · {a.slug}
+												</div>
+											</a>
+										</li>
+									{/each}
+								</ul>
+							{/if}
+						</CardContent>
+					</Card>
+
+					<!--
+						Content gaps. Promoted out of the bottom half of a
+						"Search insights" card: this is the most directly
+						actionable list on the page — visitors asked for
+						these in their own words and got nothing.
+					-->
+					<Card>
+						<CardHeader class="pb-3">
+							<CardTitle class="text-sm">{m.cms_dashboard_gaps_title()}</CardTitle>
+						</CardHeader>
+						<CardContent class="p-0">
+							{#if data.noResultTerms.length === 0}
+								<div class="px-4 pb-4">
+									<EmptyState
+										size="sm"
+										title={m.cms_dashboard_gaps_empty_title()}
+										description={m.cms_dashboard_gaps_empty_body()}
+									/>
+								</div>
+							{:else}
+								<p class="px-4 pb-2 text-xs text-muted-foreground">
+									{m.cms_dashboard_gaps_help()}
+								</p>
+								<ul class="divide-y divide-border">
+									{#each data.noResultTerms as t (t.term)}
+										<li class="flex items-center justify-between gap-2 px-4 py-2.5">
+											<span class="truncate text-sm font-medium">{t.term}</span>
+											<span class="shrink-0 text-xs tabular-nums text-muted-foreground">
+												{t.hits}
 											</span>
-										</a>
+										</li>
+									{/each}
+								</ul>
+							{/if}
+						</CardContent>
+					</Card>
+				</div>
+			</section>
+
+			<!-- ─────────────── 2. REACH ─────────────── -->
+			<section class="space-y-3">
+				<h2 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+					{m.cms_dashboard_reach()}
+				</h2>
+
+				<div class="grid gap-4 lg:grid-cols-3">
+					<!-- Headline number + trend -->
+					<Card class="lg:col-span-2">
+						<CardContent class="space-y-4 p-4 sm:p-6">
+							<div class="flex flex-wrap items-baseline justify-between gap-2">
+								<div>
+									<div class="text-xs font-medium text-muted-foreground">
+										{m.cms_dashboard_views_30d()}
+									</div>
+									<div class="mt-1 flex items-baseline gap-2">
+										<span class="text-3xl font-semibold tabular-nums tracking-tight">
+											{views ? num(views.current) : '—'}
+										</span>
+										{#if viewsDelta !== null}
+											<!--
+												Tone colours the NUMBER, never the card. A tinted
+												card makes every panel shout at one volume.
+											-->
+											<span
+												class="text-sm font-medium tabular-nums {deltaTone === 'good'
+													? 'text-green-600 dark:text-green-400'
+													: deltaTone === 'warn'
+														? 'text-amber-600 dark:text-amber-400'
+														: 'text-muted-foreground'}"
+											>
+												{viewsDelta > 0 ? '+' : ''}{viewsDelta}%
+											</span>
+										{/if}
+									</div>
+									<div class="mt-0.5 text-xs text-muted-foreground">
+										{viewsDelta !== null
+											? m.cms_dashboard_views_vs_previous()
+											: m.cms_dashboard_views_no_baseline()}
+									</div>
+								</div>
+							</div>
+
+							{#if hasViews && data.dailyViews.length > 0}
+								<TrendChart points={data.dailyViews} label={m.cms_dashboard_trend_label()} />
+							{:else}
+								<EmptyState
+									size="sm"
+									title={m.cms_dashboard_trend_empty_title()}
+									description={m.cms_dashboard_trend_empty_body()}
+								/>
+							{/if}
+						</CardContent>
+					</Card>
+
+					<!-- Publishing posture: only the counts a decision follows from. -->
+					<div class="grid grid-cols-2 gap-3 lg:grid-cols-1 lg:content-start">
+						<MetricTile
+							label={m.cms_stat_published()}
+							value={stats.published}
+							href={resolve('/(admin)/admin/articles')}
+						/>
+						<MetricTile
+							label={m.cms_stat_drafts()}
+							value={stats.drafts}
+							tone={stats.drafts > 0 ? 'warn' : 'neutral'}
+							href={resolve('/(admin)/admin/articles?status=draft')}
+						/>
+					</div>
+				</div>
+
+				<!-- Top articles, each with its own 14-day shape. -->
+				<Card>
+					<CardHeader class="pb-3">
+						<CardTitle class="text-sm">{m.cms_dashboard_top_articles()}</CardTitle>
+					</CardHeader>
+					<CardContent class="p-0">
+						{#if data.topArticles.length === 0}
+							<div class="px-4 pb-4">
+								<EmptyState
+									size="sm"
+									title={m.cms_dashboard_top_articles_empty_title()}
+									description={m.cms_dashboard_top_articles_empty_body()}
+								/>
+							</div>
+						{:else}
+							<ul class="divide-y divide-border">
+								{#each data.topArticles as r, i (r.path)}
+									<li class="flex items-center gap-3 px-4 py-2.5">
+										<span class="w-5 text-xs tabular-nums text-muted-foreground">#{i + 1}</span>
+										<div class="min-w-0 flex-1">
+											{#if r.articleId}
+												<a
+													href={resolve('/(admin)/admin/articles/[id]', { id: r.articleId })}
+													class="block truncate text-sm font-medium hover:underline"
+												>
+													{r.title}
+												</a>
+											{:else}
+												<span class="block truncate text-sm font-medium">{r.title}</span>
+											{/if}
+											<span class="block truncate font-mono text-xs text-muted-foreground">
+												{r.path}
+											</span>
+										</div>
+										{#if r.spark.length > 0}
+											<div class="hidden w-24 shrink-0 sm:block">
+												<Sparkline points={r.spark} label={m.cms_dashboard_spark_label()} />
+											</div>
+										{/if}
+										<span class="w-14 shrink-0 text-right text-sm tabular-nums">
+											{num(r.total)}
+										</span>
 									</li>
 								{/each}
 							</ul>
 						{/if}
 					</CardContent>
 				</Card>
-			</div>
-		</section>
-	{/if}
+			</section>
 
-	<!-- Quick actions: secondary to the metrics above, so ghost-weight links. -->
-	<section class="grid gap-3 grid-cols-2 md:grid-cols-4 2xl:grid-cols-8">
-		<a
-			href={resolve('/(admin)/admin/articles/new')}
-			class="group rounded-lg border border-border bg-card p-3 transition-colors hover:border-primary hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-		>
-			<div class="flex items-center gap-2 text-sm font-medium">
-				<svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
-				{m.cms_quick_new_article()}
-			</div>
-			<div class="text-xs text-muted-foreground mt-1">{m.cms_quick_new_article_help()}</div>
-		</a>
-		<a
-			href={resolve('/(admin)/admin/media')}
-			class="group rounded-lg border border-border bg-card p-3 transition-colors hover:border-primary hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-		>
-			<div class="flex items-center gap-2 text-sm font-medium">
-				<svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5-5 5 5M12 5v12" /></svg>
-				{m.cms_quick_upload_media()}
-			</div>
-			<div class="text-xs text-muted-foreground mt-1">{m.cms_quick_upload_media_help()}</div>
-		</a>
-		<a
-			href={resolve('/(admin)/admin/categories')}
-			class="group rounded-lg border border-border bg-card p-3 transition-colors hover:border-primary hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-		>
-			<div class="flex items-center gap-2 text-sm font-medium">
-				<svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7h18M3 12h18M3 17h18" /></svg>
-				{m.cms_quick_taxonomy()}
-			</div>
-			<div class="text-xs text-muted-foreground mt-1">{m.cms_quick_taxonomy_help()}</div>
-		</a>
-		<a
-			href={data.showActivity ? resolve('/(admin)/admin/users') : resolve('/(admin)/admin/articles')}
-			class="group rounded-lg border border-border bg-card p-3 transition-colors hover:border-primary hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-		>
-			<div class="flex items-center gap-2 text-sm font-medium">
-				<svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4" /><path d="M4 21v-1a8 8 0 0 1 16 0v1" /></svg>
-				{data.showActivity ? m.cms_quick_users() : m.cms_quick_browse_articles()}
-			</div>
-			<div class="text-xs text-muted-foreground mt-1">
-				{data.showActivity ? m.cms_quick_users_help() : m.cms_quick_browse_articles_help()}
-			</div>
-		</a>
-	</section>
-
-	<div class="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
-		<!-- Scheduled -->
-		<Card>
-			<CardHeader>
-				<CardTitle class="text-sm flex items-center justify-between">
-					<span>{m.cms_dashboard_scheduled_title()}</span>
-					{#if stats.scheduled > 0}
-						<Badge variant="outline">{stats.scheduled}</Badge>
-					{/if}
-				</CardTitle>
-			</CardHeader>
-			<CardContent class="p-0">
-				{#if scheduled.length === 0}
-					<div class="p-4 text-sm text-muted-foreground">{m.cms_dashboard_scheduled_empty()}</div>
-				{:else}
-					<ul class="divide-y divide-border">
-						{#each scheduled as a (a.id)}
-							<li>
-								<a
-									href={resolve('/(admin)/admin/articles/[id]', { id: a.id })}
-									class="block px-4 py-3 hover:bg-muted/40 transition-colors"
-								>
-									<div class="text-sm font-medium truncate">{a.title}</div>
-									<div class="text-xs text-muted-foreground mt-0.5">
-										{relativeTime(a.publishedAt)} · {a.slug}
-									</div>
-								</a>
-							</li>
-						{/each}
-					</ul>
-				{/if}
-			</CardContent>
-		</Card>
-
-		<!-- Recent drafts -->
-		<Card>
-			<CardHeader>
-				<CardTitle class="text-sm flex items-center justify-between">
-					<span>{m.cms_dashboard_drafts_title()}</span>
-					<a href={resolve('/(admin)/admin/articles?status=draft')} class="text-xs text-muted-foreground hover:text-foreground">
-						{m.cms_dashboard_view_all()}
-					</a>
-				</CardTitle>
-			</CardHeader>
-			<CardContent class="p-0">
-				{#if drafts.length === 0}
-					<div class="p-4 text-sm text-muted-foreground">{m.cms_dashboard_drafts_empty()}</div>
-				{:else}
-					<ul class="divide-y divide-border">
-						{#each drafts as d (d.id)}
-							<li>
-								<a
-									href={resolve('/(admin)/admin/articles/[id]', { id: d.id })}
-									class="block px-4 py-3 hover:bg-muted/40 transition-colors"
-								>
-									<div class="text-sm font-medium truncate">{d.title}</div>
-									<div class="text-xs text-muted-foreground mt-0.5">{relativeTime(d.updatedAt)}</div>
-								</a>
-							</li>
-						{/each}
-					</ul>
-				{/if}
-			</CardContent>
-		</Card>
-	</div>
-
-	<!-- i18n coverage -->
-	{#if coverage.total > 0}
-		<Card class="border-primary/30">
-			<CardHeader>
-				<CardTitle class="text-base">{m.cms_dashboard_coverage_title()}</CardTitle>
-			</CardHeader>
-			<CardContent class="space-y-3">
-				<p class="text-xs text-muted-foreground">{m.cms_dashboard_coverage_help()}</p>
-				<div class="space-y-2">
-					<div>
-						<div class="flex items-center justify-between text-xs font-medium">
-							<span>EN</span>
-							<span class="text-muted-foreground">
-								{coverage.en} / {coverage.total} ({pct(coverage.en, coverage.total)}%)
-							</span>
-						</div>
-						<div class="mt-1 h-2 rounded-full bg-muted overflow-hidden">
-							<div
-								class="h-full bg-primary"
-								style="width: {pct(coverage.en, coverage.total)}%"
-							></div>
-						</div>
+			<!-- Shop (#160 C9): plugin-gated, admin+ — data.shop is null otherwise. -->
+			{#if data.shop}
+				<section class="space-y-3">
+					<h2 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+						{m.shop_dashboard_title()}
+					</h2>
+					<div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+						<MetricTile
+							label={m.shop_dashboard_orders_today()}
+							value={data.shop.today.orders}
+							lead={data.shop.today.orders > 0}
+						/>
+						<MetricTile
+							label={m.shop_dashboard_revenue_today()}
+							value={formatSatang(data.shop.today.revenueSatang as Satang)}
+						/>
+						<MetricTile
+							label={m.shop_dashboard_orders_7d()}
+							value={data.shop.week.orders}
+						/>
+						<MetricTile
+							label={m.shop_dashboard_revenue_7d()}
+							value={formatSatang(data.shop.week.revenueSatang as Satang)}
+						/>
 					</div>
-					<div>
-						<div class="flex items-center justify-between text-xs font-medium">
-							<span>TH</span>
-							<span class="text-muted-foreground">
-								{coverage.th} / {coverage.total} ({pct(coverage.th, coverage.total)}%)
-							</span>
-						</div>
-						<div class="mt-1 h-2 rounded-full bg-muted overflow-hidden">
-							<div
-								class="h-full bg-primary"
-								style="width: {pct(coverage.th, coverage.total)}%"
-							></div>
-						</div>
-					</div>
-				</div>
-			</CardContent>
-		</Card>
-	{/if}
 
-	<!-- Performance: top articles + search insights (v1.8) -->
-	<div class="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
-		<Card>
-			<CardHeader>
-				<CardTitle class="text-sm">{m.cms_dashboard_top_articles()}</CardTitle>
-			</CardHeader>
-			<CardContent class="p-0">
-				{#if data.topArticles.length === 0}
-					<div class="p-4 text-sm text-muted-foreground">
-						{m.cms_dashboard_analytics_empty()}
-					</div>
-				{:else}
-					<ul class="divide-y divide-border">
-						{#each data.topArticles as r, i (r.path)}
-							<li class="flex items-center gap-3 px-4 py-2.5">
-								<span class="text-xs text-muted-foreground tabular-nums w-5">#{i + 1}</span>
-								<div class="flex-1 min-w-0">
-									{#if r.articleId}
-										<a href={resolve('/(admin)/admin/articles/[id]', { id: r.articleId })} class="text-sm font-medium hover:underline truncate block">
-											{r.title}
-										</a>
-									{:else}
-										<span class="text-sm font-medium truncate block">{r.title}</span>
-									{/if}
-									<span class="text-xs text-muted-foreground font-mono truncate block">{r.path}</span>
-								</div>
-								<span class="text-sm tabular-nums text-muted-foreground">{r.total}</span>
-							</li>
-						{/each}
-					</ul>
-				{/if}
-			</CardContent>
-		</Card>
-
-		<Card>
-			<CardHeader>
-				<CardTitle class="text-sm">{m.cms_dashboard_search_insights()}</CardTitle>
-			</CardHeader>
-			<CardContent class="p-4 space-y-4">
-				<div>
-					<p class="text-xs font-medium text-muted-foreground mb-2">
-						{m.cms_dashboard_top_search_terms()}
-					</p>
-					{#if data.topSearchTerms.length === 0}
-						<p class="text-xs text-muted-foreground">{m.cms_dashboard_analytics_empty()}</p>
-					{:else}
-						<ul class="space-y-1">
-							{#each data.topSearchTerms as t (t.term)}
-								<li class="flex items-center justify-between text-sm">
+					<div class="grid gap-4 lg:grid-cols-2">
+						<Card>
+							<CardHeader class="pb-3">
+								<CardTitle class="flex items-center justify-between text-sm">
+									<span>{m.shop_dashboard_recent_orders()}</span>
 									<a
-										href={resolve(
-											`/(www)/${getLocale()}/blog?q=${encodeURIComponent(t.term)}`,
-										)}
-										class="font-medium truncate hover:underline"
+										href={resolve('/(admin)/admin/shop/orders')}
+										class="rounded-sm text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
 									>
-										{t.term}
+										{m.cms_dashboard_view_all()}
 									</a>
-									<span class="text-xs tabular-nums text-muted-foreground shrink-0 ml-2">
-										{t.hits}
-									</span>
-								</li>
-							{/each}
-						</ul>
-					{/if}
-				</div>
-				<div>
-					<p class="text-xs font-medium text-muted-foreground mb-2">
-						{m.cms_dashboard_no_result_terms()}
-					</p>
-					{#if data.noResultTerms.length === 0}
-						<p class="text-xs text-muted-foreground">
-							{m.cms_dashboard_no_result_empty()}
-						</p>
-					{:else}
-						<ul class="space-y-1">
-							{#each data.noResultTerms as t (t.term)}
-								<li class="flex items-center justify-between text-sm">
-									<span class="font-medium truncate">{t.term}</span>
-									<span class="text-xs tabular-nums text-muted-foreground shrink-0 ml-2">
-										{t.hits}
-									</span>
-								</li>
-							{/each}
-						</ul>
-					{/if}
-				</div>
-			</CardContent>
-		</Card>
-	</div>
+								</CardTitle>
+							</CardHeader>
+							<CardContent class="p-0">
+								{#if data.shop.recentOrders.length === 0}
+									<div class="px-4 pb-4">
+										<EmptyState size="sm" title={m.shop_dashboard_orders_empty()} />
+									</div>
+								{:else}
+									<ul class="divide-y divide-border">
+										{#each data.shop.recentOrders as order (order.id)}
+											<li>
+												<a
+													href={resolve('/(admin)/admin/shop/orders/[id]', { id: order.id })}
+													class="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-muted/40"
+												>
+													<div class="min-w-0 flex-1">
+														<div class="truncate text-sm font-medium">{order.orderNumber}</div>
+														<div class="truncate text-xs text-muted-foreground">{order.email}</div>
+													</div>
+													<StatusBadge status={order.financialStatus} />
+													<span class="text-sm tabular-nums">
+														{formatSatang(order.totalSatang as Satang)}
+													</span>
+												</a>
+											</li>
+										{/each}
+									</ul>
+								{/if}
+							</CardContent>
+						</Card>
 
-	<!-- Activity -->
-	{#if data.showActivity}
-		<Card>
-			<CardHeader>
-				<CardTitle class="text-sm flex items-center justify-between">
-					<span>{m.cms_dashboard_activity_title()}</span>
-					<a href={resolve('/(admin)/admin/audit')} class="text-xs text-muted-foreground hover:text-foreground">
-						{m.cms_dashboard_view_all()}
-					</a>
-				</CardTitle>
-			</CardHeader>
-			<CardContent class="p-0">
-				{#if activity.length === 0}
-					<div class="p-4 text-sm text-muted-foreground">{m.cms_dashboard_activity_empty()}</div>
-				{:else}
-					<ul class="divide-y divide-border">
-						{#each activity as row (row.id)}
-							<li class="px-4 py-3">
-								<div class="flex items-center gap-2 flex-wrap text-sm">
-									<span class="font-medium truncate">{row.actorName ?? row.actorEmail ?? m.cms_dashboard_unknown_actor()}</span>
-									<Badge variant={actionVariant(row.action)} class="text-[10px]">
-										{row.action}
-									</Badge>
-									<span class="text-muted-foreground truncate">{entityLabel(row)}</span>
-									<span class="ml-auto text-xs text-muted-foreground">{relativeTime(row.createdAt)}</span>
+						<Card>
+							<CardHeader class="pb-3">
+								<CardTitle class="text-sm">{m.shop_dashboard_low_stock()}</CardTitle>
+							</CardHeader>
+							<CardContent class="p-0">
+								{#if data.shop.lowStock.length === 0}
+									<div class="px-4 pb-4">
+										<EmptyState size="sm" title={m.shop_dashboard_low_stock_empty()} />
+									</div>
+								{:else}
+									<ul class="divide-y divide-border">
+										{#each data.shop.lowStock as row (row.variantId)}
+											<li>
+												<a
+													href={resolve('/(admin)/admin/shop/products/[id]', {
+														id: row.productId
+													})}
+													class="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-muted/40"
+												>
+													<div class="min-w-0 flex-1">
+														<div class="truncate text-sm font-medium">
+															{row.productTitle ?? row.variantTitle}
+														</div>
+														{#if row.productTitle && row.variantTitle}
+															<div class="truncate text-xs text-muted-foreground">
+																{row.variantTitle}
+															</div>
+														{/if}
+													</div>
+													<span
+														class="text-sm tabular-nums {row.available <= 0
+															? 'text-destructive'
+															: 'text-muted-foreground'}"
+													>
+														{row.available}
+													</span>
+												</a>
+											</li>
+										{/each}
+									</ul>
+								{/if}
+							</CardContent>
+						</Card>
+					</div>
+				</section>
+			{/if}
+
+			<!-- ─────────────── 3. REFERENCE ─────────────── -->
+			<section class="space-y-3">
+				<h2 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+					{m.cms_dashboard_reference()}
+				</h2>
+
+				<div class="grid gap-4 lg:grid-cols-2">
+					<!--
+						Coverage only when a locale is behind. A permanently
+						full green bar teaches the eye to skip this region.
+					-->
+					{#if coverageIncomplete}
+						<Card>
+							<CardHeader class="pb-3">
+								<CardTitle class="text-sm">{m.cms_dashboard_coverage_title()}</CardTitle>
+							</CardHeader>
+							<CardContent class="space-y-3 p-4 pt-0">
+								<p class="text-xs text-muted-foreground">{m.cms_dashboard_coverage_help()}</p>
+								{#each [{ code: 'EN', done: coverage.en }, { code: 'TH', done: coverage.th }] as row (row.code)}
+									<div>
+										<div class="flex items-center justify-between text-xs font-medium">
+											<span>{row.code}</span>
+											<span class="tabular-nums text-muted-foreground">
+												{row.done} / {coverage.total} ({pct(row.done, coverage.total)}%)
+											</span>
+										</div>
+										<div class="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
+											<div
+												class="h-full rounded-full bg-primary"
+												style="width: {pct(row.done, coverage.total)}%"
+											></div>
+										</div>
+									</div>
+								{/each}
+							</CardContent>
+						</Card>
+					{/if}
+
+					<!-- Most-searched terms: interesting, not actionable. Reference. -->
+					<Card>
+						<CardHeader class="pb-3">
+							<CardTitle class="text-sm">{m.cms_dashboard_top_search_terms()}</CardTitle>
+						</CardHeader>
+						<CardContent class="p-0">
+							{#if data.topSearchTerms.length === 0}
+								<div class="px-4 pb-4">
+									<EmptyState
+										size="sm"
+										title={m.cms_dashboard_search_terms_empty_title()}
+										description={m.cms_dashboard_search_terms_empty_body()}
+									/>
 								</div>
-							</li>
-						{/each}
-					</ul>
+							{:else}
+								<ul class="divide-y divide-border">
+									{#each data.topSearchTerms as t (t.term)}
+										<li class="flex items-center justify-between gap-2 px-4 py-2">
+											<a
+												href={resolve(`/(www)/${getLocale()}/blog?q=${encodeURIComponent(t.term)}`)}
+												class="truncate rounded-sm text-sm font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+											>
+												{t.term}
+											</a>
+											<span class="shrink-0 text-xs tabular-nums text-muted-foreground">
+												{t.hits}
+											</span>
+										</li>
+									{/each}
+								</ul>
+							{/if}
+						</CardContent>
+					</Card>
+				</div>
+
+				<!-- Activity -->
+				{#if data.showActivity}
+					<Card>
+						<CardHeader class="pb-3">
+							<CardTitle class="flex items-center justify-between text-sm">
+								<span>{m.cms_dashboard_activity_title()}</span>
+								<a
+									href={resolve('/(admin)/admin/audit')}
+									class="rounded-sm text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+								>
+									{m.cms_dashboard_view_all()}
+								</a>
+							</CardTitle>
+						</CardHeader>
+						<CardContent class="p-0">
+							{#if activity.length === 0}
+								<div class="px-4 pb-4">
+									<EmptyState
+										size="sm"
+										title={m.cms_dashboard_activity_empty_title()}
+										description={m.cms_dashboard_activity_empty_body()}
+									/>
+								</div>
+							{:else}
+								<ul class="divide-y divide-border">
+									{#each activity as row (row.id)}
+										<li class="px-4 py-2.5">
+											<div class="flex flex-wrap items-center gap-2 text-sm">
+												<span class="truncate font-medium">
+													{row.actorName ?? row.actorEmail ?? m.cms_dashboard_unknown_actor()}
+												</span>
+												<Badge variant={actionVariant(row.action)} class="text-[10px]">
+													{row.action}
+												</Badge>
+												<span class="truncate text-muted-foreground">{entityLabel(row)}</span>
+												<span class="ml-auto text-xs text-muted-foreground">
+													{relativeTime(row.createdAt)}
+												</span>
+											</div>
+										</li>
+									{/each}
+								</ul>
+							{/if}
+						</CardContent>
+					</Card>
 				{/if}
-			</CardContent>
-		</Card>
+			</section>
+		</div>
 	{/if}
-	</div>
 </PageShell>

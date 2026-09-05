@@ -257,10 +257,22 @@ export const load: PageServerLoad = async ({ locals, platform }) => {
   // Best-effort — empty arrays if the queries fail (fresh install,
   // no data yet, etc.).
   const analytics = new AnalyticsService(platform.env.DB);
-  const [topArticles, topSearchTerms, noResultTerms] = await Promise.all([
+  const [
+    topArticles,
+    topSearchTerms,
+    noResultTerms,
+    dailyViews,
+    viewsCompared,
+  ] = await Promise.all([
     analytics.topArticles(30, 5).catch(() => []),
     analytics.topSearchTerms(30, 5).catch(() => []),
     analytics.topNoResultTerms(30, 5).catch(() => []),
+    analytics.dailyViews(30).catch(() => []),
+    // `null` (not `{current: 0}`) so the tile can distinguish "the
+    // analytics tables aren't there" from "nobody visited".
+    analytics
+      .viewsWithPrevious(30)
+      .catch(() => null as { current: number; previous: number | null } | null),
   ]);
 
   // Resolve refIds → article titles + slugs in one pass so the tile
@@ -288,13 +300,22 @@ export const load: PageServerLoad = async ({ locals, platform }) => {
       });
     }
   }
-  const topArticlesResolved = topArticles.map((r) => {
+  // A 14-day sparkline per top article: "steady, spiking or dying?" is
+  // a different question from "how many", and the ranking alone cannot
+  // answer it. Capped at the 5 rows already fetched, so this is at most
+  // 5 more indexed reads.
+  const sparklines = await Promise.all(
+    topArticles.map((r) => analytics.sparkline(r.path, 14).catch(() => [])),
+  );
+
+  const topArticlesResolved = topArticles.map((r, i) => {
     const meta = r.refId ? articleById.get(r.refId) : null;
     return {
       path: r.path,
       total: r.total,
       title: meta?.title ?? r.path,
       articleId: meta?.id ?? null,
+      spark: sparklines[i].map((p) => p.count),
     };
   });
 
@@ -354,6 +375,8 @@ export const load: PageServerLoad = async ({ locals, platform }) => {
     topArticles: topArticlesResolved,
     topSearchTerms,
     noResultTerms,
+    dailyViews,
+    viewsCompared,
   };
 };
 
