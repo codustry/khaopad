@@ -46,8 +46,24 @@ const TIMEOUT_MS = 3000;
 /** Weekly. Daily would be noise — adoption does not move that fast. */
 export const SEND_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Engine version. Sourced from package.json at build time. */
-export const ENGINE_VERSION = "4.4.0";
+/**
+ * Engine version — genuinely sourced from package.json, not retyped.
+ *
+ * This was a hardcoded `"4.4.0"` literal whose comment already claimed it
+ * came from package.json. It did not, and by v4.5.0 every install with
+ * telemetry on was reporting a version it was not running — the one field
+ * the maintainer most needs to be true. A constant that must equal another
+ * file's value must READ that file, not promise to.
+ *
+ * `resolveJsonModule` is on (tsconfig.json) and Vite/Rollup inlines the
+ * single accessed property at build time, so no JSON parsing and no file
+ * read happens at runtime on the Worker — the emitted bundle carries the
+ * string literal. `engine-version.node.test.ts` fails if the two ever
+ * disagree again.
+ */
+import pkg from "../../../../package.json" with { type: "json" };
+
+export const ENGINE_VERSION: string = pkg.version;
 
 /**
  * Env veto. Any non-empty value other than "0"/"false" disables — the
