@@ -289,7 +289,9 @@ describe("visitor sources — storage", () => {
     it("aggregates by channel", async () => {
       const svc = new AnalyticsService(d1);
       const byChannel = await svc.sourcesByChannel(30);
-      const map = Object.fromEntries(byChannel.map((r) => [r.channel, r.total]));
+      const map = Object.fromEntries(
+        byChannel.map((r) => [r.channel, r.total]),
+      );
       expect(map).toMatchObject({
         organic_search: 2,
         social: 1,

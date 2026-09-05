@@ -472,6 +472,58 @@ export const pageViews = sqliteTable(
   }),
 );
 
+// ─── Visitor sources (v4.6) ──────────────────────────────
+// Same counter discipline as `page_views`, one dimension wider: the
+// composite PK is (date, channel, source, medium, campaign, path) and
+// the only payload is a count.
+//
+// The shape is the privacy guarantee. There is no id, no timestamp
+// finer than the UTC date, and no session column — so a row says
+// "N landings matched this description that day" and cannot say who,
+// in what order, or whether N was one person or N people. A per-visit
+// row carrying (timestamp, referrer, path) would reconstruct an
+// individual's journey; this cannot, and must not grow a column that
+// would let it.
+//
+// Every string dimension is normalised to a bounded token by
+// `classifySource` (see ../analytics/sources.ts) before it reaches
+// here, so a `?utm_source=<random>` spray collapses into "other"
+// rather than growing the table.
+
+export const visitorSources = sqliteTable(
+  "visitor_sources",
+  {
+    /** UTC date in YYYY-MM-DD form. */
+    date: text("date").notNull(),
+    channel: text("channel", {
+      enum: ["direct", "organic_search", "social", "referral", "internal"],
+    }).notNull(),
+    /** Referrer origin reduced to a known name, or utm_source. */
+    source: text("source").notNull(),
+    /** organic | social | referral | internal | none, or utm_medium. */
+    medium: text("medium").notNull(),
+    /** utm_campaign, or the literal "none" when untagged. */
+    campaign: text("campaign").notNull(),
+    /** Landing pathname including locale prefix; no querystring. */
+    path: text("path").notNull(),
+    count: integer("count")
+      .notNull()
+      .$defaultFn(() => 0),
+  },
+  (table) => ({
+    pk: primaryKey({
+      columns: [
+        table.date,
+        table.channel,
+        table.source,
+        table.medium,
+        table.campaign,
+        table.path,
+      ],
+    }),
+  }),
+);
+
 // Anonymized search log (v1.8). Only the search term + date — no IP,
 // no consent context (the search box is functional, not analytics-
 // gated). Used to surface "what users wanted but didn't find" so
