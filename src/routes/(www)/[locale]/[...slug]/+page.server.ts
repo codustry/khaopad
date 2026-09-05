@@ -3,7 +3,7 @@ import { marked } from "marked";
 import { toLocale, SUPPORTED_LOCALES } from "$lib/i18n";
 import { canonicalUrl, resolveOrigin, type PageSeo } from "$lib/seo";
 import { expandBlocks } from "$lib/server/content/blocks";
-import { trackView } from "$lib/server/analytics";
+import { trackView, trackVisitorSource } from "$lib/server/analytics";
 import { CONSENT_COOKIE, parseConsent } from "$lib/consent";
 import type { Locale } from "$lib/server/content/types";
 import type { PageServerLoad } from "./$types";
@@ -23,6 +23,7 @@ export const load: PageServerLoad = async ({
   locals,
   params,
   url,
+  request,
   cookies,
   platform,
 }) => {
@@ -87,6 +88,20 @@ export const load: PageServerLoad = async ({
     void trackView(
       platform.env.DB,
       { path: url.pathname, kind: "page", refId: page.id },
+      consent,
+    );
+    // Same consent gate, same fire-and-forget discipline. The
+    // referrer is reduced to an origin and the utm_* values to
+    // bounded tokens inside trackVisitorSource — nothing here
+    // forwards a full referring URL.
+    void trackVisitorSource(
+      platform.env.DB,
+      {
+        path: url.pathname,
+        referrer: request.headers.get("referer"),
+        params: url.searchParams,
+        selfHost: url.hostname,
+      },
       consent,
     );
   }

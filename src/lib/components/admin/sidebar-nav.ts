@@ -21,6 +21,7 @@ import {
   Ruler,
   Plug,
   UserCircle,
+  TrendingUp,
 } from "lucide-svelte";
 import * as m from "$lib/paraglide/messages";
 import { isPluginEnabled } from "$lib/plugins/optional";
@@ -231,6 +232,12 @@ registerNavGroup({
   title: m.cms_app_name,
   items: [
     { href: "/admin/dashboard", label: m.cms_dashboard, icon: LayoutDashboard },
+    {
+      href: "/admin/analytics",
+      label: m.cms_analytics,
+      icon: TrendingUp,
+      roles: ["super_admin", "admin", "editor"],
+    },
     { href: "/admin/articles", label: m.cms_articles, icon: FileText },
     {
       href: "/admin/pages",
