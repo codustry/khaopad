@@ -35,6 +35,14 @@ export type ChargeInput = {
   returnUrl: string;
   /** Optional metadata forwarded to provider (surfaces on their dashboard). */
   metadata?: Record<string, string>;
+  /**
+   * Distinguishes a deliberate NEW charge for the same order (a fresh
+   * QR after the last expired, a "complete payment" retry) from a
+   * double-submit of the same one. Folded into the idempotency key, so
+   * a repeat with the same `attempt` still dedupes. Absent = first try.
+   * Short opaque token: callers validate `^[A-Za-z0-9-]{1,40}$`.
+   */
+  attempt?: string;
 };
 
 export type ChargeResult =
@@ -68,6 +76,27 @@ export type QrChargeResult =
       qrImage: string;
       /** ISO timestamp after which the QR can no longer be paid, when known. */
       qrExpiresAt?: string;
+    }
+  | { ok: false; code: string; message: string };
+
+/**
+ * A charge's live state as the PROVIDER reports it — used to confirm a
+ * payment when its webhook is late or never arrives. `failed` covers
+ * expired and cancelled charges too: that charge can no longer be paid.
+ */
+export type ChargeStatusResult =
+  | {
+      ok: true;
+      status: "succeeded" | "failed" | "pending";
+      /** Charged amount in the provider's minor unit, when reported. */
+      amount?: number;
+      /** The reference the charge was created with, when echoed. */
+      referenceId?: string;
+      /**
+       * The settled charge's id when the lookup started from something
+       * else (a payment link). Refunds need a real charge id.
+       */
+      chargeId?: string;
     }
   | { ok: false; code: string; message: string };
 
@@ -144,6 +173,13 @@ export interface PaymentProvider {
    * hosted-link flow — a QR failure must never strand the customer.
    */
   createQrCharge?(input: ChargeInput): Promise<QrChargeResult>;
+
+  /**
+   * OPTIONAL — read a charge's current state from the provider, so a
+   * pending order can settle without waiting on the webhook. Never
+   * throws.
+   */
+  getChargeStatus?(providerChargeId: string): Promise<ChargeStatusResult>;
 
   refund(input: RefundInput): Promise<RefundResult>;
 

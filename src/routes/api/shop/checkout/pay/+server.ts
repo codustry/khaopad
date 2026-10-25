@@ -2,7 +2,11 @@
  * POST /api/shop/checkout/pay — create a payment charge for a pending order.
  *
  * Body: { orderId?: string, orderNumber?: string, email?: string,
- *         method?: "promptpay" | "card" }
+ *         method?: "promptpay" | "card", attempt?: string }
+ *
+ * `attempt` asks for a NEW charge on the same order — a fresh QR after
+ * the last expired, a retry after a decline — rather than a replay of
+ * the first one (see ChargeInput.attempt). Omit it on the first try.
  * Returns (hosted link): { ok, providerChargeId, paymentUrl, extra }
  * Returns (in-page QR):  { ok, providerChargeId, orderNumber,
  *                          qr: { image, expiresAt } }
@@ -61,6 +65,7 @@ export const POST: RequestHandler = async ({
     /** With `orderNumber`: proves access the way ?email= does. */
     email?: string;
     method?: string;
+    attempt?: string;
   } | null;
   if (!body?.orderId && !body?.orderNumber) {
     throw error(400, "orderId or orderNumber required");
@@ -184,6 +189,11 @@ export const POST: RequestHandler = async ({
     customerEmail: order.email,
     returnUrl,
     metadata: { orderNumber: order.orderNumber },
+    // Short opaque token only — it becomes part of an idempotency key.
+    ...(typeof body.attempt === "string" &&
+    /^[A-Za-z0-9-]{1,40}$/.test(body.attempt)
+      ? { attempt: body.attempt }
+      : {}),
   };
 
   // In-page PromptPay QR (#156) — duck-typed: only when the storefront

@@ -960,3 +960,95 @@ describe("admin refund action consumes provider capabilities", () => {
     expect(adjustmentRows("ord-1")[0].amount_satang).toBe(-10000);
   });
 });
+
+// ─── v4.6.0: Beam payment webhooks (bactrack.in.th findings) ──
+
+describe("Beam payment webhooks (v4.6.0)", () => {
+  const pending = (id: string, providerChargeId: string | null = null) =>
+    seedOrder(id, {
+      orderNumber: `KP-2026-${id}`,
+      status: "pending",
+      financialStatus: "pending",
+      providerChargeId,
+      totalSatang: 25000,
+    });
+
+  const purchaseEvents = () =>
+    (
+      sqlite
+        .prepare(`SELECT count(*) AS n FROM events WHERE name = 'purchase'`)
+        .get() as { n: number }
+    ).n;
+
+  it("a failed charge leaves the order payable, and a later success settles it", async () => {
+    pending("f1", "ch_first");
+    const failed = JSON.stringify({
+      chargeId: "ch_first",
+      referenceId: "KP-2026-f1",
+      status: "FAILED",
+      failureCode: "card_declined",
+    });
+    expect((await postBeamWebhook(failed, "charge.failed")).status).toBe(200);
+    // Before v4.6.0 this cancelled the order — and markPaid then ignored
+    // the retry's payment: customer charged, order cancelled.
+    expect(orderRow("f1").status).toBe("pending");
+
+    const ok = JSON.stringify({
+      chargeId: "ch_retry",
+      referenceId: "KP-2026-f1",
+      status: "SUCCEEDED",
+      amount: 25000,
+      currency: "THB",
+    });
+    expect((await postBeamWebhook(ok, "charge.succeeded")).status).toBe(200);
+    expect(orderRow("f1")).toMatchObject({
+      status: "paid",
+      provider_charge_id: "ch_retry",
+    });
+  });
+
+  it("payment_link.paid (card / hosted page) settles the order", async () => {
+    pending("l1", "plink_1");
+    const body = JSON.stringify({
+      paymentLinkId: "plink_1",
+      status: "PAID",
+      order: { netAmount: 25000, currency: "THB", referenceId: "KP-2026-l1" },
+    });
+    expect((await postBeamWebhook(body, "payment_link.paid")).status).toBe(200);
+    // No charge id on this event — the stored link id is kept.
+    expect(orderRow("l1")).toMatchObject({
+      status: "paid",
+      provider_charge_id: "plink_1",
+    });
+  });
+
+  it("refuses to settle when the paid amount differs from the order total", async () => {
+    pending("a1");
+    const body = JSON.stringify({
+      chargeId: "ch_a1",
+      referenceId: "KP-2026-a1",
+      status: "SUCCEEDED",
+      amount: 100,
+    });
+    const res = await postBeamWebhook(body, "charge.succeeded");
+    // 200 so Beam stops retrying a payload that can never match.
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ settled: false });
+    expect(orderRow("a1").status).toBe("pending");
+  });
+
+  it("a redelivered success records one purchase event, not two", async () => {
+    pending("d1");
+    const body = JSON.stringify({
+      chargeId: "ch_d1",
+      referenceId: "KP-2026-d1",
+      status: "SUCCEEDED",
+      amount: 25000,
+    });
+    const before = purchaseEvents();
+    await postBeamWebhook(body, "charge.succeeded");
+    await postBeamWebhook(body, "charge.succeeded");
+    expect(orderRow("d1").status).toBe("paid");
+    expect(purchaseEvents() - before).toBe(1);
+  });
+});

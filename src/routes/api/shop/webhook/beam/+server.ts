@@ -7,7 +7,7 @@
  * hand to verifyWebhook. We verify the HMAC-SHA256 signature
  * (constant-time) and dispatch:
  *   - succeeded → OrderService.markPaid
- *   - failed → OrderService.markCancelled
+ *   - failed → logged only; the order stays payable (v4.6.0)
  *   - refunded → recorded via a separate admin-triggered path
  *   - pending (incl. any unknown/novel status) → log + 200 no-op, so
  *     a signed-but-unfamiliar event never triggers a Beam retry storm
@@ -38,16 +38,13 @@
 import { json } from "@sveltejs/kit";
 import { resolveProviderForRequest } from "$plugins/shop/beam-config.server";
 import { OrderService } from "$plugins/shop/order-service";
-import { sendOrderReceipt } from "$plugins/shop/email";
-import { notifyNewOrder } from "$plugins/shop/notify";
-import { drizzle } from "drizzle-orm/d1";
-import { and, eq, desc } from "drizzle-orm";
 import {
-  shopCarts,
-  shopOrderAdjustments,
-  shopOrders,
-} from "$plugins/shop/schema-cart";
-import { track, buildEventContext } from "$lib/server/analytics/track";
+  checkSettlement,
+  settleBeamPayment,
+} from "$plugins/shop/beam-settle.server";
+import { drizzle } from "drizzle-orm/d1";
+import { eq } from "drizzle-orm";
+import { shopOrderAdjustments, shopOrders } from "$plugins/shop/schema-cart";
 import { dispatchEvent } from "$lib/server/webhooks";
 import { ShopValidationError } from "$plugins/shop/service";
 import { findOrderForWebhook } from "./lookup";
@@ -295,120 +292,36 @@ export const POST: RequestHandler = async ({
 
   switch (verified.status) {
     case "succeeded": {
-      const paid = await orderSvc.markPaid({
-        orderId: order.id,
-        // Persist the webhook's REAL charge id over the payment-link id
-        // checkout stored (#151) — refunds need the charge id. On the
-        // rare event without one, keep whatever is already stored.
-        providerChargeId:
-          verified.providerChargeId || (order.providerChargeId ?? ""),
+      // Signed, but still checked: a webhook whose amount or reference
+      // doesn't match this order must not mark it paid (v4.6.0). 200 so
+      // Beam doesn't retry a payload that will never match.
+      const check = checkSettlement(order, {
+        amount: verified.amount,
+        referenceId: verified.referenceId,
       });
-      // The SETTLING provider is the source of truth for providerName
-      // (mirrors the Stripe route): a crossed retry can leave the
-      // order stamped with the OTHER provider, and refunds dispatch on
-      // providerName — mislabeling guarantees a wrong-provider 4xx.
-      if ((order.providerName ?? "beam") !== "beam") {
-        await db
-          .update(shopOrders)
-          .set({ providerName: "beam", updatedAt: new Date().toISOString() })
-          .where(eq(shopOrders.id, order.id));
+      if (!check.ok) {
+        console.error(
+          `[shop.webhook] beam '${verified.eventType}' for ${order.orderNumber} not settled: ${check.reason}`,
+        );
+        return json({ ok: true, orderStatus: order.status, settled: false });
       }
-      // Fire the receipt email. Never awaited-blocking — Beam should
-      // get its 200 fast, and email delivery is best-effort. Silent
-      // no-op when Resend isn't configured. Gated on the CAS winner
-      // (justPaid) like the operator notification below: webhook
-      // RETRIES land here too, and each one used to re-send the
-      // customer their receipt.
-      if (paid.justPaid) {
-        sendOrderReceipt(env, paid).catch(() => {
-          /* email module already logs failures */
-        });
-      }
-      // C4: operator notification (email + LINE Notify) — winner-only
-      // via markPaid's CAS flag, so Beam retries never re-notify. Both
-      // channels are best-effort and must never fail the webhook; the
-      // settings read is wrapped for the same reason.
-      if (paid.justPaid) {
-        void (async () => {
-          const settings = await locals.content.getSettings().catch(() => null);
-          await notifyNewOrder(env, paid, {
-            notifyEmail: settings?.shopNotifyEmail ?? null,
-          });
-        })().catch(() => {
-          /* notify module already logs failures */
-        });
-      }
-      // Fire analytics purchase event. Look up the cart that was
-      // ordered to reuse the visitor's session id — otherwise the
-      // funnel (product_view → add_to_cart → begin_checkout →
-      // purchase) can't join by session_id and conversion looks 0.
-      // Also reads the discountCode field which v3.4 federation
-      // repurposes as `attribution:<articleId>` for article →
-      // purchase attribution tracking. Real discountCode ships in
-      // v3.5 with its own table.
-      const cartRow = await drizzle(env.DB)
-        .select({
-          sessionId: shopCarts.sessionId,
-          discountCode: shopCarts.discountCode,
-        })
-        .from(shopCarts)
-        .where(
-          and(eq(shopCarts.email, paid.email), eq(shopCarts.status, "ordered")),
-        )
-        .orderBy(desc(shopCarts.updatedAt))
-        .limit(1)
-        .get();
-      const sessionIdForFunnel = cartRow?.sessionId ?? paid.id;
-      let attributedArticleId: string | undefined;
-      let discountRedemption: { discountId: string; code: string } | undefined;
-      if (cartRow?.discountCode?.startsWith("attribution:")) {
-        attributedArticleId = cartRow.discountCode.slice("attribution:".length);
-      } else if (cartRow?.discountCode?.includes(":")) {
-        // v3.5 format: `<discountId>:<code>` stashed by checkout/start
-        const [id, ...rest] = cartRow.discountCode.split(":");
-        if (id && rest.length > 0) {
-          discountRedemption = { discountId: id, code: rest.join(":") };
-        }
-      }
-      // v3.5 record discount redemption on payment success. Idempotent
-      // via composite PK — webhook retries insert nothing new.
-      if (discountRedemption && paid.discountSatang > 0) {
-        try {
-          const { recordRedemption } =
-            await import("$plugins/shop/discount-service");
-          await recordRedemption(env.DB, {
-            discountId: discountRedemption.discountId,
-            orderId: paid.id,
-            userId: paid.userId ?? null,
-            userEmail: paid.email,
-            amountSatang: paid.discountSatang,
-          });
-        } catch {
-          /* redemption tracking is best-effort — never fail an order over it */
-        }
-      }
-      await track(
-        env.DB,
-        "purchase",
-        {
-          orderId: paid.id,
-          orderNumber: paid.orderNumber,
-          totalSatang: paid.totalSatang,
-          itemCount: paid.items.reduce((s, i) => s + i.quantity, 0),
-          ...(attributedArticleId ? { attributedArticleId } : {}),
-        },
-        buildEventContext({
-          url,
-          request,
-          sessionId: sessionIdForFunnel,
-          userId: paid.userId ?? null,
-          locale: "en",
-        }),
+      await settleBeamPayment(
+        { env, content: locals.content, url, request },
+        order,
+        verified.providerChargeId,
       );
       break;
     }
     case "failed":
-      await orderSvc.markCancelled({ orderId: order.id });
+      // A failed charge does NOT cancel the order (v4.6.0). The customer
+      // can still pay it — a declined card retried on the hosted page,
+      // a fresh QR after the first expired — and markPaid ignores money
+      // landing on a cancelled order, so cancelling here turned a retry
+      // into "charged, order cancelled, stock released". Unpaid orders
+      // are released by the reservation sweep instead.
+      console.log(
+        `[shop.webhook] beam '${verified.eventType}' failed for ${order.orderNumber} — left pending for retry`,
+      );
       break;
     case "refunded": {
       // DEFENSIVE ONLY: per the official event list
