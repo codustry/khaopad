@@ -114,6 +114,74 @@ export async function getSecrets(
 }
 
 /**
+ * Where each of `keys` stands — for error messages that must say WHICH
+ * credential is the problem (#216). `getSecrets` returns null for both
+ * "never set" and "saved but undecryptable"; that conflation is right
+ * for callers deciding whether they can work, and wrong for a human
+ * deciding what to fix — a rotated BETTER_AUTH_SECRET silently turns
+ * every stored secret into the second case.
+ */
+export async function diagnoseSecrets(
+  env: EnvLike,
+  keys: readonly string[],
+): Promise<
+  Array<{ key: string; state: "env" | "stored" | "undecryptable" | "missing" }>
+> {
+  const fromDb = keys.filter((k) => !envValue(env, k));
+  const rows =
+    fromDb.length > 0
+      ? await drizzle(env.DB)
+          .select()
+          .from(managedSecrets)
+          .where(inArray(managedSecrets.key, fromDb))
+          .all()
+      : [];
+  const masterSecret = envValue(env, "BETTER_AUTH_SECRET");
+  const out: Array<{
+    key: string;
+    state: "env" | "stored" | "undecryptable" | "missing";
+  }> = [];
+  for (const key of keys) {
+    if (envValue(env, key)) {
+      out.push({ key, state: "env" });
+      continue;
+    }
+    const row = rows.find((r) => r.key === key);
+    if (!row) {
+      out.push({ key, state: "missing" });
+      continue;
+    }
+    const plain = masterSecret
+      ? await decryptSecret(row.valueEncrypted, masterSecret)
+      : null;
+    out.push({ key, state: plain ? "stored" : "undecryptable" });
+  }
+  return out;
+}
+
+/**
+ * Env vars that look like they were MEANT to be one of `expected` but
+ * aren't read — same prefix (`BEAM_`), not an expected name. A worker
+ * holding `BEAM_SECRET_KEY` while the code reads `BEAM_API_KEY` is the
+ * exact miss #216 reports.
+ */
+export function unreadLookalikes(
+  env: Record<string, unknown>,
+  expected: readonly string[],
+): string[] {
+  const prefixes = new Set(expected.map((k) => k.split("_")[0] + "_"));
+  return Object.keys(env)
+    .filter(
+      (k) =>
+        [...prefixes].some((p) => k.startsWith(p)) &&
+        !expected.includes(k) &&
+        typeof env[k] === "string" &&
+        (env[k] as string).length > 0,
+    )
+    .sort();
+}
+
+/**
  * Status of every managed secret, for the admin page.
  *
  * Returns previews only — never a plaintext sensitive value. The admin
