@@ -1,6 +1,7 @@
 <script lang="ts">
   import { enhance } from "$app/forms";
   import { resolve } from "$app/paths";
+  import { page } from "$app/state";
   import { KeyRound } from "lucide-svelte";
   import { Button } from "$lib/components/ui";
   import { PageShell, PageHeader, StatusBadge } from "$lib/components/admin";
@@ -57,6 +58,89 @@
         {form.removed ? "Removed" : "Saved"}
         {form.key}. Takes effect on the next request.
       </div>
+    {/if}
+
+    {#if data.beamHealth}
+      {@const h = data.beamHealth}
+      <section class="mb-8 rounded-lg border border-border p-4" aria-labelledby="payment-health">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 id="payment-health" class="text-sm font-semibold uppercase tracking-wide">
+              Payment health
+            </h2>
+            <p class="mt-0.5 text-xs text-muted-foreground">
+              Beam Checkout ·
+              {h.mode === "live"
+                ? "Live"
+                : h.mode === "playground"
+                  ? "Playground (test mode — no real money)"
+                  : `Custom API host ${h.apiBaseUrl}`}
+            </p>
+          </div>
+          <StatusBadge
+            status={h.configured ? "configured" : "not configured"}
+            tone={h.configured ? "success" : "danger"}
+          />
+        </div>
+
+        <dl class="mt-4 grid gap-2 text-sm sm:grid-cols-[10rem_1fr]">
+          <dt class="text-muted-foreground">Credentials</dt>
+          <dd>
+            {#if h.configured}
+              All three keys resolve.
+            {:else}
+              {#if h.missing.length}
+                <span class="block">Not set: <code class="font-mono text-xs">{h.missing.join(", ")}</code></span>
+              {/if}
+              {#if h.undecryptable.length}
+                <span class="block text-destructive">
+                  Saved but cannot be decrypted — re-enter below:
+                  <code class="font-mono text-xs">{h.undecryptable.join(", ")}</code>
+                </span>
+              {/if}
+            {/if}
+            {#if h.unread.length}
+              <span class="block text-amber-700 dark:text-amber-300">
+                Set on the Worker but not read by Khao Pad (check the name):
+                <code class="font-mono text-xs">{h.unread.join(", ")}</code>
+              </span>
+            {/if}
+          </dd>
+
+          <dt class="text-muted-foreground">Last webhook</dt>
+          <dd>
+            {#if h.lastWebhookAt}
+              {new Date(h.lastWebhookAt).toLocaleString()}
+            {:else}
+              <span class="text-amber-700 dark:text-amber-300">
+                None received yet. Register
+                <code class="font-mono text-xs">{page.url.origin}/api/shop/webhook/beam</code>
+                in Beam Lighthouse → Developers → Webhooks. Payments still confirm
+                while the customer's page is open, but not after they close it.
+              </span>
+            {/if}
+          </dd>
+        </dl>
+
+        <form method="POST" action="?/testBeam" use:enhance class="mt-4 flex items-center gap-3">
+          <Button type="submit" variant="outline" size="sm" disabled={!h.configured}>
+            Test connection
+          </Button>
+          {#if form && "beamTest" in form && form.beamTest}
+            {#if form.beamTest.ok}
+              <span class="text-sm text-green-700 dark:text-green-300">Beam accepted these credentials.</span>
+            {:else}
+              <span class="text-sm text-destructive">
+                {form.beamTest.status === 401 || form.beamTest.status === 403
+                  ? "Beam rejected the merchant id or API key."
+                  : form.beamTest.status === 0
+                    ? "Could not reach Beam."
+                    : `Beam answered HTTP ${form.beamTest.status}.`}
+              </span>
+            {/if}
+          {/if}
+        </form>
+      </section>
     {/if}
 
     {#each data.groups as group (group.name)}

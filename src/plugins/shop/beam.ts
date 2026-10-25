@@ -638,6 +638,26 @@ export class BeamPaymentProvider implements PaymentProvider {
     };
   }
 
+  /**
+   * One cheap authenticated read (GET /api/v1/charges?limit=1), for the
+   * admin's "test connection" button. 200 means the merchant id and API
+   * key are accepted by this base URL; 401/403 means they aren't. Never
+   * throws, never moves money.
+   */
+  async checkConnection(): Promise<{ ok: boolean; status: number }> {
+    try {
+      const res = await this.beamGet("/api/v1/charges?limit=1");
+      return { ok: res.ok, status: res.status };
+    } catch {
+      return { ok: false, status: 0 };
+    }
+  }
+
+  /** The API host this provider talks to. */
+  get apiBaseUrl(): string {
+    return this.baseUrl;
+  }
+
   private async beamGet(
     path: string,
   ): Promise<{ ok: boolean; status: number; body: unknown }> {
