@@ -47,6 +47,7 @@ import { eq } from "drizzle-orm";
 import { shopOrderAdjustments, shopOrders } from "$plugins/shop/schema-cart";
 import { dispatchEvent } from "$lib/server/webhooks";
 import { ShopValidationError } from "$plugins/shop/service";
+import { recordWebhookReceived } from "$plugins/shop/payment-health.server";
 import { findOrderForWebhook } from "./lookup";
 import type { RequestHandler } from "./$types";
 
@@ -80,6 +81,9 @@ export const POST: RequestHandler = async ({
     );
     return json({ ok: false, code: verified.code }, { status: 400 });
   }
+
+  // Admin payment health: a VERIFIED webhook arrived (v4.6.0).
+  await recordWebhookReceived(env, "beam");
 
   // Pending covers the initial state AND any unknown/novel status the
   // adapter normalized (#151). Nothing to do either way — 200 before
