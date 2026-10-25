@@ -142,7 +142,15 @@ export const shopInventoryReservations = sqliteTable(
     releaseReason: text("release_reason", {
       enum: ["committed", "released", "expired"],
     }),
+    // The order this hold was taken for (0035, v4.6.0). Set by
+    // checkout/start once the order exists; NULL for older holds. Lets
+    // markPaid tell a still-held unit from one whose hold already
+    // lapsed — the latter must not decrement `reserved` again.
+    orderId: text("order_id"),
   },
+  (t) => ({
+    orderIdx: index("shop_inventory_reservations_order_idx").on(t.orderId),
+  }),
 );
 
 // ─── Orders ─────────────────────────────────────────────────
