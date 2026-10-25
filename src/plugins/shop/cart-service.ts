@@ -415,6 +415,47 @@ export class CartService {
     return row ?? null;
   }
 
+  /**
+   * Tie the holds checkout just took to the order they became (0035),
+   * so markPaid can tell a live hold from a lapsed one.
+   */
+  async linkHoldsToOrder(
+    cartItemIds: readonly string[],
+    orderId: string,
+  ): Promise<void> {
+    if (cartItemIds.length === 0) return;
+    await this.db
+      .update(shopInventoryReservations)
+      .set({ orderId })
+      .where(
+        and(
+          inArray(shopInventoryReservations.cartItemId, [...cartItemIds]),
+          isNull(shopInventoryReservations.releasedAt),
+          isNull(shopInventoryReservations.orderId),
+        ),
+      );
+  }
+
+  /**
+   * Keep an order's live holds until at least `until` — called when a
+   * charge is created, so stock stays held for as long as the customer
+   * can actually pay (a QR lives 30 min, a payment link 60; a hold 15).
+   * Never shortens a hold, and never revives a lapsed one.
+   */
+  async extendOrderHolds(orderId: string, until: Date): Promise<void> {
+    const iso = until.toISOString();
+    await this.db
+      .update(shopInventoryReservations)
+      .set({ expiresAt: iso })
+      .where(
+        and(
+          eq(shopInventoryReservations.orderId, orderId),
+          isNull(shopInventoryReservations.releasedAt),
+          lt(shopInventoryReservations.expiresAt, iso),
+        ),
+      );
+  }
+
   async removeItem(input: {
     cartId: string;
     cartItemId: string;

@@ -39,10 +39,15 @@ import {
   resolveProviderForRequest,
 } from "$plugins/shop/beam-config.server";
 import { requireSameOrigin } from "$lib/server/http/same-origin";
+import { CartService } from "$plugins/shop/cart-service";
 import { canViewOrder } from "$lib/server/shop/order-access";
 import { cookieName } from "$lib/paraglide/runtime";
 import { DEFAULT_LOCALE, localePath, toLocale } from "$lib/i18n";
 import type { RequestHandler } from "./$types";
+
+/** How long a created charge stays payable (Beam: QR 30 min, link 60). */
+const QR_HOLD_MS = 30 * 60 * 1000;
+const LINK_HOLD_MS = 60 * 60 * 1000;
 
 export const POST: RequestHandler = async ({
   request,
@@ -152,6 +157,24 @@ export const POST: RequestHandler = async ({
   // settling webhook remains the FINAL authority — it re-stamps the
   // provider that actually took the money, covering the crossed-retry
   // case where an older session settles after a re-route.
+  // Stock stays held for as long as the customer can pay (v4.6.0). A
+  // hold is 15 min from checkout/start; Beam's QR lives 30 min and its
+  // payment link 60. Best-effort: a failed extension must never block
+  // the payment itself (markPaid copes with a lapsed hold).
+  const holdUntil = async (ms: number) => {
+    try {
+      await new CartService(env.DB).extendOrderHolds(
+        order.id,
+        new Date(Date.now() + ms),
+      );
+    } catch (err) {
+      console.warn(
+        `[shop.pay] could not extend holds for ${order.orderNumber}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  };
+
   const persistProviderName = async () => {
     if (provider.name !== (order.providerName ?? "beam")) {
       await drizzle(env.DB)
@@ -208,6 +231,7 @@ export const POST: RequestHandler = async ({
       const qr = await provider.createQrCharge(chargeInput);
       if (qr.ok) {
         await persistProviderName();
+        await holdUntil(QR_HOLD_MS);
         // Persisted exactly like createCharge's providerChargeId — the
         // webhook route swaps in the settled charge id via markPaid.
         await orderSvc.attachProviderCharge({
@@ -246,6 +270,7 @@ export const POST: RequestHandler = async ({
   }
 
   await persistProviderName();
+  await holdUntil(LINK_HOLD_MS);
   await orderSvc.attachProviderCharge({
     orderId: order.id,
     providerChargeId: charge.providerChargeId,
