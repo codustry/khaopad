@@ -141,9 +141,10 @@ describe("order page arrival states (#157)", () => {
   });
 
   it("pins the hint-not-authority comment", () => {
-    // ?payment= must never write payment state — only the webhook does.
+    // ?payment= must never write payment state — only the server does
+    // (the webhook, or since v4.6.0 the status check asking Beam).
     expect(orderPageSrc).toContain("UI HINT ONLY");
-    expect(orderPageSrc).toMatch(/[Oo]nly the .*webhook/);
+    expect(orderPageSrc).toMatch(/[Oo]nly the server writes `paid`/);
   });
 
   it("retry button POSTs the orderNumber to /checkout/pay", () => {
