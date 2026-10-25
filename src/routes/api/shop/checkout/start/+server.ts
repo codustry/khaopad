@@ -123,6 +123,17 @@ export const POST: RequestHandler = async ({
       userId: locals.user?.id,
     });
 
+    // #217: an empty cart is refused before anything is priced. A retry
+    // after the first start (which emptied the cart into an order) used
+    // to fail as INVALID_SHIPPING_METHOD — or, with a flat rate, quote
+    // shipping on nothing.
+    if ((await cartSvc.listCartItems(cart.id)).length === 0) {
+      return json(
+        { ok: false, code: "CART_EMPTY", message: "Cart is empty" },
+        { status: 400 },
+      );
+    }
+
     // #155: validate address blobs BEFORE any state changes. Absent
     // addresses stay allowed (digital goods); present-but-invalid is
     // a 400 naming the first failing field. Seam note: when a shop
@@ -318,6 +329,11 @@ export const POST: RequestHandler = async ({
       discountIsFreeShipping,
       discountCodeSnapshot,
     });
+    // 0035: tie the holds just taken to this order (see markPaid).
+    await cartSvc.linkHoldsToOrder(
+      reservations.map((r) => r.cartItemId),
+      orderId,
+    );
 
     // Stash the discount id on the cart's discountCode column too so
     // the webhook can record the redemption. Format:
