@@ -148,9 +148,7 @@ describe("order page arrival states (#157)", () => {
 
   it("retry button POSTs the orderNumber to /checkout/pay", () => {
     expect(orderPageSrc).toContain("'/api/shop/checkout/pay'");
-    expect(orderPageSrc).toContain(
-      "JSON.stringify({ orderNumber: order.orderNumber, email: order.email })",
-    );
+    expect(orderPageSrc).toContain("orderNumber: order.orderNumber,");
   });
 
   it("polling caps out and falls back to pending + retry", () => {

@@ -97,7 +97,14 @@
 				headers: { 'content-type': 'application/json' },
 				// The email proves access for a guest who arrived via the
 				// receipt link rather than the browser that checked out.
-				body: JSON.stringify({ orderNumber: order.orderNumber, email: order.email }),
+				// `attempt`: every press is a NEW payment link — the first one
+				// may be expired, and reusing its idempotency key with a new
+				// expiry is refused by Beam (412).
+				body: JSON.stringify({
+					orderNumber: order.orderNumber,
+					email: order.email,
+					attempt: crypto.randomUUID().slice(0, 8)
+				}),
 			});
 			const body = (await res.json()) as {
 				ok: boolean;

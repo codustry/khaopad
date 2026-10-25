@@ -37,8 +37,13 @@ const CHARGE = {
   returnUrl: "https://example.com/return",
 };
 
-/** What a successful POST /api/v1/payment-links returns. */
-const LINK_RESPONSE = { paymentLinkId: "plink_1", url: "https://pay.example" };
+/**
+ * What a successful POST /api/v1/payment-links returns, per the OpenAPI
+ * spec (CreatePaymentLinkResponse): `id`, NOT `paymentLinkId`. The old
+ * fixture used `paymentLinkId`, so the tests agreed with a bug that
+ * stored no link id for any real hosted-page payment.
+ */
+const LINK_RESPONSE = { id: "plink_1", url: "https://pay.example" };
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -224,11 +229,13 @@ describe("Beam payment-link creation (#151)", () => {
     expect(res.ok).toBe(false);
     if (!res.ok) {
       expect(res.code).toBe("IDEMPOTENCY_CONFLICT");
-      expect(res.message).toMatch(/[Dd]o not retry/);
+      // The SAME key can never succeed; a deliberate retry needs a new
+      // `attempt` (v4.6.0, #219).
+      expect(res.message).toMatch(/new `attempt`/);
     }
   });
 
-  it("maps paymentLinkId → providerChargeId and url → paymentUrl", async () => {
+  it("maps id → providerChargeId and url → paymentUrl", async () => {
     mockFetch(LINK_RESPONSE);
     const res = await provider.createCharge(CHARGE);
     expect(res.ok).toBe(true);
@@ -236,6 +243,12 @@ describe("Beam payment-link creation (#151)", () => {
       expect(res.providerChargeId).toBe("plink_1");
       expect(res.paymentUrl).toBe("https://pay.example");
     }
+  });
+
+  it("still accepts a legacy paymentLinkId-shaped response", async () => {
+    mockFetch({ paymentLinkId: "plink_legacy", url: "https://pay.example" });
+    const res = await provider.createCharge(CHARGE);
+    expect(res.ok && res.providerChargeId).toBe("plink_legacy");
   });
 });
 
