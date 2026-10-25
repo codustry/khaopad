@@ -308,6 +308,8 @@ describe("diagnoseSecrets / payment config message (#216)", () => {
       BEAM_MERCHANT_ID: "codustry-ova1t0",
       BEAM_WEBHOOK_SECRET: "whsec",
       BEAM_SECRET_KEY: "legacy",
+      // Read by the engine, so never reported as a lookalike.
+      BEAM_BASE_URL: "https://playground.api.beamcheckout.com",
     };
     const { diagnoseProviderConfig, providerConfigMessage } =
       await import("$plugins/shop/beam-config.server");

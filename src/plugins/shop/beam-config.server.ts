@@ -165,7 +165,13 @@ export async function diagnoseProviderConfig(
     undecryptable: states
       .filter((s) => s.state === "undecryptable")
       .map((s) => s.key),
-    unread: unreadLookalikes(env, keys),
+    // The base-URL overrides are read too — not secrets, but not
+    // lookalikes either.
+    unread: unreadLookalikes(env, [
+      ...keys,
+      "BEAM_BASE_URL",
+      "STRIPE_BASE_URL",
+    ]),
   };
 }
 
