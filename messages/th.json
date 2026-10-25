@@ -262,7 +262,7 @@
   "cms_settings_supported_locales": "ภาษาที่รองรับ",
   "cms_settings_supported_locales_help": "คั่นด้วยจุลภาค ค่าเริ่มต้นคือ en,th",
   "cms_settings_cdn_base_url": "CDN base URL (ไม่บังคับ)",
-  "cms_settings_cdn_base_url_help": "ถ้าตั้งค่า URL ของมีเดียจะถูกชี้ไปยังโดเมนนี้ ปล่อยว่างเพื่อเสิร์ฟจาก R2 โดยตรง",
+  "cms_settings_cdn_base_url_help": "สงวนไว้สำหรับ CDN ของมีเดียในอนาคต ขณะนี้ยังไม่ถูกใช้งาน ลิงก์หน้าเว็บ canonical URL และ sitemap ใช้ URL ของเว็บไซต์ (PUBLIC_SITE_URL) เสมอ ไม่ใช้ค่านี้",
   "cms_settings_theme_background": "สีพื้นหลัง",
   "cms_settings_theme_background_help": "รหัสสีแบบ hex เท่านั้น (#rrggbb) ใช้เป็นพื้นหลังของเว็บไซต์สาธารณะผ่านโทเคน --color-background ปล่อยว่างเพื่อใช้สีขาวเริ่มต้น",
   "cms_settings_theme_foreground": "สีตัวอักษร",

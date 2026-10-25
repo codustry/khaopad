@@ -119,10 +119,7 @@ export const load: PageServerLoad = async ({
 
   // ── SEO — indexable money landing page ──
   const settings = await locals.content.getSettings().catch(() => null);
-  const origin = resolveOrigin(
-    url,
-    env.PUBLIC_SITE_URL || settings?.cdnBaseUrl,
-  );
+  const origin = resolveOrigin(url, env.PUBLIC_SITE_URL);
   const canonical = canonicalUrl(
     origin,
     paged.page > 1

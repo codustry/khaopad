@@ -11,7 +11,7 @@ import type { RequestHandler } from "./$types";
  * Always emits a `Sitemap:` line pointing at the sitemap index, so
  * crawlers find the per-locale sitemaps automatically.
  */
-export const GET: RequestHandler = async ({ url, platform, locals }) => {
+export const GET: RequestHandler = async ({ url, platform }) => {
   // Fail-closed (#145): unset means "someone deployed a second worker and
   // forgot the var" far more often than it means production — and the
   // failure modes are asymmetric. A production site accidentally serving
@@ -22,8 +22,7 @@ export const GET: RequestHandler = async ({ url, platform, locals }) => {
   const env =
     (platform?.env as { WORKERS_ENV?: string } | undefined)?.WORKERS_ENV ??
     "unset";
-  const settings = await locals.content.getSettings().catch(() => null);
-  const origin = resolveOrigin(url, settings?.cdnBaseUrl);
+  const origin = resolveOrigin(url, platform?.env?.PUBLIC_SITE_URL);
 
   const isProd = env === "production";
   const body = isProd

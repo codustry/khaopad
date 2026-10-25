@@ -24,8 +24,7 @@ export const GET: RequestHandler = async ({
     throw error(404, "Unknown locale");
   }
 
-  const settings = await locals.content.getSettings().catch(() => null);
-  const origin = resolveOrigin(url, settings?.cdnBaseUrl);
+  const origin = resolveOrigin(url, platform?.env?.PUBLIC_SITE_URL);
 
   // Pull every published article + page visible to the public. Pages
   // are tiny by count; articles capped at 500 (overkill for typical

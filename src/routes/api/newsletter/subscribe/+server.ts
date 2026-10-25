@@ -98,7 +98,7 @@ export const POST: RequestHandler = async ({
 
   // Send confirm email when provider is on AND subscriber is pending.
   if (providerOn && subscriber && !subscriber.confirmedAt) {
-    const origin = resolveOrigin(url, settings?.cdnBaseUrl);
+    const origin = resolveOrigin(url, platform?.env?.PUBLIC_SITE_URL);
     const email = buildConfirmEmail({
       siteName: settings?.siteName ?? "Site",
       origin,
