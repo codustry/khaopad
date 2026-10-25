@@ -35,6 +35,8 @@ import { eq } from "drizzle-orm";
 import { OrderService } from "$plugins/shop/order-service";
 import { shopOrders } from "$plugins/shop/schema-cart";
 import {
+  diagnoseProviderConfig,
+  providerConfigMessage,
   resolveProviderForMethod,
   resolveProviderForRequest,
 } from "$plugins/shop/beam-config.server";
@@ -132,17 +134,20 @@ export const POST: RequestHandler = async ({
         ? "stripe"
         : "beam"
       : (order.providerName ?? "beam");
-    const envHint =
-      attempted === "stripe"
-        ? "Set STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET (or BEAM_MERCHANT_ID + BEAM_API_KEY + BEAM_WEBHOOK_SECRET to serve card via Beam's hosted link)"
-        : "Set BEAM_MERCHANT_ID + BEAM_API_KEY + BEAM_WEBHOOK_SECRET";
+    // #216: say WHICH credential is the problem — unset, saved but
+    // undecryptable (a rotated BETTER_AUTH_SECRET), or set under a name
+    // Khao Pad doesn't read — and point at the admin, not a redeploy.
+    // Key names only, never values.
+    const diagnosis = await diagnoseProviderConfig(env, attempted);
+    const message = providerConfigMessage(attempted, body.method, diagnosis);
+    console.error(`[shop.pay] ${order.orderNumber}: ${message}`);
     return json(
       {
         ok: false,
         code: "PAYMENT_PROVIDER_NOT_CONFIGURED",
-        message: `Payment provider '${attempted}' is not configured${
-          body.method ? ` for method '${body.method}'` : ""
-        }. ${envHint} in wrangler.toml [vars] and redeploy.`,
+        message,
+        missing: diagnosis.missing,
+        undecryptable: diagnosis.undecryptable,
       },
       { status: 503 },
     );

@@ -26,7 +26,11 @@
  * against a revoked key until the isolate recycled. Resolving at the point
  * of use costs one indexed primary-key lookup and is always current.
  */
-import { getSecrets } from "$lib/server/secrets/service";
+import {
+  diagnoseSecrets,
+  getSecrets,
+  unreadLookalikes,
+} from "$lib/server/secrets/service";
 import { BeamPaymentProvider } from "./beam";
 import { StripePaymentProvider } from "./stripe";
 import { getPaymentProvider, type PaymentProvider } from "./payment";
@@ -135,4 +139,68 @@ export async function resolveProviderForMethod(
     if (stripe) return stripe;
   }
   return resolveProviderForRequest(env, "beam");
+}
+
+const PROVIDER_KEYS = {
+  beam: ["BEAM_MERCHANT_ID", "BEAM_API_KEY", "BEAM_WEBHOOK_SECRET"],
+  stripe: ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"],
+} as const;
+
+/**
+ * Why a provider could not be built — key NAMES only, never values
+ * (#216). Beam is always included: it is the fallback for every method,
+ * so when Stripe is the one attempted, Beam failed too.
+ */
+export async function diagnoseProviderConfig(
+  env: BeamEnv,
+  attempted: string,
+): Promise<{ missing: string[]; undecryptable: string[]; unread: string[] }> {
+  const keys: string[] = [
+    ...(attempted === "stripe" ? PROVIDER_KEYS.stripe : []),
+    ...PROVIDER_KEYS.beam,
+  ];
+  const states = await diagnoseSecrets(env, keys);
+  return {
+    missing: states.filter((s) => s.state === "missing").map((s) => s.key),
+    undecryptable: states
+      .filter((s) => s.state === "undecryptable")
+      .map((s) => s.key),
+    // The base-URL overrides are read too — not secrets, but not
+    // lookalikes either.
+    unread: unreadLookalikes(env, [
+      ...keys,
+      "BEAM_BASE_URL",
+      "STRIPE_BASE_URL",
+    ]),
+  };
+}
+
+/** The 503 message for an unconfigured provider. Pure, for tests. */
+export function providerConfigMessage(
+  attempted: string,
+  method: string | undefined,
+  d: { missing: string[]; undecryptable: string[]; unread: string[] },
+): string {
+  const parts = [
+    `Payment provider '${attempted}' is not configured${
+      method ? ` for method '${method}'` : ""
+    }.`,
+  ];
+  if (d.missing.length) parts.push(`Not set: ${d.missing.join(", ")}.`);
+  if (d.undecryptable.length) {
+    parts.push(
+      `Saved but cannot be decrypted (was BETTER_AUTH_SECRET changed after saving?): ${d.undecryptable.join(", ")} — re-enter ${
+        d.undecryptable.length === 1 ? "it" : "them"
+      }.`,
+    );
+  }
+  if (d.unread.length) {
+    parts.push(
+      `Set but not read by Khao Pad (check the name): ${d.unread.join(", ")}.`,
+    );
+  }
+  parts.push(
+    "Enter credentials at /admin/settings/secrets (takes effect immediately), or set them as Worker secrets.",
+  );
+  return parts.join(" ");
 }
