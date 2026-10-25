@@ -70,10 +70,7 @@ export const load: PageServerLoad = async ({
       : null;
   const jobs = filterByCategory(allJobs, activeCategory);
 
-  const origin = resolveOrigin(
-    url,
-    env?.PUBLIC_SITE_URL || settings?.cdnBaseUrl,
-  );
+  const origin = resolveOrigin(url, env?.PUBLIC_SITE_URL);
   const canonical = canonicalUrl(origin, `/${locale}/careers`);
   const alternates: Partial<Record<Locale, string>> = {};
   for (const l of SUPPORTED_LOCALES) {

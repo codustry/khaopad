@@ -91,7 +91,7 @@ export const load: PageServerLoad = async ({
   // from search results") — noindex, but `follow` so link equity still
   // flows through to the product/article pages listed here.
   const settings = await locals.content.getSettings().catch(() => null);
-  const origin = resolveOrigin(url, settings?.cdnBaseUrl);
+  const origin = resolveOrigin(url, platform?.env?.PUBLIC_SITE_URL);
   const seo: PageSeo = {
     title: q
       ? `${q} — ${settings?.siteName ?? "Khao Pad"}`

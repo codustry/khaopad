@@ -81,7 +81,7 @@ export const load: PageServerLoad = async ({
   // to index the no-result-friendly variant (?q=…) — only the bare
   // /blog should be a canonical search target.
   const settings = await locals.content.getSettings().catch(() => null);
-  const origin = resolveOrigin(url, settings?.cdnBaseUrl);
+  const origin = resolveOrigin(url, platform?.env?.PUBLIC_SITE_URL);
   const blogPath = activeCategory
     ? `/${locale}/blog?category=${activeCategory.slug}`
     : activeTag

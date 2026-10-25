@@ -262,7 +262,7 @@
   "cms_settings_supported_locales": "Supported locales",
   "cms_settings_supported_locales_help": "Comma-separated. Default is en,th.",
   "cms_settings_cdn_base_url": "CDN base URL (optional)",
-  "cms_settings_cdn_base_url_help": "If set, media URLs are rewritten to point at this domain. Leave blank to serve from R2 directly.",
+  "cms_settings_cdn_base_url_help": "Reserved for a future media CDN — currently not used. Page links, canonical URLs and the sitemap always use the site URL (PUBLIC_SITE_URL), never this value.",
   "cms_settings_theme_background": "Background color",
   "cms_settings_theme_background_help": "Hex only (#rrggbb). Page background of the public site via the --color-background token. Leave blank for the built-in white.",
   "cms_settings_theme_foreground": "Text color",
