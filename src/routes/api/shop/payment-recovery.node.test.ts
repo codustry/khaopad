@@ -86,14 +86,19 @@ describe("pay-by-orderNumber (#157)", () => {
     expect(paySrc).toContain("ORDER_NOT_PENDING");
   });
 
-  it("documents the accepted weak-secret risk", () => {
-    expect(paySrc).toContain("ACCEPTED RISK");
-    expect(paySrc).toContain("worst case");
+  it("no longer accepts the weak-secret risk: paying by number needs access (v4.5.1)", () => {
+    expect(paySrc).not.toContain("ACCEPTED RISK");
+    expect(paySrc).toMatch(/!body\.orderId &&\s*!\(await canViewOrder\(/);
   });
 
   it("responses stay minimal — no items, email, or address fields", () => {
     // The json() responses may carry the payment URL / QR and charge id,
-    // nothing else about the order.
+    // nothing else about the order. Scoped to the json(...) bodies: the
+    // REQUEST may carry an email as proof of access (v4.5.1).
+    const responses = [...paySrc.matchAll(/json\(\s*\{[\s\S]*?\}\s*[,)]/g)]
+      .map((m) => m[0])
+      .join("\n");
+    expect(responses).toContain("paymentUrl");
     for (const forbidden of [
       "items:",
       "email:",
@@ -101,7 +106,7 @@ describe("pay-by-orderNumber (#157)", () => {
       "billingAddress",
       "totalSatang:",
     ]) {
-      expect(paySrc, forbidden).not.toContain(forbidden);
+      expect(responses, forbidden).not.toContain(forbidden);
     }
   });
 
@@ -144,7 +149,7 @@ describe("order page arrival states (#157)", () => {
   it("retry button POSTs the orderNumber to /checkout/pay", () => {
     expect(orderPageSrc).toContain("'/api/shop/checkout/pay'");
     expect(orderPageSrc).toContain(
-      "JSON.stringify({ orderNumber: order.orderNumber })",
+      "JSON.stringify({ orderNumber: order.orderNumber, email: order.email })",
     );
   });
 

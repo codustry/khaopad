@@ -1,7 +1,7 @@
 /**
  * POST /api/shop/checkout/pay — create a payment charge for a pending order.
  *
- * Body: { orderId?: string, orderNumber?: string,
+ * Body: { orderId?: string, orderNumber?: string, email?: string,
  *         method?: "promptpay" | "card" }
  * Returns (hosted link): { ok, providerChargeId, paymentUrl, extra }
  * Returns (in-page QR):  { ok, providerChargeId, orderNumber,
@@ -16,13 +16,14 @@
  * who abandoned the Beam page only holds the order NUMBER (it's in
  * their URL and receipt email), never the internal id.
  *
- * ACCEPTED RISK: an order number is a weak secret, so anyone holding it
- * can mint a payment link for that order. The blast radius is bounded:
- * the endpoint refuses any order not in `pending` status, the response
- * carries the payment URL and nothing else (no items, no email, no
- * address), and the minted link can only pay the order's OWN stored
- * total into the merchant's account — worst case, someone pays your
- * bill.
+ * ACCESS (v4.5.1): an order number is sequential, so paying BY NUMBER
+ * needs the same proof as viewing the order (order-access.ts) — the
+ * browser that placed it, the owning account, staff, or `email`. It
+ * used to be an "accepted risk" that anyone could mint a link; the
+ * real cost was that minting re-points the order's stored charge id,
+ * so a stranger could disrupt a customer mid-payment. Refusals are the
+ * same 404 as a missing order. `orderId` (an unguessable nanoid from
+ * checkout/start) needs no further proof.
  */
 import { error, json } from "@sveltejs/kit";
 import { drizzle } from "drizzle-orm/d1";
@@ -34,6 +35,7 @@ import {
   resolveProviderForRequest,
 } from "$plugins/shop/beam-config.server";
 import { requireSameOrigin } from "$lib/server/http/same-origin";
+import { canViewOrder } from "$lib/server/shop/order-access";
 import { cookieName } from "$lib/paraglide/runtime";
 import { DEFAULT_LOCALE, localePath, toLocale } from "$lib/i18n";
 import type { RequestHandler } from "./$types";
@@ -43,6 +45,7 @@ export const POST: RequestHandler = async ({
   platform,
   url,
   cookies,
+  locals,
 }) => {
   // Checkout creates orders and initiates charges — the highest-value
   // state change in the app, and it had no provenance check at all
@@ -55,6 +58,8 @@ export const POST: RequestHandler = async ({
   const body = (await request.json().catch(() => null)) as {
     orderId?: string;
     orderNumber?: string;
+    /** With `orderNumber`: proves access the way ?email= does. */
+    email?: string;
     method?: string;
   } | null;
   if (!body?.orderId && !body?.orderNumber) {
@@ -65,7 +70,23 @@ export const POST: RequestHandler = async ({
   const order = body.orderId
     ? await orderSvc.getOrder(body.orderId)
     : await orderSvc.getOrderByNumber(body.orderNumber!);
-  if (!order) throw error(404, "Order not found");
+  // An orderId is an unguessable nanoid handed out by checkout/start; an
+  // order NUMBER is sequential, so paying by number needs the same proof
+  // as viewing the order (v4.5.1) — otherwise anyone could re-point a
+  // stranger's pending order at a new charge.
+  if (
+    !order ||
+    (!body.orderId &&
+      !(await canViewOrder({
+        order,
+        user: locals.user,
+        email: body.email,
+        cookies,
+        secret: env.BETTER_AUTH_SECRET,
+      })))
+  ) {
+    throw error(404, "Order not found");
+  }
   if (order.status !== "pending") {
     return json(
       {

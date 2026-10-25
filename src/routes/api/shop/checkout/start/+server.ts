@@ -37,6 +37,7 @@ import type { OrderAddress } from "$plugins/shop/order-service";
 import { track, buildEventContext } from "$lib/server/analytics/track";
 import { dispatchEvent } from "$lib/server/webhooks";
 import { requireSameOrigin } from "$lib/server/http/same-origin";
+import { grantOrderAccess } from "$lib/server/shop/order-access";
 import type { RequestHandler } from "./$types";
 
 /** KV key recording when the reservation sweep last ran. */
@@ -411,6 +412,11 @@ export const POST: RequestHandler = async ({
         /* best-effort — attribution loss is acceptable */
       }
     }
+
+    // Lets this browser open its own order page after paying — the
+    // payment provider returns the customer to /order/<number> with no
+    // email in the URL (order-access.ts).
+    await grantOrderAccess(cookies, env.BETTER_AUTH_SECRET, orderNumber);
 
     return json({
       ok: true,

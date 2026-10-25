@@ -95,7 +95,9 @@
 			const res = await fetch('/api/shop/checkout/pay', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ orderNumber: order.orderNumber }),
+				// The email proves access for a guest who arrived via the
+				// receipt link rather than the browser that checked out.
+				body: JSON.stringify({ orderNumber: order.orderNumber, email: order.email }),
 			});
 			const body = (await res.json()) as {
 				ok: boolean;
