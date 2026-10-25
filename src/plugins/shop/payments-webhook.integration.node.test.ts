@@ -1,8 +1,14 @@
 import Database from "better-sqlite3";
 import { readFileSync, readdirSync } from "node:fs";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST as beamWebhookPOST } from "../../routes/api/shop/webhook/beam/+server";
 import { POST as stripeWebhookPOST } from "../../routes/api/shop/webhook/stripe/+server";
+import { GET as orderStatusGET } from "../../routes/api/shop/order/[orderNumber]/status/+server";
+import {
+  CHECK_INTERVAL_MS,
+  reconcilePendingBeamOrders,
+  SWEEP_LOOKBACK_MS,
+} from "./beam-reconcile.server";
 import { actions as adminOrderActions } from "../../routes/(admin)/admin/shop/orders/[id]/+page.server";
 import { resolveProviderForMethod } from "./beam-config.server";
 import { registerPaymentProvider } from "./payment";
@@ -1050,5 +1056,152 @@ describe("Beam payment webhooks (v4.6.0)", () => {
     await postBeamWebhook(body, "charge.succeeded");
     expect(orderRow("d1").status).toBe("paid");
     expect(purchaseEvents() - before).toBe(1);
+  });
+});
+
+// ─── v4.6.0: confirm payment by asking Beam (#218) ──────────
+
+describe("status check and sweep reconcile with Beam (#218)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  /** Beam's GET /charges/{id}: a fixed reply, every call recorded. */
+  function beamCharge(body: Record<string, unknown>) {
+    const spy = vi.fn(async (_url: string) => ({
+      ok: true,
+      status: 200,
+      json: async () => body,
+      text: async () => JSON.stringify(body),
+    }));
+    vi.stubGlobal("fetch", spy);
+    return spy;
+  }
+
+  const pending = (id: string) =>
+    seedOrder(id, {
+      orderNumber: `KP-2026-${id}`,
+      status: "pending",
+      financialStatus: "pending",
+      providerChargeId: `ch_${id}`,
+      totalSatang: 25000,
+    });
+
+  const noCookies = {
+    get: () => undefined,
+    set: () => {},
+  } as unknown as import("@sveltejs/kit").Cookies;
+
+  async function poll(orderNumber: string, email?: string) {
+    const url = new URL(
+      `http://localhost/api/shop/order/${orderNumber}/status`,
+    );
+    const res = await orderStatusGET({
+      params: { orderNumber },
+      platform: { env: paymentsEnv() },
+      locals: { content: contentStub, user: null },
+      url,
+      request: new Request(url, {
+        headers: email ? { "x-order-email": email } : {},
+      }),
+      cookies: noCookies,
+    } as unknown as Parameters<typeof orderStatusGET>[0]);
+    return (await res.json()) as {
+      ok: boolean;
+      status?: string;
+      charge?: string;
+    };
+  }
+
+  const succeeded = (id: string, amount = 25000) => ({
+    chargeId: `ch_${id}`,
+    status: "SUCCEEDED",
+    amount,
+    referenceId: `KP-2026-${id}`,
+  });
+
+  it("settles a paid order for a viewer — no webhook needed", async () => {
+    pending("r1");
+    const spy = beamCharge(succeeded("r1"));
+    expect(await poll("KP-2026-r1", "buyer@example.com")).toEqual({
+      ok: true,
+      status: "paid",
+    });
+    expect(String(spy.mock.calls[0][0])).toMatch(/\/api\/v1\/charges\/ch_r1$/);
+    expect(orderRow("r1").status).toBe("paid");
+  });
+
+  it("a stranger polling gets the stored status and causes no Beam call", async () => {
+    pending("r2");
+    const spy = beamCharge(succeeded("r2"));
+    expect(await poll("KP-2026-r2")).toEqual({ ok: true, status: "pending" });
+    expect(await poll("KP-2026-r2", "someone@else.com")).toEqual({
+      ok: true,
+      status: "pending",
+    });
+    expect(spy).not.toHaveBeenCalled();
+    expect(orderRow("r2").status).toBe("pending");
+  });
+
+  it("reports a failed charge without cancelling the order", async () => {
+    pending("r3");
+    beamCharge({ chargeId: "ch_r3", status: "FAILED" });
+    expect(await poll("KP-2026-r3", "buyer@example.com")).toEqual({
+      ok: true,
+      status: "pending",
+      charge: "failed",
+    });
+    expect(orderRow("r3").status).toBe("pending");
+  });
+
+  it("refuses to settle when Beam's amount doesn't match the order", async () => {
+    pending("r4");
+    beamCharge(succeeded("r4", 100));
+    expect((await poll("KP-2026-r4", "buyer@example.com")).status).toBe(
+      "pending",
+    );
+    expect(orderRow("r4").status).toBe("pending");
+  });
+
+  it("asks Beam at most once per order per interval", async () => {
+    pending("r5");
+    const spy = beamCharge({ chargeId: "ch_r5", status: "PENDING" });
+    await poll("KP-2026-r5", "buyer@example.com");
+    await poll("KP-2026-r5", "buyer@example.com");
+    await poll("KP-2026-r5", "buyer@example.com");
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(CHECK_INTERVAL_MS).toBeGreaterThanOrEqual(5000);
+  });
+
+  it("the sweep settles recent pending orders and skips old ones", async () => {
+    pending("s1");
+    pending("s2");
+    sqlite
+      .prepare(`UPDATE shop_orders SET created_at = ? WHERE id = 's2'`)
+      .run(
+        new Date(Date.parse(NOW) - SWEEP_LOOKBACK_MS - 60_000).toISOString(),
+      );
+    const spy = vi.fn(async (url: string) => {
+      const id = String(url).split("/").pop()!.replace("ch_", "");
+      const body = succeeded(id);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => body,
+        text: async () => "",
+      };
+    });
+    vi.stubGlobal("fetch", spy);
+    const url = new URL("http://localhost/api/shop/cron/sweep");
+    const result = await reconcilePendingBeamOrders(
+      {
+        env: paymentsEnv() as unknown as App.Platform["env"],
+        content: contentStub,
+        url,
+        request: new Request(url),
+      },
+      new Date(NOW),
+    );
+    expect(result).toEqual({ checked: 1, settled: 1 });
+    expect(orderRow("s1").status).toBe("paid");
+    expect(orderRow("s2").status).toBe("pending");
   });
 });

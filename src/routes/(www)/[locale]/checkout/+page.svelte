@@ -8,7 +8,7 @@
 	// (www)/+layout.svelte; duplicated here so this branch is correct even
 	// standalone (modules evaluate once, so the duplication costs nothing).
 	import '$lib/plugins/registrations';
-	import { CreditCard, ArrowLeft } from 'lucide-svelte';
+	import { CreditCard, ArrowLeft, LoaderCircle } from 'lucide-svelte';
 	import { Button, Input, Label } from '$lib/components/ui';
 	import * as m from '$lib/paraglide/messages';
 	import { localePath, toLocale } from '$lib/i18n';
@@ -123,8 +123,21 @@
 	// In-page QR state (#156). Set only when /checkout/pay returns a
 	// `qr` payload; while shown we poll the status-only endpoint until
 	// the webhook flips the order, then land on the order page.
-	let qr = $state<{ image: string; expiresAt?: string; orderNumber: string } | null>(null);
+	let qr = $state<{
+		image: string;
+		expiresAt?: string;
+		orderNumber: string;
+		orderId: string;
+		/** waiting → scan me; expired/failed → offer a fresh QR (#219). */
+		phase: 'waiting' | 'expired' | 'failed';
+	} | null>(null);
 	let qrPollTimer: ReturnType<typeof setInterval> | null = null;
+	let regenerating = $state(false);
+
+	// The order created by the first successful /checkout/start. That call
+	// turns the cart into the order, so a retry after a payment failure
+	// must reuse it — re-running start hits the now-empty cart (#217).
+	let startedOrder = $state<{ id: string; number: string } | null>(null);
 
 	const POLL_INTERVAL_MS = 3000;
 
@@ -138,14 +151,30 @@
 		if (qrPollTimer) clearInterval(qrPollTimer);
 		qrPollTimer = setInterval(async () => {
 			try {
-				// Status-only endpoint — returns { ok, status } and nothing else.
+				// Status-only endpoint — { ok, status, charge? } and nothing else.
+				// While pending it also asks Beam directly (#218), so this
+				// moves on even if the webhook never arrives.
 				const res = await fetch(`/api/shop/order/${orderNumber}/status`);
-				const body = (await res.json()) as { ok: boolean; status?: string };
+				const body = (await res.json()) as {
+					ok: boolean;
+					status?: string;
+					charge?: 'pending' | 'failed';
+				};
 				if (body.ok && body.status && body.status !== 'pending') {
 					if (qrPollTimer) clearInterval(qrPollTimer);
 					// Paid (or otherwise resolved) — the order page renders the
-					// authoritative state written by the webhook.
+					// authoritative state.
 					window.location.href = orderPagePath(orderNumber);
+					return;
+				}
+				// Still pending: keep polling even once expired — a payment made
+				// in the last seconds can still land — but stop asking the
+				// customer to scan a code that no longer works.
+				if (qr && qr.phase === 'waiting') {
+					if (body.charge === 'failed') qr.phase = 'failed';
+					else if (qr.expiresAt && Date.parse(qr.expiresAt) <= Date.now()) {
+						qr.phase = 'expired';
+					}
 				}
 			} catch {
 				/* transient network error — keep polling */
@@ -158,6 +187,47 @@
 			if (qrPollTimer) clearInterval(qrPollTimer);
 		};
 	});
+
+	// The QR ran out, or Beam reported the charge failed: ask for a NEW
+	// charge on the same pending order. `attempt` gives it its own
+	// idempotency key — reusing the first would get the dead QR back.
+	async function regenerateQr() {
+		if (!qr || regenerating) return;
+		regenerating = true;
+		errorMessage = null;
+		try {
+			const res = await fetch('/api/shop/checkout/pay', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					orderId: qr.orderId,
+					method: 'promptpay',
+					attempt: crypto.randomUUID().slice(0, 8),
+				}),
+			});
+			const body = (await res.json()) as {
+				ok: boolean;
+				paymentUrl?: string;
+				qr?: { image: string; expiresAt?: string };
+				message?: string;
+			};
+			if (!body.ok) {
+				errorMessage = body.message ?? m.shop_err_payment_provider();
+				return;
+			}
+			if (body.qr) {
+				qr = { ...qr, image: body.qr.image, expiresAt: body.qr.expiresAt, phase: 'waiting' };
+				startQrPolling(qr.orderNumber);
+				return;
+			}
+			// Beam could not issue a QR and fell back to its hosted page.
+			if (body.paymentUrl) window.location.href = body.paymentUrl;
+		} catch {
+			errorMessage = m.shop_err_payment_provider();
+		} finally {
+			regenerating = false;
+		}
+	}
 
 	async function pay(event: Event) {
 		event.preventDefault();
@@ -208,42 +278,49 @@
 				qr?: { image: string; expiresAt?: string };
 				message?: string;
 			};
-			// Step 1: reserve inventory + create pending order
-			const startRes = await fetch('/api/shop/checkout/start', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					email: email.trim(),
-					attributedArticleSlug,
-					...(shipToAddress
-						? {
-								shippingAddress: {
-									name: addr.name.trim(),
-									line1: addr.line1.trim(),
-									line2: addr.line2.trim() || null,
-									city: addr.city.trim(),
-									region: addr.region.trim() || null,
-									postalCode: addr.postalCode.trim(),
-									countryCode: addr.countryCode.trim().toUpperCase(),
-									phone: addr.phone.trim() || null,
-								},
-								...(shippingMethod ? { shippingMethod } : {}),
-							}
-						: {}),
-					// Slot contributions (#171). The server validates these the
-					// same as any other client input — a slot is a UI
-					// contribution, never a trusted source.
-					...(slotContribution.billingAddress
-						? { billingAddress: slotContribution.billingAddress }
-						: {}),
-				}),
-			});
-			const startJson = (await startRes.json()) as StartResponse;
-			if (!startJson.ok) {
-				errorMessage = startJson.message ?? m.shop_err_checkout_failed();
-				submitting = false;
-				return;
+			// Step 1: reserve inventory + create pending order — ONCE (#217).
+			// After a failed payment the order already exists; go straight to
+			// step 2 with a fresh `attempt`, since a charge may have been made.
+			const retrying = startedOrder !== null;
+			if (!startedOrder) {
+				const startRes = await fetch('/api/shop/checkout/start', {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({
+						email: email.trim(),
+						attributedArticleSlug,
+						...(shipToAddress
+							? {
+									shippingAddress: {
+										name: addr.name.trim(),
+										line1: addr.line1.trim(),
+										line2: addr.line2.trim() || null,
+										city: addr.city.trim(),
+										region: addr.region.trim() || null,
+										postalCode: addr.postalCode.trim(),
+										countryCode: addr.countryCode.trim().toUpperCase(),
+										phone: addr.phone.trim() || null,
+									},
+									...(shippingMethod ? { shippingMethod } : {}),
+								}
+							: {}),
+						// Slot contributions (#171). The server validates these the
+						// same as any other client input — a slot is a UI
+						// contribution, never a trusted source.
+						...(slotContribution.billingAddress
+							? { billingAddress: slotContribution.billingAddress }
+							: {}),
+					}),
+				});
+				const startJson = (await startRes.json()) as StartResponse;
+				if (!startJson.ok) {
+					errorMessage = startJson.message ?? m.shop_err_checkout_failed();
+					submitting = false;
+					return;
+				}
+				startedOrder = { id: startJson.orderId!, number: startJson.orderNumber! };
 			}
+			const order = startedOrder;
 			// Step 2: create Beam charge. PromptPay asks for an in-page QR
 			// (#156); the server falls back to the hosted link on ANY QR
 			// failure, so a `paymentUrl` response is always possible.
@@ -251,8 +328,9 @@
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({
-					orderId: startJson.orderId,
+					orderId: order.id,
 					...(method === 'promptpay' ? { method: 'promptpay' } : {}),
+					...(retrying ? { attempt: crypto.randomUUID().slice(0, 8) } : {}),
 				}),
 			});
 			const payJson = (await payRes.json()) as PayResponse;
@@ -261,11 +339,11 @@
 				submitting = false;
 				return;
 			}
-			if (payJson.qr && (payJson.orderNumber ?? startJson.orderNumber)) {
+			if (payJson.qr && (payJson.orderNumber ?? order.number)) {
 				// In-page QR: render it right here and poll until the webhook
 				// flips the order to paid, then land on the order page.
-				const orderNumber = (payJson.orderNumber ?? startJson.orderNumber)!;
-				qr = { ...payJson.qr, orderNumber };
+				const orderNumber = (payJson.orderNumber ?? order.number)!;
+				qr = { ...payJson.qr, orderNumber, orderId: order.id, phase: 'waiting' };
 				submitting = false;
 				startQrPolling(orderNumber);
 				return;
@@ -277,7 +355,7 @@
 			// No payment URL — provider returned inline QR or other flow.
 			// Fall back to order status page; the customer's next visit
 			// will show the pending state.
-			window.location.href = localePath(locale, `/order/${startJson.orderNumber}`);
+			window.location.href = localePath(locale, `/order/${order.number}`);
 		} catch (err) {
 			errorMessage = err instanceof Error ? err.message : m.shop_err_network();
 			submitting = false;
@@ -426,26 +504,58 @@
 					{m.shop_payment()}
 				</h2>
 				{#if qr}
-					<!-- In-page PromptPay QR (#156). Polling runs behind this;
-					     the "I've paid" link lands on the order page's
-					     confirming state, which keeps polling there. -->
+					<!-- In-page PromptPay QR (#156). Polling runs behind this and
+					     moves on by itself once the order is paid; the small link
+					     is only a fallback if that never happens. -->
 					<div class="flex flex-col items-center gap-3 py-2 text-center">
-						<img
-							src={qr.image}
-							alt={m.shop_qr_alt()}
-							class="h-56 w-56 rounded-md border border-border bg-white p-2"
-						/>
-						<p class="text-sm text-muted-foreground">{m.shop_qr_scan_note()}</p>
-						{#if qr.expiresAt}
-							<p class="text-xs text-muted-foreground">
-								{m.shop_qr_expires({
-									datetime: new Date(qr.expiresAt).toLocaleString(),
-								})}
-							</p>
+						{#if qr.phase === 'waiting'}
+							<img
+								src={qr.image}
+								alt={m.shop_qr_alt()}
+								class="h-56 w-56 rounded-md border border-border bg-white p-2"
+							/>
+							<p class="text-sm text-muted-foreground">{m.shop_qr_scan_note()}</p>
+							{#if qr.expiresAt}
+								<p class="text-xs text-muted-foreground">
+									{m.shop_qr_expires({
+										datetime: new Date(qr.expiresAt).toLocaleString(),
+									})}
+								</p>
+							{/if}
+							<div
+								class="flex w-full flex-col items-center gap-1 rounded-md bg-muted px-4 py-3"
+								role="status"
+								aria-live="polite"
+							>
+								<span class="flex items-center gap-2 text-sm font-medium">
+									<LoaderCircle class="h-4 w-4 animate-spin" aria-hidden="true" />
+									{m.shop_qr_waiting()}
+								</span>
+								<span class="text-xs text-muted-foreground">{m.shop_qr_waiting_note()}</span>
+							</div>
+						{:else}
+							<!-- Expired or failed: the old code can no longer be paid, so
+							     it is not shown at all — only the way forward. -->
+							<div
+								class="flex w-full flex-col items-center gap-1 rounded-md border border-border px-4 py-5"
+								role="status"
+								aria-live="polite"
+							>
+								<span class="text-sm font-medium">
+									{qr.phase === 'expired' ? m.shop_qr_expired() : m.shop_qr_failed()}
+								</span>
+								<span class="text-xs text-muted-foreground">{m.shop_qr_retry_note()}</span>
+							</div>
+							<Button onclick={regenerateQr} disabled={regenerating} class="w-full">
+								{regenerating ? m.shop_processing() : m.shop_qr_new()}
+							</Button>
 						{/if}
-						<Button href={orderPagePath(qr.orderNumber, true)} class="w-full">
-							{m.shop_qr_paid_button()}
-						</Button>
+						<a
+							href={orderPagePath(qr.orderNumber, true)}
+							class="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+						>
+							{m.shop_qr_paid_fallback()}
+						</a>
 					</div>
 				{:else}
 					<fieldset class="space-y-2" disabled={submitting}>

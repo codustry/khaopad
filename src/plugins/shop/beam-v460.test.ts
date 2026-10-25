@@ -280,3 +280,55 @@ describe("checkSettlement", () => {
     );
   });
 });
+
+describe("decideReconcile (#218)", async () => {
+  const { decideReconcile, takeCheckSlot, CHECK_INTERVAL_MS } =
+    await import("./beam-reconcile.server");
+  const order = {
+    status: "pending" as const,
+    totalSatang: 10000,
+    orderNumber: "KP-2026-000123",
+  };
+
+  it("settles only a succeeded charge that matches", () => {
+    expect(
+      decideReconcile(order, {
+        ok: true,
+        status: "succeeded",
+        amount: 10000,
+        referenceId: "KP-2026-000123",
+      }),
+    ).toEqual({ action: "settle" });
+    expect(
+      decideReconcile(order, { ok: true, status: "succeeded", amount: 1 })
+        .action,
+    ).toBe("refuse");
+  });
+
+  it("reports failed, never acts on it", () => {
+    expect(decideReconcile(order, { ok: true, status: "failed" })).toEqual({
+      action: "report",
+      charge: "failed",
+    });
+  });
+
+  it("treats a lookup error or a non-pending order as nothing to do", () => {
+    expect(
+      decideReconcile(order, { ok: false, code: "HTTP_500", message: "" }),
+    ).toEqual({ action: "report", charge: "pending" });
+    expect(
+      decideReconcile(
+        { ...order, status: "paid" as const },
+        { ok: true, status: "succeeded" },
+      ),
+    ).toEqual({ action: "report", charge: "pending" });
+  });
+
+  it("throttles per order, not globally", () => {
+    const t = 1_000_000;
+    expect(takeCheckSlot("o-a", t)).toBe(true);
+    expect(takeCheckSlot("o-a", t + 1)).toBe(false);
+    expect(takeCheckSlot("o-b", t + 1)).toBe(true);
+    expect(takeCheckSlot("o-a", t + CHECK_INTERVAL_MS)).toBe(true);
+  });
+});

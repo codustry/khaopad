@@ -10,16 +10,34 @@
  * Triggers can post an arbitrary URL, so the token is our only guard.
  * Set `CRON_SECRET` in wrangler.toml [vars] to a random 64-char string.
  *
- * Returns: { releasedReservations, abandonedCarts, ms }
+ * v4.6.0 (#218): first, pending Beam orders from the last few hours are
+ * checked against Beam directly and settled if paid — the safety net for
+ * a payment whose webhook never arrived while nobody kept a page open.
+ *
+ * Returns: { reconciled, releasedReservations, abandonedCarts, ms }
  */
 import { error, json } from "@sveltejs/kit";
 import { CartService } from "$plugins/shop/cart-service";
+import { reconcilePendingBeamOrders } from "$plugins/shop/beam-reconcile.server";
+import type { SettleContext } from "$plugins/shop/beam-settle.server";
 import type { RequestHandler } from "./$types";
 
-async function runSweep(env: App.Platform["env"]) {
+async function runSweep(ctx: SettleContext) {
+  const { env } = ctx;
   const startedAt = Date.now();
   const svc = new CartService(env.DB);
   const now = new Date();
+  // Before anything is released: an order Beam says is paid must be
+  // settled, not left pending while its reservation lapses.
+  let reconciled = { checked: 0, settled: 0 };
+  try {
+    reconciled = await reconcilePendingBeamOrders(ctx, now);
+  } catch (err) {
+    console.warn(
+      "[shop.cron] reconcile pass failed:",
+      err instanceof Error ? err.message : err,
+    );
+  }
   const releasedReservations = await svc.sweepExpiredReservations(now);
   const abandonedCarts = await svc.sweepAbandonedCarts(now);
 
@@ -59,7 +77,13 @@ async function runSweep(env: App.Platform["env"]) {
   }
 
   const ms = Date.now() - startedAt;
-  return { releasedReservations, abandonedCarts, recoveryEmailsSent, ms };
+  return {
+    reconciled,
+    releasedReservations,
+    abandonedCarts,
+    recoveryEmailsSent,
+    ms,
+  };
 }
 
 function guard(request: Request, env: App.Platform["env"]) {
@@ -84,20 +108,30 @@ function guard(request: Request, env: App.Platform["env"]) {
   return diff === 0;
 }
 
-export const POST: RequestHandler = async ({ request, platform }) => {
+export const POST: RequestHandler = async ({
+  request,
+  platform,
+  url,
+  locals,
+}) => {
   const env = platform?.env;
   if (!env) throw error(503, "Platform not ready");
   if (!guard(request, env)) throw error(401, "Invalid or missing token");
-  const result = await runSweep(env);
+  const result = await runSweep({ env, content: locals.content, url, request });
   return json({ ok: true, ...result });
 };
 
 // GET for manual triggering in dev + for wrangler-emitted cron requests
 // that default to GET.
-export const GET: RequestHandler = async ({ request, platform }) => {
+export const GET: RequestHandler = async ({
+  request,
+  platform,
+  url,
+  locals,
+}) => {
   const env = platform?.env;
   if (!env) throw error(503, "Platform not ready");
   if (!guard(request, env)) throw error(401, "Invalid or missing token");
-  const result = await runSweep(env);
+  const result = await runSweep({ env, content: locals.content, url, request });
   return json({ ok: true, ...result });
 };
