@@ -482,6 +482,8 @@ export class CartService {
           lt(shopInventoryReservations.expiresAt, iso),
         ),
       );
+  }
+
   private async assertSellable(
     variantId: string,
     quantity: number,
