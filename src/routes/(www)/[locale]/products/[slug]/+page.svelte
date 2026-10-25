@@ -133,7 +133,20 @@
 			if (!res.ok) {
 				// Surface the server's reason (out of stock, unknown variant)
 				// rather than a generic failure — the customer can act on it.
-				const body = await res.json().catch(() => null);
+				const body = (await res.json().catch(() => null)) as {
+					code?: string;
+					available?: number;
+					message?: string;
+				} | null;
+				// Out of stock (#215): the server counts what's already in the
+				// cart, so say how many are left in the customer's language.
+				if (body?.code === 'OUT_OF_STOCK') {
+					addError =
+						(body.available ?? 0) > 0
+							? m.shop_only_n_in_stock({ count: body.available ?? 0 })
+							: m.shop_sold_out();
+					return;
+				}
 				addError =
 					(body && typeof body === 'object' && 'message' in body
 						? String(body.message)

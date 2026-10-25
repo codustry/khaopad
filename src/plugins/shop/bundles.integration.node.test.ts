@@ -1,12 +1,13 @@
 import Database from "better-sqlite3";
 import { readFileSync, readdirSync } from "node:fs";
 import { beforeEach, describe, expect, it } from "vitest";
-import { CartService } from "./cart-service";
+import { CartError, CartService } from "./cart-service";
 import {
   commitVariantSaleWithComponents,
   getBundleAvailability,
   releaseVariantWithComponents,
   reserveVariantWithComponents,
+  sellableQuantity,
   setBundleComponents,
 } from "./bundles";
 import { reserveVariant } from "./inventory";
@@ -578,5 +579,106 @@ describe("#165 — the bundle price is fixed, never the sum of parts", () => {
     // the bundle-aware wrapper for every line.
     expect(levels("soap")).toEqual({ onHand: 20, reserved: 4 });
     expect(levels("candle")).toEqual({ onHand: 20, reserved: 2 });
+  });
+});
+
+// ─── #215: the cart refuses what can't be fulfilled ─────────
+
+describe("#215 — cart quantities are capped at sellable stock", () => {
+  async function cart() {
+    const svc = new CartService(d1);
+    const c = await svc.ensureCart({ sessionId: "s-1" });
+    return { svc, cartId: c.id };
+  }
+
+  async function refusal(p: Promise<unknown>) {
+    try {
+      await p;
+    } catch (err) {
+      if (err instanceof CartError) {
+        return { reason: err.reason, available: err.available };
+      }
+      throw err;
+    }
+    return null;
+  }
+
+  it("refuses an out-of-stock variant", async () => {
+    seedVariant("c8", { onHand: 0 });
+    const { svc, cartId } = await cart();
+    expect(
+      await refusal(svc.addItem({ cartId, variantId: "c8", quantity: 1 })),
+    ).toEqual({ reason: "OUT_OF_STOCK", available: 0 });
+  });
+
+  it("counts what's already in the cart — +1 five times can't oversell three", async () => {
+    seedVariant("c6", { onHand: 3 });
+    const { svc, cartId } = await cart();
+    for (let i = 0; i < 3; i++) {
+      await svc.addItem({ cartId, variantId: "c6", quantity: 1 });
+    }
+    expect(
+      await refusal(svc.addItem({ cartId, variantId: "c6", quantity: 1 })),
+    ).toEqual({ reason: "OUT_OF_STOCK", available: 3 });
+  });
+
+  it("subtracts other shoppers' reservations", async () => {
+    seedVariant("go", { onHand: 5 });
+    await reserveVariant(d1, "go", 4);
+    expect(await sellableQuantity(d1, "go")).toBe(1);
+    const { svc, cartId } = await cart();
+    expect(
+      await refusal(svc.addItem({ cartId, variantId: "go", quantity: 2 })),
+    ).toEqual({ reason: "OUT_OF_STOCK", available: 1 });
+  });
+
+  it("refuses raising a line past stock, but always allows lowering it", async () => {
+    seedVariant("s80", { onHand: 100 });
+    const { svc, cartId } = await cart();
+    const line = await svc.addItem({ cartId, variantId: "s80", quantity: 3 });
+    expect(
+      await refusal(
+        svc.setQuantity({ cartId, cartItemId: line.id, quantity: 500 }),
+      ),
+    ).toMatchObject({ reason: "OUT_OF_STOCK", available: 100 });
+    // Stock drops below what the cart holds: coming down still works.
+    sqlite
+      .prepare(`UPDATE shop_inventory_levels SET on_hand = 1 WHERE item_id = ?`)
+      .run("inv-s80");
+    const lowered = await svc.setQuantity({
+      cartId,
+      cartItemId: line.id,
+      quantity: 2,
+    });
+    expect(lowered?.quantity).toBe(2);
+  });
+
+  it("leaves untracked and continue-selling variants unlimited", async () => {
+    seedVariant("mug", { tracked: false });
+    seedVariant("preorder", { onHand: 0 });
+    sqlite
+      .prepare(
+        `UPDATE shop_inventory_items SET continue_selling_when_out_of_stock = 1 WHERE id = ?`,
+      )
+      .run("inv-preorder");
+    expect(await sellableQuantity(d1, "mug")).toBeNull();
+    expect(await sellableQuantity(d1, "preorder")).toBeNull();
+    const { svc, cartId } = await cart();
+    await svc.addItem({ cartId, variantId: "preorder", quantity: 5 });
+  });
+
+  it("limits a bundle by its scarcest component", async () => {
+    seedVariant("soap", { onHand: 7 });
+    seedVariant("candle", { onHand: 1 });
+    seedBundle("giftset");
+    await setBundleComponents(d1, "giftset", [
+      { componentVariantId: "soap", quantity: 2 },
+      { componentVariantId: "candle", quantity: 1 },
+    ]);
+    const { svc, cartId } = await cart();
+    await svc.addItem({ cartId, variantId: "giftset", quantity: 1 });
+    expect(
+      await refusal(svc.addItem({ cartId, variantId: "giftset", quantity: 1 })),
+    ).toEqual({ reason: "OUT_OF_STOCK", available: 1 });
   });
 });

@@ -17,15 +17,32 @@
 	const locale = $derived(toLocale(page.params.locale ?? 'en'));
 
 	let busy = $state(false);
+	let qtyError = $state<string | null>(null);
 
 	async function updateQty(cartItemId: string, quantity: number) {
 		busy = true;
+		qtyError = null;
 		try {
-			await fetch('/api/shop/cart', {
+			const res = await fetch('/api/shop/cart', {
 				method: 'PATCH',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({ cartItemId, quantity }),
 			});
+			if (!res.ok) {
+				// The server refuses a quantity above stock (#215), e.g. when
+				// stock dropped after this page loaded.
+				const body = (await res.json().catch(() => null)) as {
+					code?: string;
+					available?: number;
+					message?: string;
+				} | null;
+				qtyError =
+					body?.code === 'OUT_OF_STOCK'
+						? (body.available ?? 0) > 0
+							? m.shop_only_n_in_stock({ count: body.available ?? 0 })
+							: m.shop_sold_out()
+						: (body?.message ?? m.shop_err_network_retry());
+			}
 			// invalidate() re-runs the cart load (and the layout's badge,
 			// which depends on the same key). A location.reload() on top of
 			// it only threw away the visitor's scroll position.
@@ -86,6 +103,9 @@
 			</a>
 		</div>
 	{:else}
+		{#if qtyError}
+			<p class="mb-4 text-sm text-destructive" role="alert">{qtyError}</p>
+		{/if}
 		{#if data.priceChanges.length > 0}
 			<div class="mb-4 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
 				<p class="font-medium text-amber-900 dark:text-amber-200">{m.shop_prices_changed()}</p>

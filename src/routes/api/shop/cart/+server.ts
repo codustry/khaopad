@@ -21,6 +21,29 @@ import { track, buildEventContext } from "$lib/server/analytics/track";
 import { requireSameOrigin } from "$lib/server/http/same-origin";
 import type { RequestHandler } from "./$types";
 
+/**
+ * CartError → response. OUT_OF_STOCK is a 409 carrying `available`, so
+ * the storefront can say "only 2 left" in the customer's language (#215).
+ */
+function cartErrorResponse(err: CartError) {
+  if (err.reason === "OUT_OF_STOCK") {
+    return json(
+      {
+        ok: false,
+        code: err.reason,
+        message: err.message,
+        available: err.available ?? 0,
+        ...(err.cartItemId ? { cartItemId: err.cartItemId } : {}),
+      },
+      { status: 409 },
+    );
+  }
+  return json(
+    { ok: false, code: err.reason, message: err.message },
+    { status: 400 },
+  );
+}
+
 export const GET: RequestHandler = async ({ platform, cookies, locals }) => {
   const env = platform?.env;
   if (!env) throw error(503, "Platform not ready");
@@ -117,10 +140,7 @@ export const POST: RequestHandler = async ({
     return json({ ok: true, item });
   } catch (err) {
     if (err instanceof CartError) {
-      return json(
-        { ok: false, code: err.reason, message: err.message },
-        { status: 400 },
-      );
+      return cartErrorResponse(err);
     }
     if (err instanceof ShopValidationError) {
       return json(
@@ -164,13 +184,10 @@ export const PATCH: RequestHandler = async ({
     });
     return json({ ok: true, item });
   } catch (err) {
-    if (err instanceof CartError || err instanceof ShopValidationError) {
+    if (err instanceof CartError) return cartErrorResponse(err);
+    if (err instanceof ShopValidationError) {
       return json(
-        {
-          ok: false,
-          code: (err as CartError).reason ?? (err as ShopValidationError).code,
-          message: err.message,
-        },
+        { ok: false, code: err.code, message: err.message },
         { status: 400 },
       );
     }
