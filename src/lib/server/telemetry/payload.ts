@@ -74,7 +74,7 @@ export interface TelemetryPayload {
   payloadVersion: string;
   /** Random per-install id. Identifies an INSTALL, never a person or domain. */
   installId: string;
-  /** Engine version from package.json, e.g. "4.4.0". */
+  /** Engine version from package.json, e.g. "4.5.0". */
   engineVersion: string;
   /** Theme-contract version, e.g. "1.0.0". */
   contractVersion: string;

@@ -26,7 +26,7 @@ Exactly these fields, and nothing else. The list is pinned by a test (`telemetry
 | ------------------ | ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
 | `payloadVersion`   | `"1"`                    | Schema version, so the collector can read old pings after a change.                                                     |
 | `installId`        | `"V1StGXR8_Z5jdHi6B-my"` | A random id identifying **an install**. See below — this is the field that matters.                                     |
-| `engineVersion`    | `"4.4.0"`                | Which release you are on. Answers "can we drop support for 3.x yet?"                                                    |
+| `engineVersion`    | `"4.5.0"`                | Which release you are on. Answers "can we drop support for 3.x yet?"                                                    |
 | `contractVersion`  | `"1.0.0"`                | Theme-contract version, for the same reason.                                                                            |
 | `runtime`          | `"cloudflare-workers"`   | A fixed label. Not a version, not a path, not a hostname.                                                               |
 | `plugins`          | `["shop"]`               | Which **optional** plugins are switched on. Engine-defined slugs only — never your own plugin names, never your config. |
@@ -42,7 +42,7 @@ A complete ping is about 250 bytes:
 {
   "payloadVersion": "1",
   "installId": "V1StGXR8_Z5jdHi6B-my",
-  "engineVersion": "4.4.0",
+  "engineVersion": "4.5.0",
   "contractVersion": "1.0.0",
   "runtime": "cloudflare-workers",
   "plugins": ["shop"],
