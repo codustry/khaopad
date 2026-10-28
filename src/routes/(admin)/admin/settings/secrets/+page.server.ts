@@ -7,6 +7,10 @@ import {
   setSecret,
   deleteSecret,
 } from "$lib/server/secrets/service";
+import {
+  getBeamHealth,
+  testBeamConnection,
+} from "$plugins/shop/payment-health.server";
 import type { Actions, PageServerLoad } from "./$types";
 
 /**
@@ -39,6 +43,7 @@ export const load: PageServerLoad = async ({ locals, platform }) => {
       statuses: [],
       platformReady: false,
       hasMasterSecret: false,
+      beamHealth: null,
     };
   }
 
@@ -46,6 +51,8 @@ export const load: PageServerLoad = async ({ locals, platform }) => {
   // write-only by design: round-tripping a live key to the browser would
   // put it in page source, history, extensions and any proxy in the path.
   const statuses = await listSecretStatus(env);
+  // Payment health (v4.6.0): names and timestamps only, no values.
+  const beamHealth = await getBeamHealth(env).catch(() => null);
 
   return {
     groups: [...secretsByGroup()].map(([name, defs]) => ({ name, defs })),
@@ -55,10 +62,19 @@ export const load: PageServerLoad = async ({ locals, platform }) => {
     // nothing can be encrypted. Surfaced so the page explains itself
     // rather than failing on submit.
     hasMasterSecret: Boolean(env.BETTER_AUTH_SECRET),
+    beamHealth,
   };
 };
 
 export const actions: Actions = {
+  /** One read-only authenticated call to Beam — moves no money. */
+  testBeam: async ({ locals, platform }) => {
+    requireSuperAdmin(locals);
+    const env = platform?.env;
+    if (!env?.DB) return fail(503, { error: "Database is not available." });
+    const result = await testBeamConnection(env);
+    return { beamTest: result };
+  },
   save: async ({ request, locals, platform }) => {
     requireSuperAdmin(locals);
     const env = platform?.env;

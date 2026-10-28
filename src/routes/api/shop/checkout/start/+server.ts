@@ -37,6 +37,7 @@ import type { OrderAddress } from "$plugins/shop/order-service";
 import { track, buildEventContext } from "$lib/server/analytics/track";
 import { dispatchEvent } from "$lib/server/webhooks";
 import { requireSameOrigin } from "$lib/server/http/same-origin";
+import { grantOrderAccess } from "$lib/server/shop/order-access";
 import type { RequestHandler } from "./$types";
 
 /** KV key recording when the reservation sweep last ran. */
@@ -121,6 +122,17 @@ export const POST: RequestHandler = async ({
       sessionId,
       userId: locals.user?.id,
     });
+
+    // #217: an empty cart is refused before anything is priced. A retry
+    // after the first start (which emptied the cart into an order) used
+    // to fail as INVALID_SHIPPING_METHOD — or, with a flat rate, quote
+    // shipping on nothing.
+    if ((await cartSvc.listCartItems(cart.id)).length === 0) {
+      return json(
+        { ok: false, code: "CART_EMPTY", message: "Cart is empty" },
+        { status: 400 },
+      );
+    }
 
     // #155: validate address blobs BEFORE any state changes. Absent
     // addresses stay allowed (digital goods); present-but-invalid is
@@ -317,6 +329,11 @@ export const POST: RequestHandler = async ({
       discountIsFreeShipping,
       discountCodeSnapshot,
     });
+    // 0035: tie the holds just taken to this order (see markPaid).
+    await cartSvc.linkHoldsToOrder(
+      reservations.map((r) => r.cartItemId),
+      orderId,
+    );
 
     // Stash the discount id on the cart's discountCode column too so
     // the webhook can record the redemption. Format:
@@ -411,6 +428,11 @@ export const POST: RequestHandler = async ({
         /* best-effort — attribution loss is acceptable */
       }
     }
+
+    // Lets this browser open its own order page after paying — the
+    // payment provider returns the customer to /order/<number> with no
+    // email in the URL (order-access.ts).
+    await grantOrderAccess(cookies, env.BETTER_AUTH_SECRET, orderNumber);
 
     return json({
       ok: true,

@@ -1,8 +1,12 @@
 /**
  * POST /api/shop/checkout/pay — create a payment charge for a pending order.
  *
- * Body: { orderId?: string, orderNumber?: string,
- *         method?: "promptpay" | "card" }
+ * Body: { orderId?: string, orderNumber?: string, email?: string,
+ *         method?: "promptpay" | "card", attempt?: string }
+ *
+ * `attempt` asks for a NEW charge on the same order — a fresh QR after
+ * the last expired, a retry after a decline — rather than a replay of
+ * the first one (see ChargeInput.attempt). Omit it on the first try.
  * Returns (hosted link): { ok, providerChargeId, paymentUrl, extra }
  * Returns (in-page QR):  { ok, providerChargeId, orderNumber,
  *                          qr: { image, expiresAt } }
@@ -16,13 +20,14 @@
  * who abandoned the Beam page only holds the order NUMBER (it's in
  * their URL and receipt email), never the internal id.
  *
- * ACCEPTED RISK: an order number is a weak secret, so anyone holding it
- * can mint a payment link for that order. The blast radius is bounded:
- * the endpoint refuses any order not in `pending` status, the response
- * carries the payment URL and nothing else (no items, no email, no
- * address), and the minted link can only pay the order's OWN stored
- * total into the merchant's account — worst case, someone pays your
- * bill.
+ * ACCESS (v4.5.1): an order number is sequential, so paying BY NUMBER
+ * needs the same proof as viewing the order (order-access.ts) — the
+ * browser that placed it, the owning account, staff, or `email`. It
+ * used to be an "accepted risk" that anyone could mint a link; the
+ * real cost was that minting re-points the order's stored charge id,
+ * so a stranger could disrupt a customer mid-payment. Refusals are the
+ * same 404 as a missing order. `orderId` (an unguessable nanoid from
+ * checkout/start) needs no further proof.
  */
 import { error, json } from "@sveltejs/kit";
 import { drizzle } from "drizzle-orm/d1";
@@ -30,19 +35,28 @@ import { eq } from "drizzle-orm";
 import { OrderService } from "$plugins/shop/order-service";
 import { shopOrders } from "$plugins/shop/schema-cart";
 import {
+  diagnoseProviderConfig,
+  providerConfigMessage,
   resolveProviderForMethod,
   resolveProviderForRequest,
 } from "$plugins/shop/beam-config.server";
 import { requireSameOrigin } from "$lib/server/http/same-origin";
+import { CartService } from "$plugins/shop/cart-service";
+import { canViewOrder } from "$lib/server/shop/order-access";
 import { cookieName } from "$lib/paraglide/runtime";
 import { DEFAULT_LOCALE, localePath, toLocale } from "$lib/i18n";
 import type { RequestHandler } from "./$types";
+
+/** How long a created charge stays payable (Beam: QR 30 min, link 60). */
+const QR_HOLD_MS = 30 * 60 * 1000;
+const LINK_HOLD_MS = 60 * 60 * 1000;
 
 export const POST: RequestHandler = async ({
   request,
   platform,
   url,
   cookies,
+  locals,
 }) => {
   // Checkout creates orders and initiates charges — the highest-value
   // state change in the app, and it had no provenance check at all
@@ -55,7 +69,10 @@ export const POST: RequestHandler = async ({
   const body = (await request.json().catch(() => null)) as {
     orderId?: string;
     orderNumber?: string;
+    /** With `orderNumber`: proves access the way ?email= does. */
+    email?: string;
     method?: string;
+    attempt?: string;
   } | null;
   if (!body?.orderId && !body?.orderNumber) {
     throw error(400, "orderId or orderNumber required");
@@ -65,7 +82,23 @@ export const POST: RequestHandler = async ({
   const order = body.orderId
     ? await orderSvc.getOrder(body.orderId)
     : await orderSvc.getOrderByNumber(body.orderNumber!);
-  if (!order) throw error(404, "Order not found");
+  // An orderId is an unguessable nanoid handed out by checkout/start; an
+  // order NUMBER is sequential, so paying by number needs the same proof
+  // as viewing the order (v4.5.1) — otherwise anyone could re-point a
+  // stranger's pending order at a new charge.
+  if (
+    !order ||
+    (!body.orderId &&
+      !(await canViewOrder({
+        order,
+        user: locals.user,
+        email: body.email,
+        cookies,
+        secret: env.BETTER_AUTH_SECRET,
+      })))
+  ) {
+    throw error(404, "Order not found");
+  }
   if (order.status !== "pending") {
     return json(
       {
@@ -101,17 +134,20 @@ export const POST: RequestHandler = async ({
         ? "stripe"
         : "beam"
       : (order.providerName ?? "beam");
-    const envHint =
-      attempted === "stripe"
-        ? "Set STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET (or BEAM_MERCHANT_ID + BEAM_API_KEY + BEAM_WEBHOOK_SECRET to serve card via Beam's hosted link)"
-        : "Set BEAM_MERCHANT_ID + BEAM_API_KEY + BEAM_WEBHOOK_SECRET";
+    // #216: say WHICH credential is the problem — unset, saved but
+    // undecryptable (a rotated BETTER_AUTH_SECRET), or set under a name
+    // Khao Pad doesn't read — and point at the admin, not a redeploy.
+    // Key names only, never values.
+    const diagnosis = await diagnoseProviderConfig(env, attempted);
+    const message = providerConfigMessage(attempted, body.method, diagnosis);
+    console.error(`[shop.pay] ${order.orderNumber}: ${message}`);
     return json(
       {
         ok: false,
         code: "PAYMENT_PROVIDER_NOT_CONFIGURED",
-        message: `Payment provider '${attempted}' is not configured${
-          body.method ? ` for method '${body.method}'` : ""
-        }. ${envHint} in wrangler.toml [vars] and redeploy.`,
+        message,
+        missing: diagnosis.missing,
+        undecryptable: diagnosis.undecryptable,
       },
       { status: 503 },
     );
@@ -126,6 +162,24 @@ export const POST: RequestHandler = async ({
   // settling webhook remains the FINAL authority — it re-stamps the
   // provider that actually took the money, covering the crossed-retry
   // case where an older session settles after a re-route.
+  // Stock stays held for as long as the customer can pay (v4.6.0). A
+  // hold is 15 min from checkout/start; Beam's QR lives 30 min and its
+  // payment link 60. Best-effort: a failed extension must never block
+  // the payment itself (markPaid copes with a lapsed hold).
+  const holdUntil = async (ms: number) => {
+    try {
+      await new CartService(env.DB).extendOrderHolds(
+        order.id,
+        new Date(Date.now() + ms),
+      );
+    } catch (err) {
+      console.warn(
+        `[shop.pay] could not extend holds for ${order.orderNumber}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  };
+
   const persistProviderName = async () => {
     if (provider.name !== (order.providerName ?? "beam")) {
       await drizzle(env.DB)
@@ -163,6 +217,11 @@ export const POST: RequestHandler = async ({
     customerEmail: order.email,
     returnUrl,
     metadata: { orderNumber: order.orderNumber },
+    // Short opaque token only — it becomes part of an idempotency key.
+    ...(typeof body.attempt === "string" &&
+    /^[A-Za-z0-9-]{1,40}$/.test(body.attempt)
+      ? { attempt: body.attempt }
+      : {}),
   };
 
   // In-page PromptPay QR (#156) — duck-typed: only when the storefront
@@ -177,6 +236,7 @@ export const POST: RequestHandler = async ({
       const qr = await provider.createQrCharge(chargeInput);
       if (qr.ok) {
         await persistProviderName();
+        await holdUntil(QR_HOLD_MS);
         // Persisted exactly like createCharge's providerChargeId — the
         // webhook route swaps in the settled charge id via markPaid.
         await orderSvc.attachProviderCharge({
@@ -215,6 +275,7 @@ export const POST: RequestHandler = async ({
   }
 
   await persistProviderName();
+  await holdUntil(LINK_HOLD_MS);
   await orderSvc.attachProviderCharge({
     orderId: order.id,
     providerChargeId: charge.providerChargeId,

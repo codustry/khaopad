@@ -61,6 +61,7 @@ import type {
   ChargeResult,
   PaymentProvider,
   QrChargeResult,
+  ChargeStatusResult,
   RefundInput,
   RefundResult,
   WebhookVerifyResult,
@@ -81,6 +82,28 @@ const PAYMENT_LINK_TTL_MS = 60 * 60 * 1000;
  * status — a stale tab should get a fresh QR, not a 55-minute-old one.
  */
 const QR_CHARGE_TTL_MS = 30 * 60 * 1000;
+
+/**
+ * Idempotency keys: `<orderId>` / `<orderId>:qr` for the first payment
+ * link / QR of an order, `<orderId>:link:<attempt>` /
+ * `<orderId>:qr:<attempt>` for deliberate retries. Every request body
+ * carries a fresh expiry, and Beam answers a reused key with a
+ * different body by 412 — so before `attempt` existed, any second
+ * link or QR for an order failed for the key's 12h retention.
+ */
+export function beamIdempotencyKey(
+  input: Pick<ChargeInput, "orderId" | "attempt">,
+  kind: "link" | "qr",
+): string {
+  if (kind === "qr") {
+    return input.attempt
+      ? `${input.orderId}:qr:${input.attempt}`
+      : `${input.orderId}:qr`;
+  }
+  return input.attempt
+    ? `${input.orderId}:link:${input.attempt}`
+    : input.orderId;
+}
 
 export type BeamConfig = {
   /** Basic-auth username. Required — Beam rejects requests without it. */
@@ -180,9 +203,34 @@ function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
+/**
+ * POST /api/v1/payment-links response. The OpenAPI spec
+ * (CreatePaymentLinkResponse, docs.beamcheckout.com/v1/api) names the
+ * id `id` — `paymentLinkId` only appears on the GET shape and webhook.
+ * Reading `paymentLinkId` here stored NOTHING for every hosted-page
+ * payment (found live on bactrack.in.th), so those orders could never
+ * be matched or reconciled by id.
+ */
 type BeamPaymentLinkResponse = {
-  paymentLinkId: string;
+  id?: string;
+  paymentLinkId?: string;
   url: string;
+};
+
+/** GET /api/v1/payment-links/{id} — PaymentLink in the OpenAPI spec. */
+type BeamPaymentLinkDetails = {
+  status?: string;
+  order?: { netAmount?: number; referenceId?: string };
+};
+
+/** GET /api/v1/charges — ChargeList in the OpenAPI spec. */
+type BeamChargeList = {
+  data?: Array<{
+    chargeId?: string;
+    status?: string;
+    amount?: number;
+    referenceId?: string;
+  }>;
 };
 
 /**
@@ -247,6 +295,13 @@ type BeamWebhookBody = {
    */
   refundId?: string;
   refundReason?: string;
+  /**
+   * `payment_link.paid` (the hosted-page / card path) has a DIFFERENT
+   * shape: {paymentLinkId, status: "PAID", order: {netAmount,
+   * referenceId, ...}} — no chargeId, no top-level referenceId/amount.
+   */
+  paymentLinkId?: string;
+  order?: { netAmount?: number; referenceId?: string; currency?: string };
 };
 
 export class BeamPaymentProvider implements PaymentProvider {
@@ -312,8 +367,8 @@ export class BeamPaymentProvider implements PaymentProvider {
           // docs specify `X-Beam-Idempotency-Key` (12h retention), but
           // the plain `Idempotency-Key` spelling has worked against
           // live Beam — belt and braces until one is proven ignored.
-          "idempotency-key": input.orderId,
-          "x-beam-idempotency-key": input.orderId,
+          "idempotency-key": beamIdempotencyKey(input, "link"),
+          "x-beam-idempotency-key": beamIdempotencyKey(input, "link"),
         },
         // Validated shape (#151): camelCase, money fields nested under
         // `order`, `redirectUrl` not `returnUrl`, and NO customer_email
@@ -348,7 +403,7 @@ export class BeamPaymentProvider implements PaymentProvider {
           ok: false,
           code: "IDEMPOTENCY_CONFLICT",
           message:
-            "Beam rejected the payment-link request: the Idempotency-Key was already used with a different body (HTTP 412). Do not retry — start a fresh checkout for this order.",
+            "Beam rejected the payment-link request: the Idempotency-Key was already used with a different body (HTTP 412). Retry with a new `attempt`.",
         };
       }
 
@@ -366,7 +421,7 @@ export class BeamPaymentProvider implements PaymentProvider {
       const body = (await res.json()) as BeamPaymentLinkResponse;
       return {
         ok: true,
-        providerChargeId: body.paymentLinkId,
+        providerChargeId: body.id ?? body.paymentLinkId ?? "",
         paymentUrl: body.url,
       };
     } catch (err) {
@@ -414,8 +469,10 @@ export class BeamPaymentProvider implements PaymentProvider {
           // key (plain orderId) — the same order may legitimately try
           // QR first and fall back to a hosted link. Both spellings
           // sent — see createCharge for why.
-          "idempotency-key": `${input.orderId}:qr`,
-          "x-beam-idempotency-key": `${input.orderId}:qr`,
+          // A fresh QR after the last expired carries a new expiryTime,
+          // so it needs its own key (`attempt`) — see beamIdempotencyKey.
+          "idempotency-key": beamIdempotencyKey(input, "qr"),
+          "x-beam-idempotency-key": beamIdempotencyKey(input, "qr"),
         },
         // Documented direct-charge shape (charges-api, link above):
         // top-level money fields — no `order` block here.
@@ -481,6 +538,134 @@ export class BeamPaymentProvider implements PaymentProvider {
       const message = err instanceof Error ? err.message : String(err);
       return { ok: false, code: "NETWORK_ERROR", message };
     }
+  }
+
+  /**
+   * The live state of whatever we stored for an order: a charge id (QR)
+   * or a payment-link id (hosted page). Lets a pending order settle when
+   * the webhook is late, misconfigured or never registered (#218).
+   *
+   * Statuses per the OpenAPI spec (docs.beamcheckout.com/v1/api):
+   *   - Charge: PENDING | SUCCEEDED | FAILED. There is no EXPIRED — an
+   *     expired QR stays PENDING; the storefront tracks QR expiry itself.
+   *   - PaymentLink: ACTIVE | DISABLED | EXPIRED | PAID | VOIDED |
+   *     REFUNDED. A PAID link carries no charge id, so the charge is
+   *     found via GET /api/v1/charges?sourceId=<linkId> — refunds need it.
+   * Only SUCCEEDED / PAID count as paid. REFUNDED stays "pending" here
+   * and is left to the refund webhook.
+   */
+  async getChargeStatus(providerChargeId: string): Promise<ChargeStatusResult> {
+    if (!providerChargeId) {
+      return { ok: false, code: "NO_CHARGE_ID", message: "No charge id" };
+    }
+    try {
+      const charge = await this.beamGet(
+        `/api/v1/charges/${encodeURIComponent(providerChargeId)}`,
+      );
+      if (charge.ok) {
+        const body = charge.body as {
+          status?: unknown;
+          amount?: unknown;
+          referenceId?: unknown;
+        };
+        const raw =
+          typeof body.status === "string" ? body.status.toLowerCase() : "";
+        return {
+          ok: true,
+          status:
+            raw === "succeeded"
+              ? "succeeded"
+              : raw === "failed"
+                ? "failed"
+                : "pending",
+          amount: typeof body.amount === "number" ? body.amount : undefined,
+          referenceId:
+            typeof body.referenceId === "string" ? body.referenceId : undefined,
+        };
+      }
+      // A payment-link id is not a charge id: Beam 404s it here.
+      if (charge.status !== 404) {
+        return {
+          ok: false,
+          code: `HTTP_${charge.status}`,
+          message: `Beam charge lookup failed (${charge.status})`,
+        };
+      }
+      return await this.getPaymentLinkStatus(providerChargeId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { ok: false, code: "NETWORK_ERROR", message };
+    }
+  }
+
+  private async getPaymentLinkStatus(
+    linkId: string,
+  ): Promise<ChargeStatusResult> {
+    const link = await this.beamGet(
+      `/api/v1/payment-links/${encodeURIComponent(linkId)}`,
+    );
+    if (!link.ok) {
+      return {
+        ok: false,
+        code: `HTTP_${link.status}`,
+        message: `Beam payment-link lookup failed (${link.status})`,
+      };
+    }
+    const body = link.body as BeamPaymentLinkDetails;
+    const raw =
+      typeof body.status === "string" ? body.status.toUpperCase() : "";
+    const referenceId = body.order?.referenceId;
+    if (raw === "EXPIRED" || raw === "DISABLED" || raw === "VOIDED") {
+      return { ok: true, status: "failed", referenceId };
+    }
+    if (raw !== "PAID") return { ok: true, status: "pending", referenceId };
+
+    // PAID: find the settled charge behind the link.
+    const list = await this.beamGet(
+      `/api/v1/charges?sourceId=${encodeURIComponent(linkId)}&limit=10`,
+    );
+    const paid = list.ok
+      ? (list.body as BeamChargeList).data?.find(
+          (c) => c.status?.toUpperCase() === "SUCCEEDED",
+        )
+      : undefined;
+    return {
+      ok: true,
+      status: "succeeded",
+      amount: paid?.amount ?? body.order?.netAmount,
+      referenceId: paid?.referenceId ?? referenceId,
+      chargeId: paid?.chargeId,
+    };
+  }
+
+  /**
+   * One cheap authenticated read (GET /api/v1/charges?limit=1), for the
+   * admin's "test connection" button. 200 means the merchant id and API
+   * key are accepted by this base URL; 401/403 means they aren't. Never
+   * throws, never moves money.
+   */
+  async checkConnection(): Promise<{ ok: boolean; status: number }> {
+    try {
+      const res = await this.beamGet("/api/v1/charges?limit=1");
+      return { ok: res.ok, status: res.status };
+    } catch {
+      return { ok: false, status: 0 };
+    }
+  }
+
+  /** The API host this provider talks to. */
+  get apiBaseUrl(): string {
+    return this.baseUrl;
+  }
+
+  private async beamGet(
+    path: string,
+  ): Promise<{ ok: boolean; status: number; body: unknown }> {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      headers: { authorization: this.authHeader(), accept: "application/json" },
+    });
+    const body = res.ok ? await res.json() : null;
+    return { ok: res.ok, status: res.status, body };
   }
 
   /**
@@ -600,8 +785,11 @@ export class BeamPaymentProvider implements PaymentProvider {
     // a novel-but-signed payload must not bounce (see docblock).
     const beamStatus =
       typeof parsed.status === "string" ? parsed.status.toLowerCase() : "";
+    // `paid` is a payment LINK's terminal success (`payment_link.paid`).
+    // Before v4.6.0 it normalized to "pending" and was ignored, so a
+    // card / hosted-page payment was never confirmed by webhook.
     const status: "succeeded" | "failed" | "refunded" | "pending" =
-      beamStatus === "succeeded"
+      beamStatus === "succeeded" || beamStatus === "paid"
         ? "succeeded"
         : beamStatus === "failed"
           ? "failed"
@@ -616,9 +804,9 @@ export class BeamPaymentProvider implements PaymentProvider {
       // body's chargeId. It may be EMPTY on link-lifecycle events that
       // predate a charge — the route falls back to referenceId then.
       providerChargeId: parsed.chargeId ?? "",
-      referenceId: parsed.referenceId,
+      referenceId: parsed.referenceId ?? parsed.order?.referenceId,
       status,
-      amount: parsed.amount,
+      amount: parsed.amount ?? parsed.order?.netAmount,
       // Present on refund.* events only (see BeamWebhookBody) — the
       // route keys refund idempotency on it: `beam:refund:<refundId>`.
       providerRefundId: parsed.refundId,

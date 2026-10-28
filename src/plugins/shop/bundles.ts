@@ -303,6 +303,29 @@ export async function getBundleAvailability(
 }
 
 /**
+ * How many units of a variant a customer can still buy right now, or
+ * null when nothing limits it (untracked, "continue selling when out of
+ * stock", or no inventory row — the same rules componentStockMap and
+ * reserveVariant apply). A bundle is limited by its scarcest component.
+ *
+ * The cart checks against this (#215) so an unfulfillable basket is
+ * refused when it's built, not discovered after payment.
+ */
+export async function sellableQuantity(
+  d1: D1Database,
+  variantId: string,
+): Promise<number | null> {
+  if (await isBundleVariant(d1, variantId)) {
+    const available = await getBundleAvailability(d1, variantId);
+    return available === null || available === Number.MAX_SAFE_INTEGER
+      ? null
+      : available;
+  }
+  const stock = await componentStockMap(d1, [variantId]);
+  return stock.get(variantId) ?? null;
+}
+
+/**
  * True when this variant has component rows (i.e. it is a bundle).
  * Keyed on the component rows rather than `shop_products.is_bundle` so
  * a half-configured product (flag on, no parts picked) never routes

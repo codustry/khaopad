@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { CartService, RESERVATION_TTL_MS } from "./cart-service";
 import { OrderService } from "./order-service";
 import { quoteShipping } from "./shipping";
+import { reserveVariant } from "./inventory";
 
 /**
  * #154 / #158 — checkout-start behaviour against REAL SQLite with the
@@ -430,5 +431,80 @@ describe("#154 — markPaid survives the ordered-slot collision", () => {
     const cart = cartRow("cart-first");
     expect(cart.status).toBe("ordered");
     expect(cart.session_id).toBe("sess-first");
+  });
+});
+
+// ─── v4.6.0: holds are linked to their order (0035) ─────────
+
+describe("a late payment does not eat another shopper's hold", () => {
+  function level() {
+    return sqlite
+      .prepare(
+        `SELECT on_hand AS onHand, reserved FROM shop_inventory_levels WHERE item_id = 'inv-v1'`,
+      )
+      .get() as { onHand: number; reserved: number };
+  }
+
+  /** Checkout for one unit of v1, linked to order ord-a like checkout/start does. */
+  async function checkedOut() {
+    seedVariant("v1");
+    seedCart("cart-a", "sess-a", "open", { withItem: "v1" });
+    await svc.startCheckout({ cartId: "cart-a", email: "a@example.com" });
+    sqlite
+      .prepare(
+        `INSERT INTO shop_orders
+           (id, order_number, email, status, subtotal_satang, total_satang,
+            created_at, updated_at)
+         VALUES ('ord-a', 'KHP-T-1', 'a@example.com', 'pending', 25000, 25000, ?, ?)`,
+      )
+      .run(NOW, NOW);
+    await svc.linkHoldsToOrder(["item-cart-a"], "ord-a");
+  }
+
+  const later = (min: number) => new Date(Date.now() + min * 60_000);
+
+  it("links the hold checkout took to its order", async () => {
+    await checkedOut();
+    const row = sqlite
+      .prepare(`SELECT order_id FROM shop_inventory_reservations`)
+      .get() as { order_id: string };
+    expect(row.order_id).toBe("ord-a");
+  });
+
+  it("paid while held: on_hand and reserved both drop", async () => {
+    await checkedOut();
+    expect(level()).toEqual({ onHand: 100, reserved: 1 });
+    await new OrderService(d1).markPaid({
+      orderId: "ord-a",
+      providerChargeId: "ch",
+    });
+    expect(level()).toEqual({ onHand: 99, reserved: 0 });
+  });
+
+  it("paid after the hold lapsed: only on_hand drops, the other hold survives", async () => {
+    await checkedOut();
+    // Another shopper holds 2 units.
+    await reserveVariant(d1, "v1", 2);
+    expect(level()).toEqual({ onHand: 100, reserved: 3 });
+    // Ours lapses (15 min) before the customer pays a 30-min QR.
+    await svc.sweepExpiredReservations(later(20));
+    expect(level()).toEqual({ onHand: 100, reserved: 2 });
+    await new OrderService(d1).markPaid({
+      orderId: "ord-a",
+      providerChargeId: "ch",
+    });
+    // Before 0035: reserved fell to 1 — the other shopper's hold, gone.
+    expect(level()).toEqual({ onHand: 99, reserved: 2 });
+  });
+
+  it("creating a charge keeps the hold for the payment window", async () => {
+    await checkedOut();
+    await svc.extendOrderHolds("ord-a", later(60));
+    await svc.sweepExpiredReservations(later(20));
+    expect(level()).toEqual({ onHand: 100, reserved: 1 });
+    // Never shortens a hold.
+    await svc.extendOrderHolds("ord-a", later(5));
+    await svc.sweepExpiredReservations(later(30));
+    expect(level()).toEqual({ onHand: 100, reserved: 1 });
   });
 });

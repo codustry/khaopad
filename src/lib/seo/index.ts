@@ -40,16 +40,25 @@ export type PageSeo = {
 };
 
 /**
- * Resolve the absolute origin of the current request — necessary for
- * canonical and OG-image URLs (search engines reject relative paths).
+ * Resolve the absolute origin for canonical, hreflang, OG, sitemap and
+ * feed URLs (search engines reject relative paths).
  *
- * Reads `event.url.origin` directly. The hosts header is trusted in
- * the Cloudflare Workers environment; if you proxy behind something
- * else, override via the `cdnBaseUrl` setting at render time.
+ * Pass the deployment's PUBLIC_SITE_URL. When it is set to an http(s)
+ * URL its origin wins — the request host can be a workers.dev or
+ * preview hostname that must never become canonical. Otherwise falls
+ * back to the request's own origin.
+ *
+ * Never pass the admin's `cdnBaseUrl` here. Until v4.6.0 the routes did,
+ * and a store that filled in that media setting pointed every canonical,
+ * sitemap entry and og:image at its CDN host — which serves no pages.
  */
-export function resolveOrigin(url: URL, cdnBaseUrl?: string | null): string {
-  if (cdnBaseUrl && cdnBaseUrl.startsWith("http")) {
-    return cdnBaseUrl.replace(/\/+$/, "");
+export function resolveOrigin(url: URL, siteUrl?: string | null): string {
+  if (siteUrl && /^https?:\/\//.test(siteUrl)) {
+    try {
+      return new URL(siteUrl).origin;
+    } catch {
+      /* malformed config — fall through to the request origin */
+    }
   }
   return url.origin;
 }

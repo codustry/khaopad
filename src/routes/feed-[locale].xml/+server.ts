@@ -18,14 +18,19 @@ const FEED_LIMIT = 50;
  * the public site uses — a future-dated article won't appear in the
  * feed before its publish moment.
  */
-export const GET: RequestHandler = async ({ params, url, locals }) => {
+export const GET: RequestHandler = async ({
+  params,
+  url,
+  locals,
+  platform,
+}) => {
   const locale = params.locale as Locale;
   if (!SUPPORTED_LOCALES.includes(locale)) {
     throw error(404, "Unknown locale");
   }
 
   const settings = await locals.content.getSettings().catch(() => null);
-  const origin = resolveOrigin(url, settings?.cdnBaseUrl);
+  const origin = resolveOrigin(url, platform?.env?.PUBLIC_SITE_URL);
   const siteName = settings?.siteName ?? "Khao Pad";
   const feedUrl = `${origin}/feed-${locale}.xml`;
   const homeUrl = `${origin}/${locale}`;

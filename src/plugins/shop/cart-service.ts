@@ -51,6 +51,7 @@ import {
 import {
   releaseVariantWithComponents,
   reserveVariantWithComponents,
+  sellableQuantity,
 } from "./bundles";
 import { ShopValidationError } from "./service";
 
@@ -75,6 +76,8 @@ export class CartError extends Error {
       | "OUT_OF_STOCK"
       | "MAX_QUANTITY_EXCEEDED",
     public readonly cartItemId?: string,
+    /** OUT_OF_STOCK only: how many units can still be bought. */
+    public readonly available?: number,
   ) {
     super(message);
     this.name = "CartError";
@@ -333,6 +336,14 @@ export class CartService {
       .limit(1)
       .get();
 
+    // #215: the line's FINAL quantity must be sellable. Checking only the
+    // amount being added let "+1" five times oversell a stock of three.
+    await this.assertSellable(
+      input.variantId,
+      (existing?.quantity ?? 0) + input.quantity,
+      existing?.id,
+    );
+
     const now = this.nowIso();
     if (existing) {
       const newQty = existing.quantity + input.quantity;
@@ -393,6 +404,23 @@ export class CartService {
         "MAX_QUANTITY_EXCEEDED",
       );
     }
+    const line = await this.db
+      .select()
+      .from(shopCartItems)
+      .where(
+        and(
+          eq(shopCartItems.id, input.cartItemId),
+          eq(shopCartItems.cartId, input.cartId),
+        ),
+      )
+      .limit(1)
+      .get();
+    // #215: raising a line past what's in stock is refused. Lowering is
+    // always allowed — stock may have dropped below what the cart holds,
+    // and the customer must be able to come back down to it.
+    if (line && input.quantity > line.quantity) {
+      await this.assertSellable(line.variantId, input.quantity, line.id);
+    }
     await this.db
       .update(shopCartItems)
       .set({ quantity: input.quantity })
@@ -413,6 +441,65 @@ export class CartService {
       .limit(1)
       .get();
     return row ?? null;
+  }
+
+  /**
+   * Tie the holds checkout just took to the order they became (0035),
+   * so markPaid can tell a live hold from a lapsed one.
+   */
+  async linkHoldsToOrder(
+    cartItemIds: readonly string[],
+    orderId: string,
+  ): Promise<void> {
+    if (cartItemIds.length === 0) return;
+    await this.db
+      .update(shopInventoryReservations)
+      .set({ orderId })
+      .where(
+        and(
+          inArray(shopInventoryReservations.cartItemId, [...cartItemIds]),
+          isNull(shopInventoryReservations.releasedAt),
+          isNull(shopInventoryReservations.orderId),
+        ),
+      );
+  }
+
+  /**
+   * Keep an order's live holds until at least `until` — called when a
+   * charge is created, so stock stays held for as long as the customer
+   * can actually pay (a QR lives 30 min, a payment link 60; a hold 15).
+   * Never shortens a hold, and never revives a lapsed one.
+   */
+  async extendOrderHolds(orderId: string, until: Date): Promise<void> {
+    const iso = until.toISOString();
+    await this.db
+      .update(shopInventoryReservations)
+      .set({ expiresAt: iso })
+      .where(
+        and(
+          eq(shopInventoryReservations.orderId, orderId),
+          isNull(shopInventoryReservations.releasedAt),
+          lt(shopInventoryReservations.expiresAt, iso),
+        ),
+      );
+  }
+
+  private async assertSellable(
+    variantId: string,
+    quantity: number,
+    cartItemId?: string,
+  ): Promise<void> {
+    const sellable = await sellableQuantity(this.d1, variantId);
+    if (sellable !== null && quantity > sellable) {
+      throw new CartError(
+        sellable === 0
+          ? "This item is out of stock"
+          : `Only ${sellable} left in stock`,
+        "OUT_OF_STOCK",
+        cartItemId,
+        sellable,
+      );
+    }
   }
 
   async removeItem(input: {

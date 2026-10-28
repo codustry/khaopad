@@ -41,8 +41,8 @@
 
 	// ── Payment recovery (#157) ─────────────────────────────────────
 	// The ?payment= query param is a UI HINT ONLY — it never carries
-	// authority over payment state. Only the provider webhook writes
-	// `paid` (order-service markPaid); the hint merely selects which
+	// authority over payment state. Only the server writes `paid` (the
+	// webhook, or the status check asking Beam); the hint merely selects which
 	// PENDING presentation to show: `returned` → "confirming" spinner
 	// + polling, `failed`/`cancelled`/absent → retry button.
 	const paymentHint = $derived(page.url.searchParams.get('payment'));
@@ -63,15 +63,31 @@
 		const startedAt = Date.now();
 		const timer = setInterval(async () => {
 			try {
-				// Status-only endpoint — safe to poll unauthenticated.
-				const res = await fetch(`/api/shop/order/${order.orderNumber}/status`);
-				const body = (await res.json()) as { ok: boolean; status?: string };
+				// Status-only endpoint. The email header proves access the way
+				// ?email= does, which lets the server also ask Beam directly
+				// (#218) — so a missing webhook no longer strands this page.
+				const res = await fetch(`/api/shop/order/${order.orderNumber}/status`, {
+					headers: { 'x-order-email': order.email },
+				});
+				const body = (await res.json()) as {
+					ok: boolean;
+					status?: string;
+					charge?: 'pending' | 'failed';
+				};
 				if (body.ok && body.status && body.status !== 'pending') {
 					clearInterval(timer);
 					confirming = false;
-					// Re-run the load — the webhook flipped the order, so the
-					// reload renders the paid view (and clears the cart cookie).
+					// Re-run the load — the order is settled, so the reload
+					// renders the paid view (and clears the cart cookie).
 					await invalidateAll();
+					return;
+				}
+				if (body.charge === 'failed') {
+					// Beam says this payment didn't go through: offer the retry
+					// now instead of "confirming" until the 2-minute cap.
+					clearInterval(timer);
+					confirming = false;
+					pollTimedOut = true;
 					return;
 				}
 			} catch {
@@ -95,7 +111,16 @@
 			const res = await fetch('/api/shop/checkout/pay', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ orderNumber: order.orderNumber }),
+				// The email proves access for a guest who arrived via the
+				// receipt link rather than the browser that checked out.
+				// `attempt`: every press is a NEW payment link — the first one
+				// may be expired, and reusing its idempotency key with a new
+				// expiry is refused by Beam (412).
+				body: JSON.stringify({
+					orderNumber: order.orderNumber,
+					email: order.email,
+					attempt: crypto.randomUUID().slice(0, 8)
+				}),
 			});
 			const body = (await res.json()) as {
 				ok: boolean;

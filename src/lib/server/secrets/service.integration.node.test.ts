@@ -7,6 +7,7 @@ import {
   listSecretStatus,
   setSecret,
   deleteSecret,
+  diagnoseSecrets,
 } from "./service";
 
 /**
@@ -269,5 +270,78 @@ describe("status listing (what the admin page receives)", () => {
     expect(beam.undecryptable).toBe(true);
     expect(beam.configured).toBe(false);
     expect(beam.preview).toBeNull();
+  });
+});
+
+// ─── #216: say WHICH payment credential is the problem ─────
+
+describe("diagnoseSecrets / payment config message (#216)", () => {
+  it("tells env, stored, undecryptable and missing apart", async () => {
+    await setSecret(env, "BEAM_API_KEY", "value-from-before", "u");
+    await setSecret(env, "BEAM_WEBHOOK_SECRET", "whsec", "u");
+    const withEnv = { ...env, BEAM_MERCHANT_ID: "codustry-ova1t0" };
+    expect(
+      await diagnoseSecrets(withEnv, [
+        "BEAM_MERCHANT_ID",
+        "BEAM_API_KEY",
+        "STRIPE_SECRET_KEY",
+      ]),
+    ).toEqual([
+      { key: "BEAM_MERCHANT_ID", state: "env" },
+      { key: "BEAM_API_KEY", state: "stored" },
+      { key: "STRIPE_SECRET_KEY", state: "missing" },
+    ]);
+    const rotated = {
+      ...withEnv,
+      BETTER_AUTH_SECRET: "a-completely-new-secret",
+    };
+    expect(await diagnoseSecrets(rotated, ["BEAM_API_KEY"])).toEqual([
+      { key: "BEAM_API_KEY", state: "undecryptable" },
+    ]);
+  });
+
+  it("names the bactrack case exactly: an undecryptable key and an unread lookalike", async () => {
+    await setSecret(env, "BEAM_API_KEY", "value-from-before", "u");
+    const worker = {
+      ...env,
+      BETTER_AUTH_SECRET: "a-completely-new-secret",
+      BEAM_MERCHANT_ID: "codustry-ova1t0",
+      BEAM_WEBHOOK_SECRET: "whsec",
+      BEAM_SECRET_KEY: "legacy",
+      // Read by the engine, so never reported as a lookalike.
+      BEAM_BASE_URL: "https://playground.api.beamcheckout.com",
+    };
+    const { diagnoseProviderConfig, providerConfigMessage } =
+      await import("$plugins/shop/beam-config.server");
+    const d = await diagnoseProviderConfig(
+      worker as Parameters<typeof diagnoseProviderConfig>[0],
+      "beam",
+    );
+    expect(d).toEqual({
+      missing: [],
+      undecryptable: ["BEAM_API_KEY"],
+      unread: ["BEAM_SECRET_KEY"],
+    });
+    const msg = providerConfigMessage("beam", "promptpay", d);
+    expect(msg).toContain("cannot be decrypted");
+    expect(msg).toContain("BEAM_API_KEY");
+    expect(msg).toContain("BEAM_SECRET_KEY");
+    expect(msg).toContain("/admin/settings/secrets");
+    expect(msg).not.toContain("redeploy");
+    // Names only — never a value.
+    expect(msg).not.toMatch(/legacy|whsec|codustry-ova1t0|value-from-before/);
+  });
+
+  it("lists only what's actually missing", async () => {
+    const { providerConfigMessage } =
+      await import("$plugins/shop/beam-config.server");
+    const msg = providerConfigMessage("beam", undefined, {
+      missing: ["BEAM_WEBHOOK_SECRET"],
+      undecryptable: [],
+      unread: [],
+    });
+    expect(msg).toContain("Not set: BEAM_WEBHOOK_SECRET.");
+    expect(msg).not.toContain("BEAM_API_KEY");
+    expect(msg).not.toContain("decrypted");
   });
 });

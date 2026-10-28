@@ -56,7 +56,7 @@ export const POST: RequestHandler = async ({ url, locals, platform }) => {
     onlyActive: true,
   });
 
-  const origin = resolveOrigin(url, settings?.cdnBaseUrl);
+  const origin = resolveOrigin(url, platform?.env?.PUBLIC_SITE_URL);
 
   // Pre-fetch articles per locale once. Cheap.
   const articlesByLocale = new Map<

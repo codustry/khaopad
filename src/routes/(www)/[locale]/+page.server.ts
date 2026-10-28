@@ -23,7 +23,7 @@ export const load: PageServerLoad = async ({
   }
   const locale = params.locale as Locale;
   const settings = await locals.content.getSettings().catch(() => null);
-  const origin = resolveOrigin(url, settings?.cdnBaseUrl);
+  const origin = resolveOrigin(url, platform?.env?.PUBLIC_SITE_URL);
   const canonical = canonicalUrl(origin, `/${locale}`);
   const alternates: Partial<Record<Locale, string>> = {};
   for (const l of SUPPORTED_LOCALES) {

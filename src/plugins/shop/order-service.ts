@@ -65,7 +65,7 @@ import {
   type ShopOrderEvent,
   type ShopReturn,
 } from "./schema-operations";
-import { restoreVariantOnHand } from "./inventory";
+import { deductVariantOnHand, restoreVariantOnHand } from "./inventory";
 // Bundle-aware commit/release (#165). A bundle order line carries the
 // BUNDLE's variant id; the components are what actually move, so both
 // the pay-commit and the cancel-release fan out through bundles.ts.
@@ -74,6 +74,7 @@ import { restoreVariantOnHand } from "./inventory";
 // the web shop's bundle catalogue.
 import {
   commitVariantSaleWithComponents,
+  expandVariantForInventory,
   releaseVariantWithComponents,
 } from "./bundles";
 import { ShopValidationError } from "./service";
@@ -876,6 +877,48 @@ export class OrderService {
   }
 
   /**
+   * Commit an order's linked holds at payment (see markPaid). Still
+   * held → the normal commit (on_hand and reserved both drop). Lapsed →
+   * on_hand only. Never throws: the customer has already paid, so
+   * inventory bookkeeping failures are logged, not raised.
+   */
+  private async commitLinkedHolds(
+    orderNumber: string,
+    holds: Array<typeof shopInventoryReservations.$inferSelect>,
+  ): Promise<void> {
+    const nowIso = this.nowIso();
+    for (const hold of holds) {
+      if (hold.releaseReason === "committed") continue;
+      try {
+        if (hold.releasedAt === null) {
+          await commitVariantSaleWithComponents(
+            this.d1,
+            hold.variantId,
+            hold.quantity,
+          );
+          await this.db
+            .update(shopInventoryReservations)
+            .set({ releasedAt: nowIso, releaseReason: "committed" })
+            .where(eq(shopInventoryReservations.id, hold.id));
+        } else {
+          for (const part of await expandVariantForInventory(
+            this.d1,
+            hold.variantId,
+            hold.quantity,
+          )) {
+            await deductVariantOnHand(this.d1, part.variantId, part.quantity);
+          }
+        }
+      } catch (err) {
+        console.error(
+          `[shop.order] committing hold ${hold.id} for paid order ${orderNumber} failed:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+  }
+
+  /**
    * Flip a pending order to paid. Commits inventory (moves stock from
    * reserved → sold), flips cart to `ordered`, marks reservation
    * ledger rows as `committed`. Called from the webhook handler on
@@ -940,67 +983,82 @@ export class OrderService {
       .where(eq(shopOrderItems.orderId, order.id))
       .all();
 
-    for (const item of items) {
-      try {
-        await commitVariantSaleWithComponents(
-          this.d1,
-          item.variantId,
-          item.quantity,
-        );
-      } catch (err) {
-        // Customer already charged — never fail a paid order over
-        // inventory bookkeeping. Log and continue.
-        // eslint-disable-next-line no-console
-        console.error(
-          `[shop.order] commitVariantSale failed for order ${order.orderNumber} variant ${item.variantId}:`,
-          err instanceof Error ? err.message : err,
-        );
+    // v4.6.0: holds linked to this order (migration 0035) say exactly
+    // which units are still held. A hold that lapsed before payment (a
+    // QR is payable for 30 min, a link for 60, a hold lasts 15) was
+    // already given back to `reserved` — committing it again would eat
+    // another shopper's hold, so its units come off `on_hand` only.
+    const linked = await this.db
+      .select()
+      .from(shopInventoryReservations)
+      .where(eq(shopInventoryReservations.orderId, order.id))
+      .all();
+    if (linked.length > 0) {
+      await this.commitLinkedHolds(order.orderNumber, linked);
+    } else {
+      // Orders from before 0035: no link, so the original heuristic.
+      for (const item of items) {
+        try {
+          await commitVariantSaleWithComponents(
+            this.d1,
+            item.variantId,
+            item.quantity,
+          );
+        } catch (err) {
+          // Customer already charged — never fail a paid order over
+          // inventory bookkeeping. Log and continue.
+          // eslint-disable-next-line no-console
+          console.error(
+            `[shop.order] commitVariantSale failed for order ${order.orderNumber} variant ${item.variantId}:`,
+            err instanceof Error ? err.message : err,
+          );
+        }
       }
-    }
 
-    // Mark reservation ledger rows for THIS order's cart as committed.
-    // Fixes email-scope bug — was previously matching every cart with
-    // the same email (historical purchases got their ledger rewritten).
-    // Uses variantId + qty to identify likely reservations; the sweep
-    // cron already handles rows that don't match.
-    const variantQtyPairs = items.map((i) => ({
-      variantId: i.variantId,
-      quantity: i.quantity,
-    }));
-    if (variantQtyPairs.length > 0) {
-      const activeReservationIds = await this.db
-        .select()
-        .from(shopInventoryReservations)
-        .where(
-          and(
-            inArray(
-              shopInventoryReservations.variantId,
-              variantQtyPairs.map((p) => p.variantId),
+      // Mark reservation ledger rows for THIS order's cart as committed.
+      // Fixes email-scope bug — was previously matching every cart with
+      // the same email (historical purchases got their ledger rewritten).
+      // Uses variantId + qty to identify likely reservations; the sweep
+      // cron already handles rows that don't match.
+      const variantQtyPairs = items.map((i) => ({
+        variantId: i.variantId,
+        quantity: i.quantity,
+      }));
+      if (variantQtyPairs.length > 0) {
+        const activeReservationIds = await this.db
+          .select()
+          .from(shopInventoryReservations)
+          .where(
+            and(
+              inArray(
+                shopInventoryReservations.variantId,
+                variantQtyPairs.map((p) => p.variantId),
+              ),
+              isNull(shopInventoryReservations.releasedAt),
             ),
-            isNull(shopInventoryReservations.releasedAt),
-          ),
-        )
-        .all();
-      const idsToRelease: string[] = [];
-      const needByVariant = new Map<string, number>();
-      for (const p of variantQtyPairs) {
-        needByVariant.set(
-          p.variantId,
-          (needByVariant.get(p.variantId) ?? 0) + p.quantity,
-        );
-      }
-      for (const r of activeReservationIds) {
-        if (r.releasedAt) continue;
-        const need = needByVariant.get(r.variantId) ?? 0;
-        if (need <= 0) continue;
-        idsToRelease.push(r.id);
-        needByVariant.set(r.variantId, need - r.quantity);
-      }
-      if (idsToRelease.length > 0) {
-        await this.db
-          .update(shopInventoryReservations)
-          .set({ releasedAt: nowIso, releaseReason: "committed" })
-          .where(inArray(shopInventoryReservations.id, idsToRelease));
+          )
+          .all();
+        const idsToRelease: string[] = [];
+        const needByVariant = new Map<string, number>();
+        for (const p of variantQtyPairs) {
+          needByVariant.set(
+            p.variantId,
+            (needByVariant.get(p.variantId) ?? 0) + p.quantity,
+          );
+        }
+        for (const r of activeReservationIds) {
+          if (r.releasedAt) continue;
+          const need = needByVariant.get(r.variantId) ?? 0;
+          if (need <= 0) continue;
+          idsToRelease.push(r.id);
+          needByVariant.set(r.variantId, need - r.quantity);
+        }
+        if (idsToRelease.length > 0) {
+          await this.db
+            .update(shopInventoryReservations)
+            .set({ releasedAt: nowIso, releaseReason: "committed" })
+            .where(inArray(shopInventoryReservations.id, idsToRelease));
+        }
       }
     }
 

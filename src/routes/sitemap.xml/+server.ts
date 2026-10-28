@@ -10,9 +10,8 @@ import type { RequestHandler } from "./$types";
  * stable entry point — adding a new locale only requires adding an
  * entry here, not regenerating any per-article state.
  */
-export const GET: RequestHandler = async ({ url, locals }) => {
-  const settings = await locals.content.getSettings().catch(() => null);
-  const origin = resolveOrigin(url, settings?.cdnBaseUrl);
+export const GET: RequestHandler = async ({ url, platform }) => {
+  const origin = resolveOrigin(url, platform?.env?.PUBLIC_SITE_URL);
 
   const entries = SUPPORTED_LOCALES.map(
     (l) => `  <sitemap><loc>${origin}/sitemap-${l}.xml</loc></sitemap>`,
