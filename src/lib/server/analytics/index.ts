@@ -1,7 +1,15 @@
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, ne, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import * as schema from "../content/schema";
+import {
+  classifySource,
+  SOURCE_CHANNELS,
+  type ClassifiedSource,
+  type SourceChannel,
+} from "./sources";
+
+export * from "./sources";
 
 /**
  * Privacy-friendly server-side analytics (v1.8).
@@ -73,6 +81,50 @@ export async function trackView(
 }
 
 /**
+ * Fire-and-forget bump of a visitor-source counter (v4.6).
+ *
+ * Consent-gated identically to `trackView`: `analytics: false`
+ * returns `null` having touched nothing — no row, and no D1
+ * round-trip at all, not even a prepared statement. That matters
+ * because "we wrote it and deleted it later" is not consent.
+ *
+ * Returns the classification on a successful write so a caller (or a
+ * test) can assert what was recorded; null when the gate closed or
+ * the write failed. Best-effort: never let analytics 500 a page.
+ */
+export async function trackVisitorSource(
+  db: D1Database,
+  opts: {
+    path: string;
+    referrer: string | null | undefined;
+    params: URLSearchParams;
+    selfHost: string;
+  },
+  consent: { analytics: boolean },
+): Promise<ClassifiedSource | null> {
+  if (!consent.analytics) return null;
+  try {
+    const c = classifySource(opts);
+    const date = todayUTC();
+    // Composite PK across the whole dimension tuple, so this is an
+    // atomic increment of an existing bucket — never an append.
+    await db
+      .prepare(
+        `INSERT INTO visitor_sources
+           (date, channel, source, medium, campaign, path, count)
+         VALUES (?, ?, ?, ?, ?, ?, 1)
+         ON CONFLICT(date, channel, source, medium, campaign, path)
+         DO UPDATE SET count = count + 1`,
+      )
+      .bind(date, c.channel, c.source, c.medium, c.campaign, c.path)
+      .run();
+    return c;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Log a search query (v1.8). Always written — search itself is
  * functional, not analytics-gated. Anonymized: term + date only.
  * Best-effort: a write failure should not 500 the search page.
@@ -117,6 +169,35 @@ export interface SearchTermRow {
   hits: number;
   /** Number of hits where the FTS returned 0 results. */
   noResultHits: number;
+}
+
+export interface ChannelRow {
+  channel: SourceChannel;
+  total: number;
+}
+
+export interface SourceRow {
+  source: string;
+  channel: SourceChannel;
+  total: number;
+}
+
+export interface CampaignRow {
+  campaign: string;
+  source: string;
+  medium: string;
+  total: number;
+}
+
+export interface LandingPageRow {
+  path: string;
+  total: number;
+}
+
+export interface ChannelSeriesPoint {
+  date: string;
+  total: number;
+  byChannel: Record<SourceChannel, number>;
 }
 
 export interface SparklinePoint {
@@ -271,6 +352,156 @@ export class AnalyticsService {
     for (let i = days - 1; i >= 0; i--) {
       const d = dateMinusDays(i);
       out.push({ date: d, count: byDate.get(d) ?? 0 });
+    }
+    return out;
+  }
+
+  // ── Visitor sources (v4.6) ────────────────────────────
+  // Every read is a GROUP BY over the counter table with a date
+  // floor. Nothing here can return a per-visit row, because none
+  // exists.
+
+  /** Landings per channel over the last `days`, biggest first. */
+  async sourcesByChannel(days = 30): Promise<ChannelRow[]> {
+    const since = sinceDate(days);
+    const rows = await this.db
+      .select({
+        channel: schema.visitorSources.channel,
+        total: sql<number>`SUM(${schema.visitorSources.count})`,
+      })
+      .from(schema.visitorSources)
+      .where(gte(schema.visitorSources.date, since))
+      .groupBy(schema.visitorSources.channel)
+      .orderBy(sql`SUM(${schema.visitorSources.count}) DESC`)
+      .all();
+    return rows.map((r) => ({
+      channel: r.channel as SourceChannel,
+      total: Number(r.total ?? 0),
+    }));
+  }
+
+  /**
+   * Top sources. Internal navigation is excluded — a visitor moving
+   * between our own pages is not an acquisition, and leaving it in
+   * would swamp every real source on any site with a nav bar.
+   */
+  async topSources(days = 30, limit = 10): Promise<SourceRow[]> {
+    const since = sinceDate(days);
+    const rows = await this.db
+      .select({
+        source: schema.visitorSources.source,
+        channel: schema.visitorSources.channel,
+        total: sql<number>`SUM(${schema.visitorSources.count})`,
+      })
+      .from(schema.visitorSources)
+      .where(
+        and(
+          gte(schema.visitorSources.date, since),
+          ne(schema.visitorSources.channel, "internal"),
+        ),
+      )
+      .groupBy(schema.visitorSources.source, schema.visitorSources.channel)
+      .orderBy(sql`SUM(${schema.visitorSources.count}) DESC`)
+      .limit(limit)
+      .all();
+    return rows.map((r) => ({
+      source: r.source,
+      channel: r.channel as SourceChannel,
+      total: Number(r.total ?? 0),
+    }));
+  }
+
+  /** Tagged campaigns only — rows whose campaign is the "none" sentinel are not campaigns. */
+  async topCampaigns(days = 30, limit = 10): Promise<CampaignRow[]> {
+    const since = sinceDate(days);
+    const rows = await this.db
+      .select({
+        campaign: schema.visitorSources.campaign,
+        source: schema.visitorSources.source,
+        medium: schema.visitorSources.medium,
+        total: sql<number>`SUM(${schema.visitorSources.count})`,
+      })
+      .from(schema.visitorSources)
+      .where(
+        and(
+          gte(schema.visitorSources.date, since),
+          ne(schema.visitorSources.campaign, "none"),
+        ),
+      )
+      .groupBy(
+        schema.visitorSources.campaign,
+        schema.visitorSources.source,
+        schema.visitorSources.medium,
+      )
+      .orderBy(sql`SUM(${schema.visitorSources.count}) DESC`)
+      .limit(limit)
+      .all();
+    return rows.map((r) => ({
+      campaign: r.campaign,
+      source: r.source,
+      medium: r.medium,
+      total: Number(r.total ?? 0),
+    }));
+  }
+
+  /** Top landing pages, internal navigation excluded (see topSources). */
+  async topLandingPages(days = 30, limit = 10): Promise<LandingPageRow[]> {
+    const since = sinceDate(days);
+    const rows = await this.db
+      .select({
+        path: schema.visitorSources.path,
+        total: sql<number>`SUM(${schema.visitorSources.count})`,
+      })
+      .from(schema.visitorSources)
+      .where(
+        and(
+          gte(schema.visitorSources.date, since),
+          ne(schema.visitorSources.channel, "internal"),
+        ),
+      )
+      .groupBy(schema.visitorSources.path)
+      .orderBy(sql`SUM(${schema.visitorSources.count}) DESC`)
+      .limit(limit)
+      .all();
+    return rows.map((r) => ({
+      path: r.path,
+      total: Number(r.total ?? 0),
+    }));
+  }
+
+  /**
+   * Landings per day split by channel, 0-filled across the whole
+   * window so the chart has no gaps on quiet days.
+   */
+  async channelSeries(days = 30): Promise<ChannelSeriesPoint[]> {
+    const since = sinceDate(days - 1);
+    const rows = await this.db
+      .select({
+        date: schema.visitorSources.date,
+        channel: schema.visitorSources.channel,
+        total: sql<number>`SUM(${schema.visitorSources.count})`,
+      })
+      .from(schema.visitorSources)
+      .where(gte(schema.visitorSources.date, since))
+      .groupBy(schema.visitorSources.date, schema.visitorSources.channel)
+      .all();
+
+    const byDate = new Map<string, Record<string, number>>();
+    for (const r of rows) {
+      const bucket = byDate.get(r.date) ?? {};
+      bucket[r.channel] = (bucket[r.channel] ?? 0) + Number(r.total ?? 0);
+      byDate.set(r.date, bucket);
+    }
+
+    const out: ChannelSeriesPoint[] = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = dateMinusDays(i);
+      const bucket = byDate.get(d) ?? {};
+      const byChannel = Object.fromEntries(
+        SOURCE_CHANNELS.map((c) => [c, bucket[c] ?? 0]),
+      ) as Record<SourceChannel, number>;
+      const total = SOURCE_CHANNELS.reduce((a, c) => a + byChannel[c], 0);
+      out.push({ date: d, total, byChannel });
     }
     return out;
   }
